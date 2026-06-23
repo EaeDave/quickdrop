@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { copyLink, notifySuccess, onUploadProgress, selectLocalFiles, uploadFiles } from "./tauri";
+import { copyLink, notifySuccess, onUploadProgress, selectLocalFiles, uploadFiles, isTauri, type UploadInput } from "./tauri";
 
 type UploadState =
   | { status: "idle" }
@@ -20,29 +20,35 @@ export function App() {
   }, []);
 
   const closeWindow = useCallback(() => {
-    void getCurrentWindow().close();
-  }, []);
+    if (isTauri) {
+      void getCurrentWindow().close();
+    } else {
+      reset();
+    }
+  }, [reset]);
 
-  const handlePathDrop = useCallback(async (paths: string[]) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadInputs = useCallback(async (inputs: UploadInput[]) => {
     setManualUrl(null);
 
-    const selectedPaths = paths.filter(Boolean);
+    const selectedInputs = inputs.filter(Boolean);
 
-    if (selectedPaths.length === 0) {
+    if (selectedInputs.length === 0) {
       setState({ status: "error", message: "Selecione pelo menos um arquivo." });
       return;
     }
 
     setState({
       status: "uploading",
-      fileName: formatSelectionName(selectedPaths),
-      fileCount: selectedPaths.length,
+      fileName: formatSelectionName(selectedInputs),
+      fileCount: selectedInputs.length,
       percent: 0,
-      phase: selectedPaths.length === 1 ? "uploading" : "preparing",
+      phase: selectedInputs.length === 1 ? "uploading" : "preparing",
     });
 
     try {
-      const response = await uploadFiles(selectedPaths);
+      const response = await uploadFiles(selectedInputs);
 
       try {
         await copyLink(response.url);
@@ -56,14 +62,14 @@ export function App() {
       }
 
       try {
-        await notifySuccess(selectedPaths.length);
-        setState({ status: "success", url: response.url, expiresAt: response.expiresAt, fileCount: selectedPaths.length });
+        await notifySuccess(selectedInputs.length);
+        setState({ status: "success", url: response.url, expiresAt: response.expiresAt, fileCount: selectedInputs.length });
       } catch (error) {
         setState({
           status: "success",
           url: response.url,
           expiresAt: response.expiresAt,
-          fileCount: selectedPaths.length,
+          fileCount: selectedInputs.length,
           notificationWarning: `Link copiado, mas a notificação falhou: ${formatError(error)}`,
         });
       }
@@ -73,18 +79,34 @@ export function App() {
   }, []);
 
   const handlePickFile = useCallback(async () => {
-    try {
-      const paths = await selectLocalFiles();
+    if (isTauri) {
+      try {
+        const paths = await selectLocalFiles();
 
-      if (paths.length === 0) {
-        return;
+        if (paths.length === 0) {
+          return;
+        }
+
+        await handleUploadInputs(paths);
+      } catch (error) {
+        setState({ status: "error", message: `Falha ao abrir seletor de arquivos: ${formatError(error)}` });
       }
-
-      await handlePathDrop(paths);
-    } catch (error) {
-      setState({ status: "error", message: `Falha ao abrir seletor de arquivos: ${formatError(error)}` });
+    } else {
+      fileInputRef.current?.click();
     }
-  }, [handlePathDrop]);
+  }, [handleUploadInputs]);
+
+  const handleFileInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    if (files.length > 0) {
+      void handleUploadInputs(files);
+    }
+    // Clear the input value so the same files can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, [handleUploadInputs]);
+
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -116,6 +138,9 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
     let unlisten: (() => void) | undefined;
     let disposed = false;
 
@@ -132,7 +157,7 @@ export function App() {
 
       if (event.payload.type === "drop") {
         setDropActive(false);
-        void handlePathDrop(event.payload.paths);
+        void handleUploadInputs(event.payload.paths);
       }
     }).then((cleanup) => {
       if (disposed) {
@@ -149,7 +174,32 @@ export function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [handlePathDrop]);
+  }, [handleUploadInputs]);
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (!isTauri) {
+      event.preventDefault();
+      setDropActive(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    if (!isTauri) {
+      event.preventDefault();
+      setDropActive(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    if (!isTauri) {
+      event.preventDefault();
+      setDropActive(false);
+      const files = event.dataTransfer.files ? Array.from(event.dataTransfer.files) : [];
+      if (files.length > 0) {
+        void handleUploadInputs(files);
+      }
+    }
+  }, [handleUploadInputs]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -164,13 +214,26 @@ export function App() {
 
   return (
     <main className="quickdrop-shell">
-      <section className={`quickdrop-panel ${dropActive ? "quickdrop-panel--active" : ""}`} aria-label="QuickDrop">
+      <section
+        className={`quickdrop-panel ${dropActive ? "quickdrop-panel--active" : ""}`}
+        aria-label="QuickDrop"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <header className="quickdrop-header">
           <h1 className="quickdrop-title">QuickDrop</h1>
           <button className="quickdrop-close" type="button" aria-label="Fechar QuickDrop" onClick={closeWindow}>
             ×
           </button>
         </header>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileInputChange}
+          multiple
+          style={{ display: "none" }}
+        />
 
         {state.status === "idle" && <IdleState onPickFile={handlePickFile} />}
         {state.status === "uploading" && <UploadingState state={state} />}
@@ -253,12 +316,14 @@ function ErrorState(props: { message: string; manualUrl: string | null; onReset:
   );
 }
 
-function formatSelectionName(paths: string[]): string {
-  if (paths.length === 1) {
-    return getFileName(paths[0] ?? "");
+function formatSelectionName(inputs: UploadInput[]): string {
+  if (inputs.length === 1) {
+    const input = inputs[0]!;
+    const name = typeof input === "string" ? getFileName(input) : input.name;
+    return name;
   }
 
-  return `${paths.length} arquivos (.zip)`;
+  return `${inputs.length} arquivos (.zip)`;
 }
 
 function getFileName(path: string): string {

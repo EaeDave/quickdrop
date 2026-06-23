@@ -1,3 +1,5 @@
+import fastifyStatic from "@fastify/static";
+import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
@@ -17,6 +19,10 @@ export function buildApp() {
 
   app.register(multipart);
   app.register(rateLimit, { global: false });
+  app.register(fastifyStatic, {
+    root: join(process.cwd(), "dist"),
+    prefix: "/",
+  });
 
   app.get("/api/health", async () => ({ status: "ok" }));
 

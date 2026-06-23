@@ -3,8 +3,8 @@
 <!-- business-readme:business-rules:start -->
 ## Regras de negócio
 
-- QuickDrop é um app desktop Linux/Wayland aberto pela Waybar para enviar arquivos rapidamente por drag-and-drop ou pelo seletor de arquivos aberto ao clicar na seta da tela. Fonte: UI desktop `src/desktop/App.tsx` e comandos Tauri `src-tauri/src/lib.rs`.
-- A UI desktop aceita 1 ou vários arquivos por ação, tanto via drag-and-drop quanto via seletor local. Quando há mais de 1 arquivo, o app cria um ZIP local temporário e envia esse pacote como um único upload, gerando apenas 1 link público. Fonte: app desktop `src/desktop/App.tsx` e comando Tauri `upload_files`.
+ - QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar) e uma interface web minimalista correspondente, servida diretamente na raiz do servidor (`GET /`). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs` e `@fastify/static` em `src/server/index.ts`.
+ - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop ou clique para selecionar). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para o desktop; usando a biblioteca `fflate` no navegador para o cliente web) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
 - O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop; o limite padrão de 500 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
 - Uploads são públicos e não exigem autenticação no MVP. Há limite de 20 uploads por hora por IP. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts`.
 - Upload válido é enviado ao Cloudflare R2, registrado no PostgreSQL e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
