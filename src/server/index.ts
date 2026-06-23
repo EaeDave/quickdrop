@@ -4,12 +4,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import { loadConfig } from "./config";
 import { startCleanupJob } from "./cleanup";
 import { handleDownload } from "./download-service";
 import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
+import { handleLinuxInstallerDownload } from "./linux-installer-service";
 import { handleWindowsInstallerDownload } from "./windows-installer-service";
 
 export function buildApp() {
@@ -29,17 +30,25 @@ export function buildApp() {
   app.register(multipart);
   app.register(rateLimit, { global: false });
 
-  app.get("/install.ps1", async (_request, reply) => {
-    const script = await readFile(join(process.cwd(), "scripts", "install-windows.ps1"), "utf8");
+  const sendScriptFile = (reply: FastifyReply, fileName: string) =>
+    readFile(join(process.cwd(), "scripts", fileName), "utf8").then((script) =>
+      reply
+        .type("text/plain; charset=utf-8")
+        .header("cache-control", "public, max-age=300")
+        .send(script),
+    );
 
-    return reply
-      .type("text/plain; charset=utf-8")
-      .header("cache-control", "public, max-age=300")
-      .send(script);
-  });
+  app.get("/install.ps1", async (_request, reply) => sendScriptFile(reply, "install-windows.ps1"));
+  app.get("/install.sh", async (_request, reply) => sendScriptFile(reply, "install-linux.sh"));
+  app.get("/linux/quickdrop-waybar", async (_request, reply) =>
+    sendScriptFile(reply, "quickdrop-waybar"),
+  );
 
   app.get("/windows/latest.exe", async (_request, reply) =>
     handleWindowsInstallerDownload(reply, { config }),
+  );
+  app.get("/linux/latest", async (_request, reply) =>
+    handleLinuxInstallerDownload(reply, { config }),
   );
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),

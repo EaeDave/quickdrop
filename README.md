@@ -3,7 +3,7 @@
 <!-- business-readme:business-rules:start -->
 ## Regras de negócio
 
-- QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar), cliente Windows com ícone residente na system tray e uma página web na raiz do servidor (`GET /`) com upload e comando copiável de instalação Windows via PowerShell. Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
+- QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar), cliente Windows com ícone residente na system tray e uma página web na raiz do servidor (`GET /`) com upload e comandos copiáveis de instalação para Windows (PowerShell) e Linux (Bash). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
 - No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher da Waybar injeta esse mesmo backend remoto por padrão. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs` e `scripts/quickdrop-waybar`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
 - Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
@@ -15,6 +15,7 @@
 - Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
 - A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, a Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher Waybar `scripts/quickdrop-waybar`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 - A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
+- A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 com Waybar (e avisa se faltar Hyprland ou dependências de runtime como webkit2gtk, gtk3, wl-clipboard e libnotify), baixa o binário pré-compilado pelo endpoint interno `GET /linux/latest` — que usa o mesmo token GitHub server-side para buscar o asset privado `quickdrop_*_x86_64-linux` da última release —, instala `~/.local/bin/quickdrop` e o launcher `~/.local/bin/quickdrop-waybar` (servido por `GET /linux/quickdrop-waybar`), e registra de forma idempotente o módulo `custom/quickdrop` na Waybar com backup do config. Fonte: `scripts/install-linux.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -158,8 +159,7 @@ bun run desktop:build
 
 Página principal:
 
-- `GET /` serve a landing page web com hero, botão para copiar o comando Windows `irm https://quickdrop.eaedave.xyz/install.ps1 | iex`, link para visualizar `GET /install.ps1` e a área de upload web.
-- A aba Linux aparece como “em breve”; o fluxo futuro deve apontar para o instalador Linux/Waybar de produção quando existir.
+- `GET /` serve a landing page web com hero, abas Windows/Linux para copiar o comando de instalação (`irm https://quickdrop.eaedave.xyz/install.ps1 | iex` no Windows, `curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash` no Linux), link “Ver script” para `GET /install.ps1` ou `GET /install.sh` conforme a aba, e a área de upload web.
 
 Instalação Windows via PowerShell:
 
@@ -168,6 +168,21 @@ irm https://quickdrop.eaedave.xyz/install.ps1 | iex
 ```
 
 O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o instalador em `GET /windows/latest.exe` (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido); o backend usa `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` server-side para buscar o asset privado `QuickDrop_*_x64-setup.exe` do último GitHub Release, repassa o binário ao Windows, roda o NSIS em modo silencioso para o usuário atual, espera apenas o instalador terminar e então abre o `QuickDrop.exe` instalado sem `--tray-start` para mostrar a janela no canto direito.
+
+Instalação Linux via Bash (Hyprland + Waybar):
+
+```bash
+curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
+```
+
+O endpoint `GET /install.sh` serve `scripts/install-linux.sh`. O script detecta o ambiente (Linux x86_64 com Waybar; avisa se faltar Hyprland ou as dependências de runtime webkit2gtk/gtk3/wl-clipboard/libnotify), baixa o binário em `GET /linux/latest` (ou `QUICKDROP_LINUX_INSTALLER_URL`), instala `~/.local/bin/quickdrop` e o launcher `~/.local/bin/quickdrop-waybar` (de `GET /linux/quickdrop-waybar`) e faz patch idempotente do módulo `custom/quickdrop` em `~/.config/waybar/config.jsonc`, com backup e restart da Waybar (`omarchy restart waybar` ou `SIGUSR2`). Variáveis úteis: `QUICKDROP_API_BASE_URL`, `QUICKDROP_BIN_DIR`, `QUICKDROP_WAYBAR_CONFIG`, `QUICKDROP_WAYBAR_NO_RESTART`. O backend reutiliza `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` para o asset privado, igual ao Windows.
+
+Para gerar e publicar o binário Linux da release:
+
+```bash
+bun run desktop:package:linux
+gh release upload <tag> src-tauri/target/release/quickdrop_<versão>_x86_64-linux --clobber
+```
 
 Build Windows (em Windows local/CI; o CI do GitHub Actions pode ser religado depois quando houver cota):
 

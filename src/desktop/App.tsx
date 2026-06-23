@@ -4,6 +4,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 
 const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
+const LINUX_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash";
+
+type InstallPlatform = "windows" | "linux";
+
+const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; command: string; scriptHref: string }> = {
+  windows: { label: "Windows", prompt: "PS", command: WINDOWS_INSTALL_COMMAND, scriptHref: "/install.ps1" },
+  linux: { label: "Linux", prompt: "$", command: LINUX_INSTALL_COMMAND, scriptHref: "/install.sh" },
+};
 
 type UploadState =
   | { status: "idle" }
@@ -163,9 +171,9 @@ export function App() {
     }
   }, [handleUploadInputs]);
 
-  const copyInstallCommand = useCallback(async () => {
+  const copyInstallCommand = useCallback(async (command: string) => {
     try {
-      await copyTextToClipboard(WINDOWS_INSTALL_COMMAND);
+      await copyTextToClipboard(command);
       setInstallCopyError(null);
       setCopiedInstallCommand(true);
 
@@ -482,7 +490,7 @@ function WebLanding(props: {
   dropActive: boolean;
   fileInput: ReactNode;
   installCopyError: string | null;
-  onCopyInstallCommand: () => void;
+  onCopyInstallCommand: (command: string) => void;
   onDragLeave: (event: DragEvent) => void;
   onDragOver: (event: DragEvent) => void;
   onDrop: (event: DragEvent) => void;
@@ -491,10 +499,10 @@ function WebLanding(props: {
     <main className="quickdrop-web">
       <div className="quickdrop-web-inner">
         <section className="quickdrop-hero" aria-labelledby="quickdrop-hero-title">
-          <p className="quickdrop-pill">QuickDrop para Windows</p>
+          <p className="quickdrop-pill">QuickDrop para Windows e Linux</p>
           <h1 id="quickdrop-hero-title">Envie arquivos rápido, copie o link e siga.</h1>
           <p className="quickdrop-hero-copy">
-            App desktop com tray, autostart e backend de produção pronto. Instale pelo PowerShell ou use o upload web abaixo.
+            App desktop com tray (Windows) e ícone na Waybar (Linux/Hyprland), backend de produção pronto. Instale pelo PowerShell ou Bash, ou use o upload web abaixo.
           </p>
           <InstallCommand
             copied={props.copiedInstallCommand}
@@ -518,21 +526,34 @@ function WebLanding(props: {
   );
 }
 
-function InstallCommand(props: { copied: boolean; error: string | null; onCopy: () => void }) {
+function InstallCommand(props: { copied: boolean; error: string | null; onCopy: (command: string) => void }) {
+  const [platform, setPlatform] = useState<InstallPlatform>("windows");
+  const active = INSTALL_PLATFORMS[platform];
+
   return (
     <div className="quickdrop-install-card">
       <div className="quickdrop-install-header">
-        <div className="quickdrop-install-tabs" aria-label="Plataformas">
-          <span className="quickdrop-install-tab quickdrop-install-tab--active">Windows</span>
-          <span className="quickdrop-install-tab" aria-disabled="true">Linux em breve</span>
+        <div className="quickdrop-install-tabs" role="tablist" aria-label="Plataformas">
+          {(Object.keys(INSTALL_PLATFORMS) as InstallPlatform[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={platform === key}
+              className={`quickdrop-install-tab ${platform === key ? "quickdrop-install-tab--active" : ""}`}
+              onClick={() => setPlatform(key)}
+            >
+              {INSTALL_PLATFORMS[key].label}
+            </button>
+          ))}
         </div>
-        <a className="quickdrop-install-script" href="/install.ps1" target="_blank" rel="noreferrer">
+        <a className="quickdrop-install-script" href={active.scriptHref} target="_blank" rel="noreferrer">
           Ver script
         </a>
       </div>
-      <button className="quickdrop-command" type="button" onClick={props.onCopy}>
-        <span className="quickdrop-command-prompt">PS</span>
-        <code>{WINDOWS_INSTALL_COMMAND}</code>
+      <button className="quickdrop-command" type="button" onClick={() => props.onCopy(active.command)}>
+        <span className="quickdrop-command-prompt">{active.prompt}</span>
+        <code>{active.command}</code>
         <span className="quickdrop-command-copy">{props.copied ? "Copiado" : "Copiar"}</span>
       </button>
       {props.error && <p className="quickdrop-install-error">{props.error}</p>}

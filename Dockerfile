@@ -32,6 +32,8 @@ COPY migrations ./migrations
 COPY src/server ./src/server
 COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY scripts/install-windows.ps1 ./scripts/install-windows.ps1
+COPY scripts/install-linux.sh ./scripts/install-linux.sh
+COPY scripts/quickdrop-waybar ./scripts/quickdrop-waybar
 
 RUN chmod 755 ./scripts/docker-entrypoint.sh
 

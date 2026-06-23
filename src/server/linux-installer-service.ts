@@ -2,17 +2,17 @@ import type { FastifyReply } from "fastify";
 import type { AppConfig } from "./config";
 import { handleReleaseAssetDownload } from "./github-release";
 
-const WINDOWS_INSTALLER_ASSET_PATTERN = /^QuickDrop_.*_x64-setup\.exe$/;
+const LINUX_BINARY_ASSET_PATTERN = /^quickdrop_.*_x86_64-linux$/;
 
-export async function handleWindowsInstallerDownload(
+export async function handleLinuxInstallerDownload(
   reply: FastifyReply,
   { config }: { config: AppConfig },
 ): Promise<FastifyReply> {
   return handleReleaseAssetDownload(reply, {
     token: config.githubToken,
     repository: config.githubReleaseRepository,
-    assetPattern: WINDOWS_INSTALLER_ASSET_PATTERN,
+    assetPattern: LINUX_BINARY_ASSET_PATTERN,
     assetNotFoundMessage:
-      "No QuickDrop Windows x64 installer asset found in the latest GitHub release.",
+      "No QuickDrop Linux x86_64 binary asset found in the latest GitHub release.",
   });
 }

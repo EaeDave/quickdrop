@@ -365,15 +365,15 @@ html.quickdrop-web-page a {
   font-size: 14px;
   padding: 0 16px;
   text-decoration: none;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .quickdrop-install-tab--active {
   background: #ec4899;
   color: #111827;
-}
-
-.quickdrop-install-tab[aria-disabled="true"] {
-  color: #64748b;
 }
 
 .quickdrop-install-script:hover {
