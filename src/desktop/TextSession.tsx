@@ -30,6 +30,7 @@ export default function TextSession() {
   const sentTextRef = useRef<string | null>(null);
   const queuedTextRef = useRef<string | null>(null);
   const leavingRoomRef = useRef(false);
+  const suppressNextClosedRef = useRef(false);
   const discardNextAckRef = useRef(false);
 
   const clearDebounceTimer = useCallback(() => {
@@ -275,6 +276,11 @@ export default function TextSession() {
         snapshotReadyRef.current = false;
 
         if (status === "closed") {
+          if (suppressNextClosedRef.current) {
+            suppressNextClosedRef.current = false;
+            return;
+          }
+
           if (leavingRoomRef.current) {
             leavingRoomRef.current = false;
             return;
@@ -293,6 +299,9 @@ export default function TextSession() {
 
     controllerRef.current = controller;
     return () => {
+      if (!leavingRoomRef.current) {
+        suppressNextClosedRef.current = true;
+      }
       controller.close();
       if (controllerRef.current === controller) {
         controllerRef.current = null;
