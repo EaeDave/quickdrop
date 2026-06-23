@@ -28,6 +28,30 @@ struct UploadResponse {
     expires_at: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalUploadInput {
+    path: String,
+    name: String,
+    temporary: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ClipboardSelection {
+    Image {
+        mime_type: String,
+        extension: &'static str,
+    },
+    Text {
+        mime_type: String,
+    },
+}
+
+struct ClipboardPayload {
+    file_name: String,
+    bytes: Vec<u8>,
+}
+
 struct DesktopConfig {
     api_base_url: String,
 }
@@ -71,7 +95,22 @@ async fn upload_file(
 async fn upload_files(
     window: tauri::Window,
     paths: Vec<String>,
+    cleanup_paths: Option<Vec<String>>,
     state: tauri::State<'_, DesktopConfig>,
+) -> Result<UploadResponse, String> {
+    let response = upload_files_from_paths(window, paths, state.api_base_url.clone()).await;
+
+    if let Some(paths) = cleanup_paths {
+        cleanup_temporary_upload_paths(&paths).await;
+    }
+
+    response
+}
+
+async fn upload_files_from_paths(
+    window: tauri::Window,
+    paths: Vec<String>,
+    api_base_url: String,
 ) -> Result<UploadResponse, String> {
     if paths.is_empty() {
         return Err("Selecione pelo menos um arquivo.".to_string());
@@ -83,7 +122,7 @@ async fn upload_files(
             PathBuf::from(paths[0].clone()),
             None,
             None,
-            state.api_base_url.clone(),
+            api_base_url,
         )
         .await;
     }
@@ -102,7 +141,7 @@ async fn upload_files(
         zip_path.clone(),
         Some(zip_file_name),
         Some("application/zip".to_string()),
-        state.api_base_url.clone(),
+        api_base_url,
     )
     .await;
 
@@ -282,6 +321,193 @@ fn temp_zip_path() -> PathBuf {
     std::env::temp_dir().join(format!("quickdrop-{}-{timestamp}.zip", process::id()))
 }
 
+fn temp_clipboard_path(file_name: &str) -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+
+    std::env::temp_dir().join(format!(
+        "quickdrop-clipboard-{}-{timestamp}-{file_name}",
+        process::id()
+    ))
+}
+
+#[tauri::command]
+fn read_clipboard_upload_inputs() -> Result<Vec<LocalUploadInput>, String> {
+    let payload = read_wayland_clipboard_payload()?;
+    let path = temp_clipboard_path(&payload.file_name);
+
+    std::fs::write(&path, payload.bytes)
+        .map_err(|error| format!("Falha ao preparar clipboard para upload: {error}"))?;
+
+    Ok(vec![LocalUploadInput {
+        path: path.to_string_lossy().to_string(),
+        name: payload.file_name,
+        temporary: true,
+    }])
+}
+
+fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
+    let types = list_clipboard_types()?;
+    let selection = select_clipboard_type(&types)
+        .ok_or_else(|| "Clipboard sem imagem ou texto para enviar.".to_string())?;
+
+    match selection {
+        ClipboardSelection::Image {
+            mime_type,
+            extension,
+        } => {
+            let bytes = read_clipboard_bytes(&mime_type)?;
+            if bytes.is_empty() {
+                return Err("Clipboard sem imagem para enviar.".to_string());
+            }
+
+            Ok(ClipboardPayload {
+                file_name: format!("quickdrop-clipboard.{extension}"),
+                bytes,
+            })
+        }
+        ClipboardSelection::Text { mime_type } => {
+            let bytes = read_clipboard_text_bytes(&mime_type)?;
+            if bytes.is_empty() {
+                return Err("Clipboard sem texto para enviar.".to_string());
+            }
+
+            Ok(ClipboardPayload {
+                file_name: "quickdrop-paste.txt".to_string(),
+                bytes,
+            })
+        }
+    }
+}
+
+fn list_clipboard_types() -> Result<Vec<String>, String> {
+    let output = Command::new("wl-paste")
+        .arg("--list-types")
+        .output()
+        .map_err(|error| format!("wl-paste não encontrado ou falhou ao iniciar: {error}"))?;
+
+    if !output.status.success() {
+        return Err("Clipboard sem imagem ou texto para enviar.".to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn select_clipboard_type(types: &[String]) -> Option<ClipboardSelection> {
+    for clipboard_type in types {
+        if let Some(extension) = image_extension_for_mime_type(clipboard_type) {
+            return Some(ClipboardSelection::Image {
+                mime_type: clipboard_type.clone(),
+                extension,
+            });
+        }
+    }
+
+    for clipboard_type in types {
+        if is_plain_text_clipboard_type(clipboard_type) {
+            return Some(ClipboardSelection::Text {
+                mime_type: clipboard_type.clone(),
+            });
+        }
+    }
+
+    None
+}
+
+fn image_extension_for_mime_type(mime_type: &str) -> Option<&'static str> {
+    let base_type = mime_type
+        .split(';')
+        .next()
+        .unwrap_or(mime_type)
+        .trim()
+        .to_ascii_lowercase();
+
+    match base_type.as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        "image/bmp" => Some("bmp"),
+        "image/tiff" => Some("tiff"),
+        "image/svg+xml" => Some("svg"),
+        value if value.starts_with("image/") => Some("img"),
+        _ => None,
+    }
+}
+
+fn is_plain_text_clipboard_type(clipboard_type: &str) -> bool {
+    let base_type = clipboard_type
+        .split(';')
+        .next()
+        .unwrap_or(clipboard_type)
+        .trim()
+        .to_ascii_lowercase();
+
+    matches!(
+        base_type.as_str(),
+        "text/plain" | "utf8_string" | "text" | "string"
+    )
+}
+
+fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
+    let output = Command::new("wl-paste")
+        .arg("--type")
+        .arg(mime_type)
+        .output()
+        .map_err(|error| format!("wl-paste não encontrou o conteúdo do clipboard: {error}"))?;
+
+    if !output.status.success() {
+        return Err("Não foi possível ler imagem do clipboard.".to_string());
+    }
+
+    Ok(output.stdout)
+}
+
+fn read_clipboard_text_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
+    let output = Command::new("wl-paste")
+        .arg("--no-newline")
+        .arg("--type")
+        .arg(mime_type)
+        .output()
+        .map_err(|error| format!("wl-paste não encontrou texto no clipboard: {error}"))?;
+
+    if !output.status.success() {
+        return Err("Não foi possível ler texto do clipboard.".to_string());
+    }
+
+    Ok(output.stdout)
+}
+
+async fn cleanup_temporary_upload_paths(paths: &[String]) {
+    for raw_path in paths {
+        let path = PathBuf::from(raw_path);
+        if !is_quickdrop_clipboard_temp_path(&path) {
+            continue;
+        }
+
+        if let Err(error) = tokio::fs::remove_file(&path).await {
+            eprintln!("Failed to remove temporary QuickDrop clipboard file: {error}");
+        }
+    }
+}
+
+fn is_quickdrop_clipboard_temp_path(path: &Path) -> bool {
+    if path.parent() != Some(std::env::temp_dir().as_path()) {
+        return false;
+    }
+
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("quickdrop-clipboard-"))
+}
+
 #[tauri::command]
 fn copy_link(link: String) -> Result<(), String> {
     let mut child = Command::new("wl-copy")
@@ -436,6 +662,44 @@ mod tests {
 
         fs::remove_dir_all(root).ok();
     }
+
+    #[test]
+    fn clipboard_type_prefers_image_over_text() {
+        let types = vec![
+            "text/plain;charset=utf-8".to_string(),
+            "image/png".to_string(),
+        ];
+
+        assert_eq!(
+            select_clipboard_type(&types),
+            Some(ClipboardSelection::Image {
+                mime_type: "image/png".to_string(),
+                extension: "png",
+            })
+        );
+    }
+
+    #[test]
+    fn clipboard_type_accepts_plain_text_without_file_uris() {
+        assert_eq!(
+            select_clipboard_type(&["text/plain;charset=utf-8".to_string()]),
+            Some(ClipboardSelection::Text {
+                mime_type: "text/plain;charset=utf-8".to_string(),
+            })
+        );
+        assert_eq!(select_clipboard_type(&["text/uri-list".to_string()]), None);
+    }
+
+    #[test]
+    fn cleanup_only_accepts_quickdrop_clipboard_temp_files() {
+        let temp_path = std::env::temp_dir().join("quickdrop-clipboard-123-image.png");
+        let user_path = PathBuf::from("/home/user/quickdrop-clipboard-123-image.png");
+        let other_temp_path = std::env::temp_dir().join("not-quickdrop.png");
+
+        assert!(is_quickdrop_clipboard_temp_path(&temp_path));
+        assert!(!is_quickdrop_clipboard_temp_path(&user_path));
+        assert!(!is_quickdrop_clipboard_temp_path(&other_temp_path));
+    }
 }
 
 pub fn run() {
@@ -473,6 +737,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             upload_file,
             upload_files,
+            read_clipboard_upload_inputs,
             copy_link,
             notify_success,
             get_api_base_url

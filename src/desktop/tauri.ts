@@ -5,7 +5,8 @@ import { zip } from "fflate";
 
 export type UploadResponse = { id: string; url: string; expiresAt: string };
 export type UploadProgress = { sentBytes: number; totalBytes: number; percent: number };
-export type UploadInput = string | File;
+export type LocalUploadInput = { path: string; name?: string; temporary?: boolean };
+export type UploadInput = string | File | LocalUploadInput;
 
 export const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 
@@ -18,12 +19,14 @@ export function emitWebProgress(percent: number) {
 }
 
 export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse> {
-  const isLocalPaths = inputs.length > 0 && typeof inputs[0] === "string";
+  const localInputs = inputs.filter(isLocalUploadInput);
 
-  if (isTauri && isLocalPaths) {
-    const paths = inputs.filter((i): i is string => typeof i === "string");
-    return invoke<UploadResponse>("upload_files", { paths });
+  if (isTauri && localInputs.length === inputs.length && localInputs.length > 0) {
+    const paths = localInputs.map(localPathOf);
+    const cleanupPaths = localInputs.filter(isTemporaryLocalUploadInput).map((input) => input.path);
+    return invoke<UploadResponse>("upload_files", { paths, cleanupPaths });
   }
+
   const files = inputs.filter((i): i is File => i instanceof File);
   if (files.length === 0) {
     throw new Error("Nenhum arquivo selecionado.");
@@ -109,6 +112,30 @@ function getUniqueArchiveName(fileName: string, archiveNames: Map<string, number
   }
 
   return `${fileName}-${newCount}`;
+}
+
+function isLocalUploadInput(input: UploadInput): input is string | LocalUploadInput {
+  return typeof input === "string" || isLocalUploadObject(input);
+}
+
+function isLocalUploadObject(input: UploadInput): input is LocalUploadInput {
+  return typeof input === "object" && input !== null && !(input instanceof File) && typeof (input as { path?: unknown }).path === "string";
+}
+
+function isTemporaryLocalUploadInput(input: string | LocalUploadInput): input is LocalUploadInput {
+  return typeof input !== "string" && input.temporary === true;
+}
+
+function localPathOf(input: string | LocalUploadInput): string {
+  return typeof input === "string" ? input : input.path;
+}
+
+export async function readClipboardUploadInputs(): Promise<LocalUploadInput[]> {
+  if (!isTauri) {
+    return [];
+  }
+
+  return invoke<LocalUploadInput[]>("read_clipboard_upload_inputs");
 }
 
 export async function selectLocalFiles(): Promise<string[]> {

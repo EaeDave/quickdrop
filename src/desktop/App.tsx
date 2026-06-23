@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { copyLink, notifySuccess, onUploadProgress, selectLocalFiles, uploadFiles, isTauri, type UploadInput } from "./tauri";
+import { copyLink, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, type UploadInput } from "./tauri";
 
 type UploadState =
   | { status: "idle" }
@@ -13,6 +13,7 @@ export function App() {
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const stateRef = useRef(state);
 
   const reset = useCallback(() => {
     setManualUrl(null);
@@ -28,6 +29,10 @@ export function App() {
   }, [reset]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const handleUploadInputs = useCallback(async (inputs: UploadInput[]) => {
     setManualUrl(null);
@@ -104,6 +109,25 @@ export function App() {
     // Clear the input value so the same files can be selected again
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  }, [handleUploadInputs]);
+
+  const handleNativeClipboardPaste = useCallback(async () => {
+    if (!isTauri || stateRef.current.status === "uploading") {
+      return;
+    }
+
+    try {
+      const inputs = await readClipboardUploadInputs();
+
+      if (inputs.length === 0) {
+        setState({ status: "error", message: "Clipboard sem imagem ou texto para enviar." });
+        return;
+      }
+
+      await handleUploadInputs(inputs);
+    } catch (error) {
+      setState({ status: "error", message: `Falha ao ler clipboard: ${formatError(error)}` });
     }
   }, [handleUploadInputs]);
 
@@ -203,6 +227,12 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isTauri && isPasteShortcut(event)) {
+        event.preventDefault();
+        void handleNativeClipboardPaste();
+        return;
+      }
+
       if (event.key === "Escape") {
         closeWindow();
       }
@@ -210,7 +240,7 @@ export function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeWindow]);
+  }, [closeWindow, handleNativeClipboardPaste]);
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
       setState((current) => {
@@ -353,8 +383,9 @@ function ErrorState(props: { message: string; manualUrl: string | null; onReset:
 function formatSelectionName(inputs: UploadInput[]): string {
   if (inputs.length === 1) {
     const input = inputs[0]!;
-    const name = typeof input === "string" ? getFileName(input) : input.name;
-    return name;
+    if (typeof input === "string") return getFileName(input);
+    if (input instanceof File) return input.name;
+    return input.name ?? getFileName(input.path);
   }
 
   return `${inputs.length} arquivos (.zip)`;
@@ -362,6 +393,10 @@ function formatSelectionName(inputs: UploadInput[]): string {
 
 function getFileName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
+}
+
+function isPasteShortcut(event: KeyboardEvent): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v";
 }
 
 function formatError(error: unknown): string {

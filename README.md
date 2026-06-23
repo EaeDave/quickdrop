@@ -5,7 +5,7 @@
 
  - QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar) e uma interface web minimalista correspondente, servida diretamente na raiz do servidor (`GET /`). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs` e `@fastify/static` em `src/server/index.ts`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
-- Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. Fonte: `src/desktop/App.tsx`.
+- Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
 - O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop; o limite padrão de 500 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
 - Uploads são públicos e não exigem autenticação no MVP. Há limite de 20 uploads por hora por IP. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts`.
 - Upload válido é enviado ao Cloudflare R2, registrado no PostgreSQL e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
@@ -140,7 +140,7 @@ bun run cleanup:run
 bun run desktop:dev
 ```
 
-Na janela desktop ou web, o usuário pode arrastar 1 ou vários arquivos para a caixa, clicar na seta para selecionar arquivos locais ou usar `Ctrl+V` para colar imagem/arquivo/texto do clipboard. Texto colado vira `quickdrop-paste.txt`; múltiplos arquivos são compactados em um ZIP temporário antes do envio e geram um único link.
+Na janela desktop ou web, o usuário pode arrastar 1 ou vários arquivos para a caixa, clicar na seta para selecionar arquivos locais ou usar `Ctrl+V` para colar imagem/arquivo/texto do clipboard. Texto colado vira `quickdrop-paste.txt`; no desktop Wayland o `Ctrl+V` lê o clipboard via `wl-paste`; múltiplos arquivos são compactados em um ZIP temporário antes do envio e geram um único link.
 
 Build web/Tauri:
 
