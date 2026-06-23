@@ -21,3 +21,22 @@ export const uploads = pgTable(
 );
 
 export type UploadRecord = typeof uploads.$inferSelect;
+
+export const textRooms = pgTable(
+  "text_rooms",
+  {
+    code: varchar("code", { length: 16 }).primaryKey(),
+    text: text("text").notNull().default(""),
+    version: integer("version").default(0).notNull(),
+    pinHash: text("pin_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("text_rooms_expires_idx").on(table.expiresAt).where(sql`${table.deletedAt} is null`),
+  ],
+);
+
+export type TextRoomRecord = typeof textRooms.$inferSelect;

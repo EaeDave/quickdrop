@@ -13,8 +13,13 @@ import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
 import { handleLinuxInstallerDownload } from "./linux-installer-service";
 import { handleWindowsInstallerDownload } from "./windows-installer-service";
-import { TextSessionStore } from "./text-session-store";
-import { registerTextSessionRoutes, startTextSessionHeartbeat, startTextSessionSweep } from "./text-session-service";
+import { TextSessionHub } from "./text-session-hub";
+import {
+  rearmTextRoomsAfterRestart,
+  registerTextSessionRoutes,
+  startTextSessionHeartbeat,
+  startTextSessionSweep,
+} from "./text-session-service";
 
 export function buildApp() {
   const config = loadConfig();
@@ -36,11 +41,8 @@ export function buildApp() {
     options: { maxPayload: config.textSessionMaxBytes + 1024 },
   });
 
-  const textStore = new TextSessionStore({
-    maxBytes: config.textSessionMaxBytes,
-    maxSessions: config.textSessionMaxSessions,
+  const textHub = new TextSessionHub({
     maxClientsPerSession: config.textSessionMaxClientsPerSession,
-    codeLength: config.textSessionCodeLength,
   });
 
   const sendScriptFile = (reply: FastifyReply, fileName: string) =>
@@ -85,21 +87,28 @@ export function buildApp() {
       async (request, reply) => handleUpload(request, reply, { config, r2Client }),
     );
 
-    registerTextSessionRoutes(app, textStore);
+    registerTextSessionRoutes(app, {
+      hub: textHub,
+      maxBytes: config.textSessionMaxBytes,
+      maxSessions: config.textSessionMaxSessions,
+      codeLength: config.textSessionCodeLength,
+      ttlMs: config.textSessionTtlHours * 60 * 60 * 1000,
+    });
   });
 
   app.get<{ Params: { shortId: string } }>("/f/:shortId", async (request, reply) => {
     await handleDownload(request.params.shortId, reply, { config, r2Client });
   });
 
-  return { app, config, textStore };
+  return { app, config, textHub };
 }
 
 export async function startServer(): Promise<void> {
-  const { app, config, textStore } = buildApp();
+  const { app, config } = buildApp();
+  await rearmTextRoomsAfterRestart(config.textSessionTtlHours * 60 * 60 * 1000);
   await app.listen({ host: "0.0.0.0", port: config.port });
   startCleanupJob();
-  startTextSessionSweep(textStore, config.textSessionTtlHours * 60 * 60 * 1000);
+  startTextSessionSweep();
   startTextSessionHeartbeat(app);
 }
 
