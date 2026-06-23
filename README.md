@@ -16,6 +16,7 @@
 - A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, a Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher Waybar `scripts/quickdrop-waybar`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 - A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
 - A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 com Waybar (e avisa se faltar Hyprland ou dependências de runtime como webkit2gtk, gtk3, wl-clipboard e libnotify), baixa o binário pré-compilado pelo endpoint interno `GET /linux/latest` — que usa o mesmo token GitHub server-side para buscar o asset privado `quickdrop_*_x86_64-linux` da última release —, instala `~/.local/bin/quickdrop` e o launcher `~/.local/bin/quickdrop-waybar` (servido por `GET /linux/quickdrop-waybar`), e registra de forma idempotente o módulo `custom/quickdrop` na Waybar com backup do config. Fonte: `scripts/install-linux.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
+- O QuickDrop tem um relay de texto em tempo real para colar/compartilhar texto entre máquinas sem clipboard compartilhado (ex.: máquinas Guacamole). Pela web, o usuário cria uma sala (botão "Criar nova sala") ou entra com um código curto de 6 caracteres; um textarea grande é sincronizado ao vivo entre todos na mesma sala via WebSocket, no modelo último-a-escrever-vence (last-writer-wins) com versão monotônica. Edições simultâneas não sobrescrevem em silêncio: quando chega uma alteração remota durante uma edição local pendente, a UI mostra um aviso não destrutivo com opção de carregar. As salas ficam em memória (não sobrevivem a redeploy), expiram após inatividade (padrão 12h sem clientes) e limitam tamanho do texto (padrão 256 KB) e número de salas/clientes. A página é servida pelo mesmo backend (subdomínio `texto.*`, rota `/t` ou `?c=CÓDIGO` na raiz). Fontes: Endpoints internos `POST /api/text` (cria sala), `GET /api/text/:code` (snapshot) e `WS /api/text/:code/ws` (sync); redirects internos `GET /t` e `GET /t/:code`; store `src/server/text-session-store.ts`, serviço `src/server/text-session-service.ts`, UI `src/desktop/TextSession.tsx`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -50,6 +51,11 @@ R2_BUCKET_NAME=quickdrop
 PUBLIC_BASE_URL=https://files.example.com
 QUICKDROP_LOCAL_PUBLIC_BASE_URL=http://127.0.0.1:3000
 FILE_EXPIRATION_HOURS=24
+TEXT_SESSION_TTL_HOURS=12
+TEXT_SESSION_MAX_KB=256
+TEXT_SESSION_CODE_LENGTH=6
+TEXT_SESSION_MAX_SESSIONS=500
+TEXT_SESSION_MAX_CLIENTS=20
 MAX_FILE_SIZE_MB=500
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000
 RUN_MIGRATIONS_ON_START=true
@@ -85,6 +91,26 @@ Health check:
 curl -sS http://127.0.0.1:3000/api/health
 ```
 
+### Sessões de texto (relay de texto)
+
+Relay de texto em tempo real entre máquinas, no mesmo backend:
+
+- `POST /api/text` — cria uma sala e retorna `{ code }` (6 caracteres base32 sem ambíguos), com rate limit.
+- `GET /api/text/:code` — snapshot atual `{ text, version }` (404 se a sala não existe).
+- `WS /api/text/:code/ws` — o servidor envia `snapshot` ao conectar, `update` quando outro cliente escreve, `ack` ao autor após cada escrita e `error` (texto acima do limite ou sala inválida). O cliente envia `{ type: "write", text, baseVersion }`. Heartbeat ping/pong derruba conexões mortas.
+
+Estado em memória (perde no redeploy), com varredura de TTL e limites configuráveis por ambiente:
+
+```env
+TEXT_SESSION_TTL_HOURS=12
+TEXT_SESSION_MAX_KB=256
+TEXT_SESSION_CODE_LENGTH=6
+TEXT_SESSION_MAX_SESSIONS=500
+TEXT_SESSION_MAX_CLIENTS=20
+```
+
+A página web é servida pelo mesmo `GET /` (SPA): abre direto quando o host começa com `texto.`, quando a URL é `/t`/`/t/CÓDIGO` (redirect server-side para `?c=`) ou quando há `?c=CÓDIGO` na raiz. Para usar o subdomínio, aponte `texto.<seu-domínio>` para a mesma service no Coolify.
+
 ### Deploy Coolify / Dockerfile
 
 O `Dockerfile` publica somente o backend HTTP. No Coolify, use build por Dockerfile, exponha a porta `3000` ou a porta injetada em `PORT`, e configure estas variáveis no app:
@@ -99,6 +125,11 @@ R2_BUCKET_NAME=quickdrop
 PUBLIC_BASE_URL=https://files.seu-dominio.com
 FILE_EXPIRATION_HOURS=24
 MAX_FILE_SIZE_MB=500
+TEXT_SESSION_TTL_HOURS=12
+TEXT_SESSION_MAX_KB=256
+TEXT_SESSION_CODE_LENGTH=6
+TEXT_SESSION_MAX_SESSIONS=500
+TEXT_SESSION_MAX_CLIENTS=20
 RUN_MIGRATIONS_ON_START=true
 QUICKDROP_GITHUB_TOKEN=github_pat_...
 QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop

@@ -56,4 +56,31 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...requiredEnv, FILE_EXPIRATION_HOURS: "-1" })).toThrow("FILE_EXPIRATION_HOURS");
     expect(() => loadConfig({ ...requiredEnv, MAX_FILE_SIZE_MB: "0" })).toThrow("MAX_FILE_SIZE_MB");
   });
+
+  test("applies text session defaults", () => {
+    const config = loadConfig(requiredEnv);
+
+    expect(config.textSessionTtlHours).toBe(12);
+    expect(config.textSessionMaxBytes).toBe(256 * 1024);
+    expect(config.textSessionCodeLength).toBe(6);
+    expect(config.textSessionMaxSessions).toBe(500);
+    expect(config.textSessionMaxClientsPerSession).toBe(20);
+  });
+
+  test("reads text session overrides", () => {
+    const config = loadConfig({
+      ...requiredEnv,
+      TEXT_SESSION_TTL_HOURS: "3",
+      TEXT_SESSION_MAX_KB: "10",
+      TEXT_SESSION_CODE_LENGTH: "4",
+      TEXT_SESSION_MAX_SESSIONS: "7",
+      TEXT_SESSION_MAX_CLIENTS: "2",
+    });
+
+    expect(config.textSessionTtlHours).toBe(3);
+    expect(config.textSessionMaxBytes).toBe(10 * 1024);
+    expect(config.textSessionCodeLength).toBe(4);
+    expect(config.textSessionMaxSessions).toBe(7);
+    expect(config.textSessionMaxClientsPerSession).toBe(2);
+  });
 });

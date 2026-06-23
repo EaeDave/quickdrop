@@ -8,6 +8,30 @@ export function generateShortId(): string {
   return crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 }
 
+const SESSION_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+export function generateSessionCode(length = 6): string {
+  const alphabet = SESSION_CODE_ALPHABET;
+  const max = Math.floor(256 / alphabet.length) * alphabet.length;
+  const buffer = new Uint8Array(1);
+  let code = "";
+
+  while (code.length < length) {
+    crypto.getRandomValues(buffer);
+    const byte = buffer[0]!;
+    if (byte >= max) {
+      continue;
+    }
+    code += alphabet[byte % alphabet.length];
+  }
+
+  return code;
+}
+
+export function normalizeSessionCode(input: string): string {
+  return input.trim().toUpperCase();
+}
+
 export function sanitizeFilename(input: string | undefined): string {
   const baseName = basename(input ?? "");
   const sanitized = baseName

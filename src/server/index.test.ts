@@ -61,6 +61,38 @@ describe("buildApp", () => {
     }
   });
 
+  test("redirects /t to the text relay SPA query route", async () => {
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/t",
+      });
+
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe("/?c=");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("redirects /t/:code to the text relay SPA query route", async () => {
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/t/abc123",
+      });
+
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe("/?c=abc123");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("serves the Windows PowerShell installer script", async () => {
     const { app } = buildApp();
 
