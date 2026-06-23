@@ -2,9 +2,18 @@
 
 FROM oven/bun:1.3.14-debian AS deps
 WORKDIR /app
-
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1.3.14-debian AS build-deps
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+FROM build-deps AS build-web
+WORKDIR /app
+COPY . .
+RUN bun run desktop:build:web
 
 FROM oven/bun:1.3.14-debian AS runner
 WORKDIR /app
@@ -17,6 +26,7 @@ RUN groupadd --system quickdrop \
   && useradd --system --gid quickdrop --home-dir /app --shell /usr/sbin/nologin quickdrop
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build-web /app/dist ./dist
 COPY package.json bun.lock ./
 COPY migrations ./migrations
 COPY src/server ./src/server
