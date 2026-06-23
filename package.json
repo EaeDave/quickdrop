@@ -28,6 +28,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "latest",
     "@aws-sdk/s3-request-presigner": "latest",
+    "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "latest",
     "@fastify/rate-limit": "latest",
     "@fastify/static": "^9.1.3",

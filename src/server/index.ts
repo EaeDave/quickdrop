@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
@@ -15,6 +16,12 @@ export function buildApp() {
   const app = Fastify({
     logger: true,
     bodyLimit: config.maxFileSizeBytes + 1024 * 1024,
+  });
+
+  app.register(cors, {
+    origin: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["content-type", "x-quickdrop-file-size"],
   });
 
   app.register(multipart);
