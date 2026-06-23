@@ -11,11 +11,12 @@ import {
 import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
-  type: "snapshot" | "update" | "ack" | "error";
+  type: "snapshot" | "update" | "presence" | "ack" | "error";
   text?: string;
   version?: number;
   clientId?: string;
   by?: string;
+  count?: number;
   message?: string;
 };
 
@@ -218,6 +219,14 @@ function nextMessage(socket: WebSocket): Promise<ServerMessage> {
   return promise;
 }
 
+async function expectJoined(socket: WebSocket, expectedCount: number) {
+  const snapshot = await nextMessage(socket);
+  expect(snapshot.type).toBe("snapshot");
+  const presence = await nextMessage(socket);
+  expect(presence).toEqual({ type: "presence", count: expectedCount });
+  return snapshot;
+}
+
 describe("text session routes", () => {
   test("creates a room and serves its snapshot", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
@@ -248,12 +257,14 @@ describe("text session routes", () => {
       const createResponse = await server.app.inject({ method: "POST", url: "/api/text" });
       const created: { code: string } = JSON.parse(createResponse.body);
       const author = server.connect(created.code);
-      const snapshot = await nextMessage(author);
-      expect(snapshot.type).toBe("snapshot");
+      const snapshot = await expectJoined(author, 1);
       expect(snapshot.text).toBe("");
 
+      const authorPresenceAfterViewer = nextMessage(author);
       const viewer = server.connect(created.code);
-      await nextMessage(viewer);
+      const viewerSnapshot = await expectJoined(viewer, 2);
+      expect(viewerSnapshot.type).toBe("snapshot");
+      expect(await authorPresenceAfterViewer).toEqual({ type: "presence", count: 2 });
 
       const updateOnViewer = nextMessage(viewer);
       const ackOnAuthor = nextMessage(author);
@@ -261,6 +272,10 @@ describe("text session routes", () => {
 
       expect(await updateOnViewer).toEqual({ type: "update", text: "select 1", version: 1, by: snapshot.clientId });
       expect(await ackOnAuthor).toEqual({ type: "ack", version: 1 });
+
+      const authorPresenceAfterLeave = nextMessage(author);
+      await closeSocket(viewer);
+      expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       const persistedPayload: { text: string; version: number } = JSON.parse(persisted.body);
@@ -279,7 +294,7 @@ describe("text session routes", () => {
       const createResponse = await server.app.inject({ method: "POST", url: "/api/text" });
       const created: { code: string } = JSON.parse(createResponse.body);
       const author = server.connect(created.code);
-      await nextMessage(author);
+      await expectJoined(author, 1);
 
       const errorMessage = nextMessage(author);
       author.send(JSON.stringify({ type: "write", text: "x".repeat(1100), baseVersion: 0 }));
@@ -311,7 +326,7 @@ describe("text session routes", () => {
     const createResponse = await firstServer.app.inject({ method: "POST", url: "/api/text" });
     const created: { code: string } = JSON.parse(createResponse.body);
     const author = firstServer.connect(created.code);
-    await nextMessage(author);
+    await expectJoined(author, 1);
     const ack = nextMessage(author);
     author.send(JSON.stringify({ type: "write", text: "survives restart", baseVersion: 0 }));
     await ack;

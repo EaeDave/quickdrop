@@ -3,6 +3,7 @@ export type RoomStatus = "connecting" | "open" | "closed";
 export type RoomHandlers = {
   onSnapshot(payload: { text: string; version: number; clientId: string }): void;
   onUpdate(payload: { text: string; version: number; by: string }): void;
+  onPresence(payload: { count: number }): void;
   onAck(payload: { version: number }): void;
   onError(payload: { message: string }): void;
   onStatus(status: RoomStatus): void;
@@ -190,6 +191,16 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         }
 
         handlers.onUpdate({ text, version, by });
+        return;
+      }
+
+      if (payload.type === "presence") {
+        const count = "count" in payload ? parseNumber(payload.count) : null;
+        if (count === null) {
+          return;
+        }
+
+        handlers.onPresence({ count });
         return;
       }
 
