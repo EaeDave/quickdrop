@@ -1,0 +1,221 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+  outline: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: #e5e7eb;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+button,
+a {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  -webkit-user-drag: none;
+}
+
+button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+p,
+h1 {
+  margin: 0;
+}
+
+.quickdrop-shell {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.quickdrop-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(148 163 184 / 0.20);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgb(15 23 42 / 0.78), rgb(2 6 23 / 0.88)),
+    radial-gradient(circle at top left, rgb(56 189 248 / 0.12), transparent 42%);
+  box-shadow: 0 22px 60px rgb(0 0 0 / 0.42), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  backdrop-filter: blur(22px) saturate(130%);
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+}
+
+.quickdrop-header {
+  display: flex;
+  height: 42px;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgb(148 163 184 / 0.12);
+  padding: 0 10px 0 14px;
+}
+
+.quickdrop-title {
+  color: #38bdf8;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.quickdrop-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgb(148 163 184 / 0.18);
+  border-radius: 7px;
+  color: #94a3b8;
+  line-height: 1;
+}
+
+.quickdrop-close:hover {
+  border-color: rgb(148 163 184 / 0.32);
+  background: rgb(148 163 184 / 0.10);
+  color: #e2e8f0;
+}
+
+.quickdrop-drop-zone {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 12px;
+  border: 1px dashed rgb(56 189 248 / 0.44);
+  border-radius: 7px;
+  background: rgb(15 23 42 / 0.28);
+  padding: 18px;
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.quickdrop-panel--active .quickdrop-drop-zone {
+  border-color: rgb(56 189 248 / 0.86);
+  background: rgb(14 165 233 / 0.10);
+}
+
+.quickdrop-state {
+  align-items: stretch;
+}
+
+.quickdrop-icon {
+  color: #cbd5e1;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.quickdrop-primary,
+.quickdrop-kicker,
+.quickdrop-file,
+.quickdrop-message,
+.quickdrop-action,
+.quickdrop-url {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.quickdrop-primary,
+.quickdrop-kicker,
+.quickdrop-action {
+  font-weight: 650;
+}
+
+.quickdrop-secondary,
+.quickdrop-meta,
+.quickdrop-warning {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.quickdrop-file,
+.quickdrop-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickdrop-file {
+  color: #cbd5e1;
+}
+
+.quickdrop-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.88);
+}
+
+.quickdrop-progress > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #22d3ee);
+  transition: width 140ms ease;
+}
+
+.quickdrop-success {
+  color: #86efac;
+}
+
+.quickdrop-error {
+  color: #fda4af;
+}
+
+.quickdrop-message,
+.quickdrop-url {
+  border: 1px solid rgb(148 163 184 / 0.14);
+  border-radius: 7px;
+  background: rgb(15 23 42 / 0.52);
+  padding: 8px 10px;
+}
+
+.quickdrop-message {
+  color: #fecdd3;
+}
+
+.quickdrop-url {
+  color: #bae6fd;
+  text-decoration: none;
+}
+
+.quickdrop-warning {
+  color: #fcd34d;
+}
+
+.quickdrop-action {
+  align-self: center;
+  border: 1px solid rgb(56 189 248 / 0.36);
+  border-radius: 7px;
+  background: rgb(56 189 248 / 0.16);
+  color: #e0f2fe;
+  padding: 8px 12px;
+}
+
+.quickdrop-action:hover {
+  background: rgb(56 189 248 / 0.24);
+}

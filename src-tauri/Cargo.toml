@@ -1,0 +1,23 @@
+[package]
+name = "quickdrop"
+version = "0.1.0"
+description = "QuickDrop desktop app"
+edition = "2021"
+
+[lib]
+name = "quickdrop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+tokio = { version = "1", features = ["fs", "process", "rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+mime_guess = "2"
+tauri-plugin-single-instance = "2"

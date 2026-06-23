@@ -1,0 +1,25 @@
+import { describe, expect, test } from "bun:test";
+import type { AppConfig } from "./config";
+import { createR2Client } from "./r2";
+
+const config: AppConfig = {
+  port: 3000,
+  databaseUrl: "postgres://quickdrop:quickdrop@127.0.0.1:5432/quickdrop",
+  r2AccountId: "account",
+  r2AccessKeyId: "access-key",
+  r2SecretAccessKey: "secret-key",
+  r2BucketName: "quickdrop",
+  publicBaseUrl: "http://127.0.0.1:3000",
+  fileExpirationHours: 24,
+  maxFileSizeMb: 500,
+  maxFileSizeBytes: 500 * 1024 * 1024,
+};
+
+describe("createR2Client", () => {
+  test("disables optional flexible checksums for streaming R2 uploads", async () => {
+    const client = createR2Client(config);
+
+    await expect(client.config.requestChecksumCalculation()).resolves.toBe("WHEN_REQUIRED");
+    await expect(client.config.responseChecksumValidation()).resolves.toBe("WHEN_REQUIRED");
+  });
+});

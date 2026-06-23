@@ -1,0 +1,42 @@
+{
+  "name": "quickdrop",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "server:dev": "bun --watch src/server/index.ts",
+    "server:start": "bun run src/server/index.ts",
+    "db:migrate": "bun run src/server/migrate.ts",
+    "db:generate": "bunx drizzle-kit generate",
+    "db:check": "bunx drizzle-kit check",
+    "cleanup:run": "bun run src/server/cleanup-cli.ts",
+    "desktop:css": "bunx @tailwindcss/cli -i ./src/desktop/input.css -o ./src/desktop/output.css --minify",
+    "desktop:serve": "bun run src/desktop/dev-server.ts",
+    "desktop:build:web": "bun run desktop:css && bun build --compile --target=browser --minify ./src/desktop/index.html --outdir dist",
+    "desktop:dev": "bun run desktop:css && bun tauri dev",
+    "desktop:build": "bun tauri build",
+    "desktop:install": "bun run scripts/install-desktop.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "latest",
+    "@aws-sdk/s3-request-presigner": "latest",
+    "@fastify/multipart": "latest",
+    "@fastify/rate-limit": "latest",
+    "@tauri-apps/api": "latest",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "latest",
+    "@tauri-apps/cli": "latest",
+    "@types/bun": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
+}

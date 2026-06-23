@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-waybar.lock"
+exec 9>"$lock_path"
+flock 9
+
+quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
+api_base_url="${QUICKDROP_API_BASE_URL:-http://127.0.0.1:3000}"
+window_width=552
+window_height=352
+
+cursor_position="$(hyprctl cursorpos 2>/dev/null || printf '')"
+cursor_x="${cursor_position%%,*}"
+cursor_y="${cursor_position#*, }"
+
+has_cursor=1
+if [[ -z "$cursor_position" || "$cursor_x" == "$cursor_position" || -z "$cursor_y" ]]; then
+  has_cursor=0
+fi
+
+if (( has_cursor )); then
+  read -r window_x window_y < <(
+    MONITORS_JSON="$(hyprctl monitors -j)" \
+    QUICKDROP_LAUNCHER_X="$cursor_x" \
+    QUICKDROP_LAUNCHER_Y="$cursor_y" \
+    QUICKDROP_WINDOW_WIDTH="$window_width" \
+    QUICKDROP_WINDOW_HEIGHT="$window_height" \
+    bun -e '
+const monitors = JSON.parse(process.env.MONITORS_JSON || "[]");
+const cursorX = Number(process.env.QUICKDROP_LAUNCHER_X);
+const cursorY = Number(process.env.QUICKDROP_LAUNCHER_Y);
+const windowWidth = Number(process.env.QUICKDROP_WINDOW_WIDTH);
+const windowHeight = Number(process.env.QUICKDROP_WINDOW_HEIGHT);
+
+let x = Math.round(cursorX - windowWidth / 2);
+let y = Math.round(cursorY + 10);
+const monitor = monitors.find((item) => (
+  cursorX >= item.x && cursorX < item.x + item.width &&
+  cursorY >= item.y && cursorY < item.y + item.height
+)) ?? monitors.find((item) => item.focused) ?? monitors[0];
+
+if (monitor) {
+  const reserved = Array.isArray(monitor.reserved) ? monitor.reserved : [0, 0, 0, 0];
+  const minX = monitor.x + reserved[0];
+  const minY = monitor.y + reserved[1];
+  const maxX = monitor.x + monitor.width - reserved[2] - windowWidth;
+  const maxY = monitor.y + monitor.height - reserved[3] - windowHeight;
+  x = Math.min(Math.max(x, minX), Math.max(maxX, minX));
+  y = Math.min(Math.max(y, minY), Math.max(maxY, minY));
+}
+
+console.log(`${x} ${y}`);
+'
+  )
+fi
+
+mapfile -t quickdrop_windows < <(
+  hyprctl clients -j | bun -e '
+const clients = JSON.parse(await Bun.stdin.text());
+for (const client of clients) {
+  if (client.class === "quickdrop" || String(client.title).includes("QuickDrop")) {
+    console.log(client.address);
+  }
+}
+'
+)
+
+if (( ${#quickdrop_windows[@]} > 0 )); then
+  primary="${quickdrop_windows[0]}"
+
+  if (( has_cursor )); then
+    hyprctl dispatch movewindowpixel exact "$window_x" "$window_y,address:$primary" >/dev/null || true
+  fi
+
+  hyprctl dispatch focuswindow "address:$primary" >/dev/null || true
+
+  for extra in "${quickdrop_windows[@]:1}"; do
+    hyprctl dispatch closewindow "address:$extra" >/dev/null || true
+  done
+
+  exit 0
+fi
+
+if (( has_cursor )); then
+  hyprctl dispatch exec "[float;move $window_x $window_y;size $window_width $window_height] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url QUICKDROP_LAUNCHER_X=$cursor_x QUICKDROP_LAUNCHER_Y=$cursor_y $quickdrop_bin" >/dev/null
+else
+  hyprctl dispatch exec "[float;size $window_width $window_height] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url $quickdrop_bin" >/dev/null
+fi

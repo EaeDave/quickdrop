@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:17
+    container_name: quickdrop-db
+    environment:
+      POSTGRES_DB: quickdrop
+      POSTGRES_USER: quickdrop
+      POSTGRES_PASSWORD: quickdrop
+    ports:
+      - "5432:5432"
+    volumes:
+      - quickdrop-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  quickdrop-postgres-data:
