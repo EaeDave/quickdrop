@@ -111,6 +111,8 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       liveSockets.add(socket);
       socket.on("pong", () => liveSockets.add(socket));
       socket.send(JSON.stringify({ type: "snapshot", text: room.text, version: room.version, clientId }));
+      deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
+
 
       socket.on("message", (raw: RawData) => {
         void handleWrite(raw, code, clientId, socket, deps, repository, now);
@@ -125,6 +127,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         closed = true;
         liveSockets.delete(socket);
         const remaining = deps.hub.leave(code, clientId);
+        deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: remaining }));
 
         if (remaining === 0) {
           const closedAt = now();

@@ -1,9 +1,15 @@
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { connectRoom, createRoom, type RoomController } from "./text-client";
+import { uploadFiles } from "./tauri";
 import { initialRoomCode, setRoomInUrl } from "./web-route";
 
 type PendingRemoteUpdate = { text: string; version: number };
 type ConnectionPhase = "connecting" | "open" | "closed";
+type ExportState =
+  | { status: "idle" }
+  | { status: "uploading" }
+  | { status: "success"; url: string; copied: boolean }
+  | { status: "error"; message: string };
 
 export default function TextSession() {
   const initialCode = initialRoomCode();
@@ -15,6 +21,8 @@ export default function TextSession() {
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(initialCode ? "connecting" : "closed");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
+  const [presenceCount, setPresenceCount] = useState<number | null>(null);
+  const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
   const roomCodeRef = useRef<string | null>(initialCode);
@@ -56,6 +64,8 @@ export default function TextSession() {
     hasOpenedRef.current = false;
     clearPendingWrites(false);
     setPendingRemote(null);
+    setPresenceCount(null);
+    setExportState({ status: "idle" });
     setText("");
     draftTextRef.current = "";
     syncedTextRef.current = "";
@@ -134,6 +144,23 @@ export default function TextSession() {
     enterRoom(joinCode);
   }, [enterRoom, joinCode]);
 
+  const copyText = useCallback(async (value: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.readOnly = true;
+    field.style.position = "fixed";
+    field.style.left = "-9999px";
+    document.body.appendChild(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  }, []);
+
   const handleCreateRoom = useCallback(async () => {
     try {
       const code = await createRoom();
@@ -149,24 +176,37 @@ export default function TextSession() {
     }
 
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(roomCode);
-      } else {
-        const field = document.createElement("textarea");
-        field.value = roomCode;
-        field.readOnly = true;
-        field.style.position = "fixed";
-        field.style.left = "-9999px";
-        document.body.appendChild(field);
-        field.select();
-        document.execCommand("copy");
-        field.remove();
-      }
+      await copyText(roomCode);
       setErrorMessage(null);
     } catch {
       setErrorMessage("Não foi possível copiar o código agora.");
     }
-  }, [roomCode]);
+  }, [copyText, roomCode]);
+
+  const handleExportText = useCallback(async () => {
+    if (!roomCode || text.trim().length === 0) {
+      return;
+    }
+
+    setExportState({ status: "uploading" });
+
+    try {
+      const file = new File([text], `quickdrop-room-${roomCode}.txt`, { type: "text/plain" });
+      const uploaded = await uploadFiles([file]);
+
+      try {
+        await copyText(uploaded.url);
+        setExportState({ status: "success", url: uploaded.url, copied: true });
+      } catch {
+        setExportState({ status: "success", url: uploaded.url, copied: false });
+      }
+    } catch (error) {
+      setExportState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Falha ao enviar o texto como arquivo.",
+      });
+    }
+  }, [copyText, roomCode, text]);
 
   const handleRemoteOverride = useCallback(() => {
     if (!pendingRemote) {
@@ -260,6 +300,9 @@ export default function TextSession() {
 
         flushPendingWrite();
       },
+      onPresence(payload) {
+        setPresenceCount(payload.count);
+      },
       onError(payload) {
         setErrorMessage(payload.message);
       },
@@ -338,6 +381,12 @@ export default function TextSession() {
           : "connecting"
     : null;
   const statusLabel = badgeVariant === "open" ? "Conectado" : badgeVariant === "closed" ? "Desconectado" : badgeVariant === "reconnecting" ? "Reconectando" : "Conectando";
+  const presenceLabel =
+    presenceCount === null ? null : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
+  const exportButtonLabel = exportState.status === "uploading" ? "Enviando..." : "Enviar como arquivo";
+  const showExportSuccess = exportState.status === "success";
+  const showExportError = exportState.status === "error";
+
 
   if (!roomCode) {
     return (
@@ -398,14 +447,37 @@ export default function TextSession() {
                 <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>
                   Copiar código
                 </button>
+                <button
+                  className="quickdrop-text-button"
+                  type="button"
+                  disabled={exportState.status === "uploading" || text.trim().length === 0}
+                  onClick={handleExportText}
+                >
+                  {exportButtonLabel}
+                </button>
               </div>
+              {presenceLabel ? <p className="quickdrop-text-room-presence">{presenceLabel}</p> : null}
             </div>
           </div>
 
           <span className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}>{statusLabel}</span>
         </header>
 
-        {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
+        {showExportError ? <p className="quickdrop-text-note quickdrop-text-note--error">{exportState.message}</p> : null}
+        {showExportSuccess ? (
+          <p className="quickdrop-text-note quickdrop-text-note--success">
+            {exportState.copied ? (
+              "Texto enviado. Link copiado."
+            ) : (
+              <>
+                Texto enviado.{" "}
+                <a href={exportState.url} target="_blank" rel="noreferrer">
+                  Abrir link
+                </a>
+              </>
+            )}
+          </p>
+        ) : null}
         {pendingRemote ? (
           <div className="quickdrop-text-banner">
             <p>Conteúdo atualizado em outra máquina</p>

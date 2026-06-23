@@ -516,6 +516,14 @@ html.quickdrop-text-page a {
   font-weight: 850;
 }
 
+.quickdrop-text-room-presence {
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+
 .quickdrop-text-badge {
   align-self: center;
   border: 1px solid rgb(148 163 184 / 0.18);
@@ -564,6 +572,19 @@ html.quickdrop-text-page a {
   background: rgb(88 28 39 / 0.46);
   color: #fecdd3;
 }
+
+.quickdrop-text-note--success {
+  border-color: rgb(74 222 128 / 0.28);
+  background: rgb(20 83 45 / 0.38);
+  color: #dcfce7;
+}
+
+.quickdrop-text-note--success a {
+  color: #f0fdf4;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 
 .quickdrop-text-banner {
   display: flex;
