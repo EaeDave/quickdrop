@@ -1,7 +1,12 @@
-import type { Multipart } from "@fastify/multipart";
+import type { Multipart, MultipartFile } from "@fastify/multipart";
 import type { S3Client } from "@aws-sdk/client-s3";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { AppConfig } from "./config";
 import { computeExpiresAt } from "./expiration";
 import { buildR2Key, generateShortId, generateUploadId, sanitizeFilename } from "./ids";
@@ -18,6 +23,12 @@ type UploadedObject = {
   mimeType: string | null;
   sizeBytes: number;
   createdAt: Date;
+};
+
+type SpooledUpload = {
+  path: string;
+  directory: string;
+  sizeBytes: number;
 };
 
 class FileTooLargeAfterUploadError extends Error {
@@ -65,7 +76,7 @@ export async function handleUpload(
         continue;
       }
 
-      uploadedObject = await uploadMultipartFile(part, deps, declaredFileSizeBytes);
+      uploadedObject = await uploadMultipartFile(part, deps);
     }
   } catch (error) {
     if (uploadedObject) {
@@ -129,7 +140,7 @@ export async function handleUpload(
   }
 }
 
-async function uploadMultipartFile(part: Multipart, deps: UploadDeps, contentLength: number | undefined): Promise<UploadedObject> {
+async function uploadMultipartFile(part: MultipartFile, deps: UploadDeps): Promise<UploadedObject> {
   if (part.type !== "file") {
     throw new Error("Expected multipart file");
   }
@@ -138,36 +149,70 @@ async function uploadMultipartFile(part: Multipart, deps: UploadDeps, contentLen
   const originalName = sanitizeFilename(part.filename);
   const createdAt = new Date();
   const key = buildR2Key(id, originalName, createdAt);
+  const spooledUpload = await spoolMultipartFile(part, deps.config.maxFileSizeBytes);
+
+  try {
+    await putObject({
+      client: deps.r2Client,
+      bucket: deps.config.r2BucketName,
+      key,
+      body: createReadStream(spooledUpload.path),
+      contentType: part.mimetype || undefined,
+      contentLength: spooledUpload.sizeBytes,
+    });
+
+    return {
+      id,
+      key,
+      originalName,
+      mimeType: part.mimetype || null,
+      sizeBytes: spooledUpload.sizeBytes,
+      createdAt,
+    };
+  } finally {
+    await removeSpooledUpload(spooledUpload.directory);
+  }
+}
+
+async function spoolMultipartFile(part: MultipartFile, maxFileSizeBytes: number): Promise<SpooledUpload> {
+  const directory = await mkdtemp(join(tmpdir(), "quickdrop-upload-"));
+  const path = join(directory, "payload");
   let sizeBytes = 0;
+
   const counter = new Transform({
     transform(chunk, _encoding, callback) {
       sizeBytes += byteLengthOfChunk(chunk);
+
+      if (sizeBytes > maxFileSizeBytes) {
+        callback(new FileTooLargeAfterUploadError());
+        return;
+      }
+
       callback(null, chunk);
     },
   });
 
-  await putObject({
-    client: deps.r2Client,
-    bucket: deps.config.r2BucketName,
-    key,
-    body: part.file.pipe(counter),
-    contentType: part.mimetype || undefined,
-    contentLength,
-  });
+  try {
+    await pipeline(part.file, counter, createWriteStream(path));
+  } catch (error) {
+    await removeSpooledUpload(directory);
+    throw error;
+  }
 
   if (part.file.truncated) {
-    await deleteUploadedObject(deps, key);
+    await removeSpooledUpload(directory);
     throw new FileTooLargeAfterUploadError();
   }
 
-  return {
-    id,
-    key,
-    originalName,
-    mimeType: part.mimetype || null,
-    sizeBytes,
-    createdAt,
-  };
+  return { path, directory, sizeBytes };
+}
+
+async function removeSpooledUpload(directory: string): Promise<void> {
+  try {
+    await rm(directory, { force: true, recursive: true });
+  } catch (error) {
+    console.error({ error }, "Failed to remove temporary QuickDrop upload");
+  }
 }
 
 async function insertUploadWithRetries(input: {
