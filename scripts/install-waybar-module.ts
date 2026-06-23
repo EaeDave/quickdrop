@@ -1,4 +1,7 @@
 import { $ } from "bun";
+import { chmod, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const QUICKDROP_MODULE = "custom/quickdrop";
 const DEFAULT_QUICKDROP_API_BASE_URL = "https://quickdrop.eaedave.xyz";
@@ -8,6 +11,7 @@ export type InstallWaybarModuleResult = {
   changed: boolean;
   modulePresent: boolean;
   restarted: boolean;
+  launcherInstalled: boolean;
   backupPath?: string;
   reason?: "config_missing" | "home_missing";
 };
@@ -16,6 +20,8 @@ export type InstallWaybarModuleOptions = {
   home?: string;
   configPath?: string;
   launcherPath?: string;
+  launcherSourcePath?: string;
+  installLauncher?: boolean;
   apiBaseUrl?: string;
   restart?: boolean;
 };
@@ -38,16 +44,20 @@ export async function installWaybarModule(
 
   if (!home) {
     console.warn("Skipped Waybar module install: HOME is not set.");
-    return { configPath: "", changed: false, modulePresent: false, restarted: false, reason: "home_missing" };
+    return { configPath: "", changed: false, modulePresent: false, restarted: false, launcherInstalled: false, reason: "home_missing" };
   }
 
   const configPath = options.configPath ?? process.env.QUICKDROP_WAYBAR_CONFIG ?? `${home}/.config/waybar/config.jsonc`;
   const launcherPath = options.launcherPath ?? `${home}/.local/bin/quickdrop-waybar`;
+  const shouldInstallLauncher = options.installLauncher ?? true;
+  const launcherInstalled = shouldInstallLauncher
+    ? await installWaybarLauncher(launcherPath, options.launcherSourcePath)
+    : false;
   const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? process.env.QUICKDROP_API_BASE_URL);
 
   if (!(await Bun.file(configPath).exists())) {
     console.warn(`Skipped Waybar module install: ${configPath} not found.`);
-    return { configPath, changed: false, modulePresent: false, restarted: false, reason: "config_missing" };
+    return { configPath, changed: false, modulePresent: false, restarted: false, launcherInstalled, reason: "config_missing" };
   }
 
   const original = await Bun.file(configPath).text();
@@ -55,7 +65,7 @@ export async function installWaybarModule(
 
   if (!changed) {
     console.log(`Waybar module ${QUICKDROP_MODULE} already installed in ${configPath}`);
-    return { configPath, changed: false, modulePresent: true, restarted: false };
+    return { configPath, changed: false, modulePresent: true, restarted: false, launcherInstalled };
   }
 
   const backupPath = `${configPath}.bak.quickdrop.${timestamp()}`;
@@ -70,7 +80,7 @@ export async function installWaybarModule(
   console.log(`Installed Waybar module ${QUICKDROP_MODULE} in ${configPath}`);
   console.log(`Backup written to ${backupPath}`);
 
-  return { configPath, changed: true, modulePresent: true, restarted, backupPath };
+  return { configPath, changed: true, modulePresent: true, restarted, launcherInstalled, backupPath };
 }
 
 function renderQuickdropModule(launcherPath: string, apiBaseUrl: string): string {
@@ -93,6 +103,16 @@ function normalizeApiBaseUrl(input: string | undefined): string {
 
 function shellQuote(input: string): string {
   return `'${input.replaceAll("'", `'"'"'`)}'`;
+}
+
+async function installWaybarLauncher(
+  launcherPath: string,
+  sourcePath = fileURLToPath(new URL("./quickdrop-waybar", import.meta.url)),
+): Promise<boolean> {
+  await mkdir(dirname(launcherPath), { recursive: true });
+  await Bun.write(launcherPath, Bun.file(sourcePath));
+  await chmod(launcherPath, 0o755);
+  return true;
 }
 
 function ensureQuickdropInModulesRight(text: string): string {

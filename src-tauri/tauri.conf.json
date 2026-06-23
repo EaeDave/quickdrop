@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "QuickDrop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "dev.quickdrop.quickdrop",
   "build": {
     "beforeDevCommand": "bun run desktop:serve",

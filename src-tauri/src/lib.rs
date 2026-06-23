@@ -79,8 +79,8 @@ struct ZipInput {
     entry_name: String,
 }
 
-const WINDOW_WIDTH: f64 = 500.0;
-const WINDOW_HEIGHT: f64 = 300.0;
+const WINDOW_WIDTH: f64 = 380.0;
+const WINDOW_HEIGHT: f64 = 220.0;
 const LAUNCHER_GAP: f64 = 10.0;
 #[cfg(target_os = "windows")]
 const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
@@ -1142,7 +1142,7 @@ mod tests {
             work_height: 1040.0,
         };
 
-        assert_eq!(compute_tray_window_position(area), (1410.0, 730.0));
+        assert_eq!(compute_tray_window_position(area), (1530.0, 810.0));
     }
 
     #[test]
@@ -1158,7 +1158,7 @@ mod tests {
             work_height: 1040.0,
         };
 
-        assert_eq!(compute_tray_window_position(area), (1410.0, 50.0));
+        assert_eq!(compute_tray_window_position(area), (1530.0, 50.0));
     }
 
     #[test]
@@ -1176,7 +1176,7 @@ mod tests {
 
         assert_eq!(
             compute_anchor_window_position(PhysicalPosition::new(1850.0, 1040.0), Some(area)),
-            (1420.0, 740.0)
+            (1540.0, 820.0)
         );
     }
 

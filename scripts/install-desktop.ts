@@ -17,15 +17,10 @@ if (!(await Bun.file(releaseBinary).exists())) {
 
 const binDir = join(home, ".local", "bin");
 const target = join(binDir, "quickdrop");
-const waybarTarget = join(binDir, "quickdrop-waybar");
-
-
 await mkdir(binDir, { recursive: true });
 await Bun.write(target, Bun.file(releaseBinary));
 await chmod(target, 0o755);
-await Bun.write(waybarTarget, Bun.file("scripts/quickdrop-waybar"));
-await chmod(waybarTarget, 0o755);
-await installWaybarModule();
+await installWaybarModule({ launcherPath: join(binDir, "quickdrop-waybar") });
 
 console.log("Installed quickdrop to ~/.local/bin/quickdrop");
 console.log("Installed quickdrop-waybar to ~/.local/bin/quickdrop-waybar");

@@ -7,8 +7,8 @@ flock 9
 
 quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
 api_base_url="${QUICKDROP_API_BASE_URL:-https://quickdrop.eaedave.xyz}"
-window_width=552
-window_height=352
+window_width="${QUICKDROP_WINDOW_WIDTH:-432}"
+window_height="${QUICKDROP_WINDOW_HEIGHT:-272}"
 
 cursor_position="$(hyprctl cursorpos 2>/dev/null || printf '')"
 cursor_x="${cursor_position%%,*}"
@@ -55,7 +55,7 @@ console.log(`${x} ${y}`);
   )
 fi
 
-mapfile -t quickdrop_windows < <(
+quickdrop_window_addresses() {
   hyprctl clients -j | bun -e '
 const clients = JSON.parse(await Bun.stdin.text());
 for (const client of clients) {
@@ -64,16 +64,23 @@ for (const client of clients) {
   }
 }
 '
-)
+}
 
-if (( ${#quickdrop_windows[@]} > 0 )); then
-  primary="${quickdrop_windows[0]}"
+place_quickdrop_window() {
+  local primary="$1"
 
   if (( has_cursor )); then
     hyprctl dispatch movewindowpixel exact "$window_x" "$window_y,address:$primary" >/dev/null || true
   fi
 
   hyprctl dispatch focuswindow "address:$primary" >/dev/null || true
+}
+
+mapfile -t quickdrop_windows < <(quickdrop_window_addresses)
+
+if (( ${#quickdrop_windows[@]} > 0 )); then
+  primary="${quickdrop_windows[0]}"
+  place_quickdrop_window "$primary"
 
   for extra in "${quickdrop_windows[@]:1}"; do
     hyprctl dispatch closewindow "address:$extra" >/dev/null || true
@@ -83,7 +90,23 @@ if (( ${#quickdrop_windows[@]} > 0 )); then
 fi
 
 if (( has_cursor )); then
-  hyprctl dispatch exec "[float;move $window_x $window_y;size $window_width $window_height] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url QUICKDROP_LAUNCHER_X=$cursor_x QUICKDROP_LAUNCHER_Y=$cursor_y $quickdrop_bin" >/dev/null
+  hyprctl dispatch exec "[float;move $window_x $window_y] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url QUICKDROP_LAUNCHER_X=$cursor_x QUICKDROP_LAUNCHER_Y=$cursor_y $quickdrop_bin" >/dev/null
 else
-  hyprctl dispatch exec "[float;size $window_width $window_height] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url $quickdrop_bin" >/dev/null
+  hyprctl dispatch exec "[float] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url $quickdrop_bin" >/dev/null
 fi
+
+for _ in {1..40}; do
+  sleep 0.05
+  mapfile -t quickdrop_windows < <(quickdrop_window_addresses)
+
+  if (( ${#quickdrop_windows[@]} > 0 )); then
+    primary="${quickdrop_windows[0]}"
+    place_quickdrop_window "$primary"
+
+    for extra in "${quickdrop_windows[@]:1}"; do
+      hyprctl dispatch closewindow "address:$extra" >/dev/null || true
+    done
+
+    exit 0
+  fi
+done

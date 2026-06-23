@@ -1,5 +1,8 @@
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { patchWaybarConfig } from "./install-waybar-module.ts";
+import { installWaybarModule, patchWaybarConfig } from "./install-waybar-module.ts";
 
 describe("patchWaybarConfig", () => {
   test("adds QuickDrop to modules-right and defines the module", () => {
@@ -63,5 +66,35 @@ describe("patchWaybarConfig", () => {
 
     expect(second.changed).toBe(false);
     expect(second.text).toBe(first);
+  });
+
+  test("installs compact launcher alongside the Waybar module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "quickdrop-waybar-"));
+    const configPath = join(root, "config.jsonc");
+    const launcherPath = join(root, "bin", "quickdrop-waybar");
+    const sourcePath = join(root, "source-quickdrop-waybar");
+
+    await writeFile(configPath, `{
+  "modules-right": ["tray"],
+  "tray": { "icon-size": 12 }
+}`);
+    await writeFile(sourcePath, "#!/usr/bin/env bash\nwindow_width=432\nwindow_height=272\n");
+
+    const result = await installWaybarModule({
+      configPath,
+      home: root,
+      launcherPath,
+      launcherSourcePath: sourcePath,
+      restart: false,
+    });
+
+    const launcher = await readFile(launcherPath, "utf8");
+    const mode = (await stat(launcherPath)).mode;
+
+    expect(result.launcherInstalled).toBe(true);
+    expect(result.modulePresent).toBe(true);
+    expect(launcher).toContain("window_width=432");
+    expect(launcher).toContain("window_height=272");
+    expect(mode & 0o111).not.toBe(0);
   });
 });
