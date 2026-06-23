@@ -11,5 +11,36 @@ services:
     volumes:
       - quickdrop-postgres-data:/var/lib/postgresql/data
 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickdrop -d quickdrop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+    container_name: quickdrop-server
+    profiles:
+      - local-server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgres://quickdrop:quickdrop@db:5432/quickdrop
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-quickdrop}
+      PUBLIC_BASE_URL: ${QUICKDROP_LOCAL_PUBLIC_BASE_URL:-http://127.0.0.1:3000}
+      FILE_EXPIRATION_HOURS: ${FILE_EXPIRATION_HOURS:-24}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-500}
+      RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
 volumes:
   quickdrop-postgres-data:

@@ -123,6 +123,27 @@ h1 {
   align-items: stretch;
 }
 
+.quickdrop-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgb(56 189 248 / 0.24);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.46);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.quickdrop-picker:hover,
+.quickdrop-picker:focus-visible {
+  border-color: rgb(56 189 248 / 0.68);
+  background: rgb(14 165 233 / 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .quickdrop-icon {
   color: #cbd5e1;
   font-size: 32px;
@@ -197,6 +218,7 @@ h1 {
 .quickdrop-message {
   color: #fecdd3;
 }
+
 
 .quickdrop-url {
   color: #bae6fd;

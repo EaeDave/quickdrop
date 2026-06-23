@@ -3,35 +3,39 @@
 
 ## Current business rule map
 
-- Regra: 1 arquivo por upload, sem diretórios/múltiplos no MVP. Fonte: UI `src/desktop/App.tsx`; Backend `POST /api/upload` em `src/server/upload-service.ts` valida multipart e limite de arquivos.
+- Regra: UI desktop aceita 1 ou vários arquivos por ação via drag-and-drop ou seletor local. Com múltiplos arquivos, `upload_files` cria um ZIP local temporário e envia esse único arquivo para `POST /api/upload`, gerando 1 link público. Fonte: UI `src/desktop/App.tsx`; comandos Tauri `src-tauri/src/lib.rs`; Backend `src/server/upload-service.ts`.
 - Regra: upload público sem autenticação, rate limit de 20 uploads/hora/IP. Fonte: Endpoint interno `POST /api/upload` registrado em `src/server/index.ts`.
 - Regra: limite padrão 500 MB e rejeição de arquivo vazio/multipart inválido. Fonte: `src/server/config.ts`, `src/server/upload-service.ts`, testes `src/server/config.test.ts`.
 - Regra: URL pública `${PUBLIC_BASE_URL}/f/:shortId` redireciona para signed URL do R2 e incrementa `download_count`. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
 - Regra: expiração padrão de 24h; expirados são removidos do R2 e marcados com `deleted_at`. Fonte: `src/server/expiration.ts`, Job interno `cleanupExpiredUploads` em `src/server/cleanup.ts`, CLI `src/server/cleanup-cli.ts`.
-- Regra: desktop copia via `wl-copy`, notifica via `notify-send`, e mantém fallback visual se uma integração local falhar. Fonte: comandos desktop `copy_link`, `notify_success`, `upload_file` em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
+- Regra: desktop copia via `wl-copy`, notifica via `notify-send`, e mantém fallback visual se uma integração local falhar. Em múltiplos arquivos, o sucesso mostra um único link para o ZIP; se algum arquivo selecionado for inválido/vazio, o pacote não é enviado. Fonte: comandos desktop `copy_link`, `notify_success`, `upload_files` em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 
 ## Technical map for future LLMs
 
 - Backend entrypoint: `src/server/index.ts` (Fastify, multipart, rate-limit, health, upload, download, cleanup startup).
 - Persistence: PostgreSQL via Drizzle ORM on `Bun.SQL`; Drizzle Kit config in `drizzle.config.ts`; typed schema in `src/server/schema.ts`; DB helper in `src/server/db.ts`; migration SQL in `migrations/001_create_uploads.sql`.
 - Storage: Cloudflare R2 via AWS SDK v3 in `src/server/r2.ts`; object keys from `src/server/ids.ts` as `uploads/YYYY/MM/{uuid}-{sanitizedFilename}`.
-- Upload workflow: `src/server/upload-service.ts` streams multipart file to R2 with byte counting, then inserts metadata; short ID retry handles PostgreSQL unique violations without re-uploading R2 object.
+- Upload workflow: `src/server/upload-service.ts` streams 1 multipart file per request to R2 with byte counting, then inserts metadata; short ID retry handles PostgreSQL unique violations without re-uploading R2 object.
 - Download workflow: `src/server/download-service.ts` rejects missing/deleted, deletes+marks expired, otherwise signs R2 GET and redirects 302.
-- Desktop Rust commands: `src-tauri/src/lib.rs` implements `upload_file`, `copy_link`, `notify_success`; config reads `QUICKDROP_API_BASE_URL` with default `http://127.0.0.1:3000`.
-- Desktop UI: `src/desktop/App.tsx` uses Tauri drag-drop events, progress event `upload-progress`, close button and `Esc`; no Vite, Bun HTML import dev server in `src/desktop/dev-server.ts`.
-- Commands: `bun run server:dev`, `bun run server:start`, `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run cleanup:run`, `bun run desktop:dev`, `bun run desktop:build:web`, `bun run desktop:build`, `bun run desktop:install`, `bun run waybar:install`, `bun run typecheck`, `bun test`.
-- Waybar install: `scripts/install-desktop.ts` copies `quickdrop` and `quickdrop-waybar`; `scripts/install-waybar-module.ts` idempotently patches `~/.config/waybar/config.jsonc` with `QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz` by default, backs it up, and restarts Waybar via `omarchy restart waybar` when available. Override with `QUICKDROP_API_BASE_URL=... bun run waybar:install`.
+- Desktop Rust commands: `src-tauri/src/lib.rs` implements `upload_file`, `upload_files`, `copy_link`, `notify_success`; `upload_files` validates selected paths, creates a temporary `.zip` with unique entry names when there is more than 1 file, uploads that ZIP through the existing single-file backend endpoint, then removes the temp file. Config reads `QUICKDROP_API_BASE_URL` with default `http://127.0.0.1:3000`.
+- Desktop UI: `src/desktop/App.tsx` usa Tauri drag-drop events e `@tauri-apps/plugin-dialog` com `multiple: true`; mostra fase `Criando ZIP...`, envia um pacote para múltiplos arquivos, copia 1 link, close button e `Esc`; no Vite, Bun HTML import dev server in `src/desktop/dev-server.ts`.
+- Commands: `bun run server:dev`, `bun run server:start`, `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run cleanup:run`, `bun run desktop:dev`, `bun run desktop:build:web`, `bun run desktop:build`, `bun run desktop:install`, `bun run desktop:install:local`, `bun run waybar:install`, `bun run local:server:up`, `bun run local:server:stop`, `bun run quickdrop:install`, `bun run quickdrop:install:local`, `bun run typecheck`, `bun test`.
+- Waybar install: `scripts/install-desktop.ts` copies `quickdrop` and `quickdrop-waybar`; `scripts/install-waybar-module.ts` idempotently patches `~/.config/waybar/config.jsonc` with `QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz` by default, backs it up, and restarts Waybar via `omarchy restart waybar` when available. Override with `QUICKDROP_API_BASE_URL=... bun run waybar:install`; `quickdrop:install` builds+installs the desktop against the remote backend for reboot-safe daily use.
 - Deploy backend: `Dockerfile` builds a production Bun image for `src/server`; `scripts/docker-entrypoint.sh` runs `bun run db:migrate` by default before `bun run server:start`; `.dockerignore` excludes desktop/Tauri build artifacts and secrets. Coolify must set `PUBLIC_BASE_URL` to the public backend domain and real PostgreSQL/R2 env vars.
+- Local Docker backend: `compose.yml` has an optional `server` service behind profile `local-server`, with Postgres healthcheck, `restart: unless-stopped`, port `127.0.0.1:3000`, and `DATABASE_URL` overridden to `db:5432`. `quickdrop:install:local` starts it and installs Waybar pointed to `http://127.0.0.1:3000`.
 
 ## Conflicts and unknowns
 
 - End-to-end upload/download requires real Cloudflare R2 credentials and PostgreSQL running; repository defaults do not contain secrets.
 - Desktop Wayland flow requires local `wl-copy`, `wl-paste`, `notify-send`, Tauri Linux system dependencies, and a graphical Wayland session.
-- Deploy Dockerfile covers only the backend HTTP service; desktop Tauri/Waybar remains a local Linux client.
+- Deploy Dockerfile covers the backend HTTP service; desktop Tauri/Waybar remains a local Linux client. Daily local use should prefer the remote backend unless the user explicitly wants the optional local Docker backend.
 
 ## History
 
 - 2026-06-22: Implementado MVP descrito em `docs/mvp.md` com base nas convenções de `docs/CLAUDE.md`; fontes inspecionadas/implementadas incluem `package.json`, `tsconfig.json`, `drizzle.config.ts`, `src/server/*`, `src-tauri/*`, `src/desktop/*`, `migrations/001_create_uploads.sql`, `.env.example`, `compose.yml` e README. O usuário esclareceu que o projeto deve usar Drizzle como ORM, então a persistência usa Drizzle ORM sobre `Bun.SQL`.
 - 2026-06-23: Adicionado instalador automático do módulo Waybar; fontes atualizadas incluem `scripts/install-desktop.ts`, `scripts/install-waybar-module.ts`, `scripts/quickdrop-waybar`, `README.md` e `package.json`. O snippet manual aponta para `~/.local/bin/quickdrop-waybar` com `QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz`, não para o binário direto.
 - 2026-06-23: Adicionado deploy Docker/Coolify para backend: `Dockerfile`, `.dockerignore`, `scripts/docker-entrypoint.sh`, `.env.example`, README e LLM context. Container roda migrações por padrão via `RUN_MIGRATIONS_ON_START=true` antes de iniciar o Fastify.
+- 2026-06-23: Adicionado seletor local de arquivos pela seta na UI desktop, mantendo drag-and-drop; fontes atualizadas incluem `src/desktop/App.tsx`, `src/desktop/tauri.ts`, `src/desktop/input.css`, `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`, `package.json`, `src-tauri/Cargo.toml`, README e LLM context.
+- 2026-06-23: Documentado e automatizado caminho persistente pós-reboot: Waybar/desktop apontam para o backend remoto por padrão via `quickdrop:install`, e o Compose ganhou backend local opcional com profile `local-server` e `restart: unless-stopped` para fallback/desenvolvimento local.
+- 2026-06-23: QuickDrop desktop passou a aceitar múltiplos arquivos no drag-and-drop e no seletor local gerando um único link: `src-tauri/src/lib.rs` cria ZIP temporário local para seleções com 2+ arquivos e envia ao backend como 1 arquivo; fontes atualizadas incluem `src/desktop/App.tsx`, `src/desktop/tauri.ts`, `src/desktop/input.css`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `scripts/install-waybar-module.ts`, `scripts/install-waybar-module.test.ts`, README e LLM context.
 <!-- business-readme:context:end -->

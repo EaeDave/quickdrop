@@ -80,7 +80,7 @@ function renderQuickdropModule(launcherPath: string, apiBaseUrl: string): string
     `  "${QUICKDROP_MODULE}": {`,
     `    "format": "󰇚",`,
     `    "tooltip": true,`,
-    `    "tooltip-format": "QuickDrop\\nArraste um arquivo para enviar",`,
+    `    "tooltip-format": "QuickDrop\\nArraste arquivos para enviar",`,
     `    "on-click": ${JSON.stringify(onClick)}`,
     "  }",
   ].join("\n");

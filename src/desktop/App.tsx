@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { copyLink, notifySuccess, onUploadProgress, uploadFile } from "./tauri";
+import { copyLink, notifySuccess, onUploadProgress, selectLocalFiles, uploadFiles } from "./tauri";
 
 type UploadState =
   | { status: "idle" }
-  | { status: "uploading"; fileName: string; percent: number }
-  | { status: "success"; url: string; expiresAt: string; notificationWarning?: string }
+  | { status: "uploading"; fileName: string; fileCount: number; percent: number; phase: "preparing" | "uploading" }
+  | { status: "success"; url: string; expiresAt: string; fileCount: number; notificationWarning?: string }
   | { status: "error"; message: string };
 
 export function App() {
@@ -26,23 +26,23 @@ export function App() {
   const handlePathDrop = useCallback(async (paths: string[]) => {
     setManualUrl(null);
 
-    if (paths.length !== 1) {
-      setState({ status: "error", message: "Envie apenas um arquivo por vez." });
+    const selectedPaths = paths.filter(Boolean);
+
+    if (selectedPaths.length === 0) {
+      setState({ status: "error", message: "Selecione pelo menos um arquivo." });
       return;
     }
 
-    const path = paths[0];
-
-    if (!path) {
-      setState({ status: "error", message: "Selecione um arquivo." });
-      return;
-    }
-
-    const fileName = path.split(/[\\/]/).pop() || path;
-    setState({ status: "uploading", fileName, percent: 0 });
+    setState({
+      status: "uploading",
+      fileName: formatSelectionName(selectedPaths),
+      fileCount: selectedPaths.length,
+      percent: 0,
+      phase: selectedPaths.length === 1 ? "uploading" : "preparing",
+    });
 
     try {
-      const response = await uploadFile(path);
+      const response = await uploadFiles(selectedPaths);
 
       try {
         await copyLink(response.url);
@@ -56,13 +56,14 @@ export function App() {
       }
 
       try {
-        await notifySuccess();
-        setState({ status: "success", url: response.url, expiresAt: response.expiresAt });
+        await notifySuccess(selectedPaths.length);
+        setState({ status: "success", url: response.url, expiresAt: response.expiresAt, fileCount: selectedPaths.length });
       } catch (error) {
         setState({
           status: "success",
           url: response.url,
           expiresAt: response.expiresAt,
+          fileCount: selectedPaths.length,
           notificationWarning: `Link copiado, mas a notificação falhou: ${formatError(error)}`,
         });
       }
@@ -70,6 +71,20 @@ export function App() {
       setState({ status: "error", message: formatError(error) });
     }
   }, []);
+
+  const handlePickFile = useCallback(async () => {
+    try {
+      const paths = await selectLocalFiles();
+
+      if (paths.length === 0) {
+        return;
+      }
+
+      await handlePathDrop(paths);
+    } catch (error) {
+      setState({ status: "error", message: `Falha ao abrir seletor de arquivos: ${formatError(error)}` });
+    }
+  }, [handlePathDrop]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -81,7 +96,7 @@ export function App() {
           return current;
         }
 
-        return { ...current, percent: progress.percent };
+        return { ...current, phase: "uploading", percent: Math.min(100, Math.max(0, progress.percent)) };
       });
     }).then((cleanup) => {
       if (disposed) {
@@ -157,8 +172,8 @@ export function App() {
           </button>
         </header>
 
-        {state.status === "idle" && <IdleState />}
-        {state.status === "uploading" && <UploadingState fileName={state.fileName} percent={state.percent} />}
+        {state.status === "idle" && <IdleState onPickFile={handlePickFile} />}
+        {state.status === "uploading" && <UploadingState state={state} />}
         {state.status === "success" && <SuccessState state={state} />}
         {state.status === "error" && <ErrorState message={state.message} manualUrl={manualUrl} onReset={reset} />}
       </section>
@@ -166,25 +181,41 @@ export function App() {
   );
 }
 
-function IdleState() {
+function IdleState(props: { onPickFile: () => void }) {
   return (
     <div className="quickdrop-drop-zone">
-      <div className="quickdrop-icon" aria-hidden="true">⇪</div>
-      <p className="quickdrop-primary">Arraste um arquivo para enviar</p>
-      <p className="quickdrop-secondary">Um arquivo por vez. Upload automático.</p>
+      <button
+        className="quickdrop-picker"
+        type="button"
+        aria-label="Selecionar arquivos do computador"
+        title="Selecionar arquivos"
+        onClick={props.onPickFile}
+      >
+        <span className="quickdrop-icon" aria-hidden="true">⇪</span>
+      </button>
+      <p className="quickdrop-primary">Arraste arquivos para enviar</p>
+      <p className="quickdrop-secondary">Múltiplos arquivos viram um ZIP com um único link.</p>
     </div>
   );
 }
 
-function UploadingState(props: { fileName: string; percent: number }) {
+function UploadingState(props: { state: Extract<UploadState, { status: "uploading" }> }) {
+  const isPreparing = props.state.phase === "preparing";
+
   return (
     <div className="quickdrop-drop-zone">
-      <p className="quickdrop-kicker">Uploading...</p>
-      <p className="quickdrop-file">{props.fileName}</p>
+      <p className="quickdrop-kicker">{isPreparing ? "Criando ZIP..." : "Uploading..."}</p>
+      <p className="quickdrop-file">{props.state.fileName}</p>
       <div className="quickdrop-progress" aria-hidden="true">
-        <div style={{ width: `${props.percent}%` }} />
+        <div style={{ width: `${props.state.percent}%` }} />
       </div>
-      <p className="quickdrop-secondary">{props.percent}% enviado</p>
+      <p className="quickdrop-secondary">
+        {isPreparing
+          ? "Compactando antes do envio"
+          : props.state.fileCount === 1
+            ? `${props.state.percent}% enviado`
+            : `${props.state.percent}% do pacote enviado`}
+      </p>
     </div>
   );
 }
@@ -193,7 +224,9 @@ function SuccessState(props: { state: Extract<UploadState, { status: "success" }
   return (
     <div className="quickdrop-drop-zone quickdrop-state">
       <p className="quickdrop-primary quickdrop-success">Upload concluído</p>
-      <p className="quickdrop-secondary">Link copiado</p>
+      <p className="quickdrop-secondary">
+        {props.state.fileCount === 1 ? "Link copiado" : `${props.state.fileCount} arquivos em um único link`}
+      </p>
       <a className="quickdrop-url" href={props.state.url} tabIndex={-1} draggable={false}>
         {props.state.url}
       </a>
@@ -218,6 +251,18 @@ function ErrorState(props: { message: string; manualUrl: string | null; onReset:
       </button>
     </div>
   );
+}
+
+function formatSelectionName(paths: string[]): string {
+  if (paths.length === 1) {
+    return getFileName(paths[0] ?? "");
+  }
+
+  return `${paths.length} arquivos (.zip)`;
+}
+
+function getFileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
 }
 
 function formatError(error: unknown): string {

@@ -49,7 +49,7 @@ describe("patchWaybarConfig", () => {
 
     expect(changed).toBe(true);
     expect(text).not.toContain(`"on-click": "quickdrop"`);
-    expect(text).toContain(`"tooltip-format": "QuickDrop\\nArraste um arquivo para enviar"`);
+    expect(text).toContain(`"tooltip-format": "QuickDrop\\nArraste arquivos para enviar"`);
     expect(text).toContain(`"on-click": "env QUICKDROP_API_BASE_URL='https://quickdrop.eaedave.xyz' '/home/user/.local/bin/quickdrop-waybar'"`);
   });
 

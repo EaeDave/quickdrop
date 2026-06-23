@@ -2,6 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "QuickDrop desktop permissions",
-  "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-close"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "dialog:default"
+  ]
 }

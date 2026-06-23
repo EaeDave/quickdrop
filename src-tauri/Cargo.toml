@@ -21,3 +21,5 @@ tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 mime_guess = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
