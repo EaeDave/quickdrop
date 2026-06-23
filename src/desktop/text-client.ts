@@ -1,11 +1,12 @@
 export type RoomStatus = "connecting" | "open" | "closed";
+export type RoomErrorCode = "pin_required" | "pin_invalid" | "invalid_token" | "not_found" | "too_large" | "room_full" | null;
 
 export type RoomHandlers = {
   onSnapshot(payload: { text: string; version: number; clientId: string }): void;
   onUpdate(payload: { text: string; version: number; by: string }): void;
   onPresence(payload: { count: number }): void;
   onAck(payload: { version: number }): void;
-  onError(payload: { message: string }): void;
+  onError(payload: { code: RoomErrorCode; message: string }): void;
   onStatus(status: RoomStatus): void;
 };
 
@@ -13,6 +14,24 @@ export type RoomController = {
   sendWrite(text: string, baseVersion: number): void;
   close(): void;
 };
+
+export type RoomAccess = {
+  code: string;
+  protected: boolean;
+  accessExpiresAt: string | null;
+};
+
+export class RoomAccessError extends Error {
+  code: RoomErrorCode;
+  status: number;
+
+  constructor(message: string, code: RoomErrorCode, status = 0) {
+    super(message);
+    this.name = "RoomAccessError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 async function readJsonResponse(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -39,6 +58,15 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function getErrorCode(payload: unknown): RoomErrorCode {
+  if (!payload || typeof payload !== "object" || !("error" in payload)) {
+    return null;
+  }
+
+  const error = payload.error;
+  return typeof error === "string" ? (error as RoomErrorCode) : null;
+}
+
 function getRoomUrl(code: string): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${window.location.host}/api/text/${encodeURIComponent(code)}/ws`;
@@ -52,45 +80,109 @@ function parseString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export async function createRoom(): Promise<string> {
-  const response = await fetch("/api/text", { method: "POST" });
-  const payload = await readJsonResponse(response);
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, `Falha ao criar sala (${response.status})`));
-  }
-
-  if (!payload || typeof payload !== "object" || !("code" in payload)) {
-    throw new Error("Resposta inválida ao criar sala");
-  }
-
-  const code = parseString(payload.code);
-  if (!code) {
-    throw new Error("Resposta inválida ao criar sala");
-  }
-
-  return code.trim().toUpperCase();
+function parseBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
-export async function fetchSnapshot(code: string): Promise<{ text: string; version: number }> {
-  const response = await fetch(`/api/text/${encodeURIComponent(code)}`);
+function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
+  if (!body) {
+    return { method: "POST", credentials: "same-origin" };
+  }
+
+  return {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+export async function createRoom(pin?: string): Promise<RoomAccess> {
+  const trimmedPin = pin?.trim();
+  const response = await fetch(
+    "/api/text",
+    createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
+  );
   const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(payload, `Falha ao carregar sala (${response.status})`));
+    throw new RoomAccessError(
+      getErrorMessage(payload, `Falha ao criar sala (${response.status})`),
+      getErrorCode(payload),
+      response.status,
+    );
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new Error("Resposta inválida ao carregar sala");
+    throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
+  }
+
+  const code = "code" in payload ? parseString(payload.code) : null;
+  const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
+  if (!code || protectedRoom === null) {
+    throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
+  }
+
+  return { code: code.trim().toUpperCase(), protected: protectedRoom, accessExpiresAt: null };
+}
+
+export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> {
+  const trimmedPin = pin?.trim();
+  const response = await fetch(
+    `/api/text/${encodeURIComponent(code)}/access`,
+    createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
+  );
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new RoomAccessError(
+      getErrorMessage(payload, `Falha ao entrar na sala (${response.status})`),
+      getErrorCode(payload),
+      response.status,
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
+  }
+
+  const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
+  const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
+  if (protectedRoom === null) {
+    throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
+  }
+
+  return {
+    code: code.trim().toUpperCase(),
+    protected: protectedRoom,
+    accessExpiresAt,
+  };
+}
+
+export async function fetchSnapshot(code: string): Promise<{ text: string; version: number; protected: boolean }> {
+  const response = await fetch(`/api/text/${encodeURIComponent(code)}`, { credentials: "same-origin" });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new RoomAccessError(
+      getErrorMessage(payload, `Falha ao carregar sala (${response.status})`),
+      getErrorCode(payload),
+      response.status,
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
   }
 
   const text = "text" in payload ? parseString(payload.text) : null;
   const version = "version" in payload ? parseNumber(payload.version) : null;
-  if (text === null || version === null) {
-    throw new Error("Resposta inválida ao carregar sala");
+  const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
+  if (text === null || version === null || protectedRoom === null) {
+    throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
   }
 
-  return { text, version };
+  return { text, version, protected: protectedRoom };
 }
 
 export function connectRoom(code: string, handlers: RoomHandlers): RoomController {
@@ -218,7 +310,8 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
 
       if (payload.type === "error") {
         const messageText = "message" in payload ? parseString(payload.message) : null;
-        handlers.onError({ message: messageText ?? "Erro na sala" });
+        const code = "error" in payload ? parseString(payload.error) : null;
+        handlers.onError({ code: code as RoomErrorCode, message: messageText ?? "Erro na sala" });
       }
     };
 

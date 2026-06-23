@@ -2,12 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import Fastify, { type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
+import { WebSocket as NodeWebSocket } from "ws";
 import { TextSessionHub } from "./text-session-hub";
-import {
-  rearmTextRoomsAfterRestart,
-  registerTextSessionRoutes,
-  startTextSessionSweep,
-} from "./text-session-service";
+import { rearmTextRoomsAfterRestart, registerTextSessionRoutes, startTextSessionSweep } from "./text-session-service";
+import { hashRoomPin } from "./text-room-pin";
 import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
@@ -17,10 +15,17 @@ type ServerMessage = {
   clientId?: string;
   by?: string;
   count?: number;
+  error?: string;
   message?: string;
 };
 
 type MutableClock = { current: Date };
+
+const queuedMessages = new WeakMap<NodeWebSocket, ServerMessage[]>();
+const pendingReceivers = new WeakMap<
+  NodeWebSocket,
+  Array<{ resolve: (message: ServerMessage) => void; reject: (error: Error) => void }>
+>();
 
 class InMemoryTextRoomsRepository implements TextRoomsRepository {
   private readonly rooms = new Map<string, TextRoomRow>();
@@ -150,7 +155,7 @@ function copyRoom(room: TextRoomRow): TextRoomRow {
 async function startTestServer(repository: TextRoomsRepository, clock: MutableClock) {
   const app = Fastify({ logger: false });
   const hub = new TextSessionHub({ maxClientsPerSession: 20 });
-  const sockets = new Set<WebSocket>();
+  const sockets = new Set<NodeWebSocket>();
 
   app.register(rateLimit, { global: false });
   app.register(websocket, { options: { maxPayload: 1024 + 1024 } });
@@ -181,45 +186,72 @@ async function startTestServer(repository: TextRoomsRepository, clock: MutableCl
       app.server.closeAllConnections?.();
       await app.close();
     },
-    connect(code: string): WebSocket {
-      const socket = new WebSocket(`${wsBase}/api/text/${code}/ws`);
+    connect(code: string, cookieHeader?: string): NodeWebSocket {
+      const socket = new NodeWebSocket(`${wsBase}/api/text/${code}/ws`, {
+        headers: cookieHeader ? { Cookie: cookieHeader } : undefined,
+      });
+      queuedMessages.set(socket, []);
+      pendingReceivers.set(socket, []);
+      socket.on("message", (data) => {
+        const parsed: ServerMessage = JSON.parse(String(data));
+        const waiting = pendingReceivers.get(socket);
+        if (waiting && waiting.length > 0) {
+          const next = waiting.shift();
+          next?.resolve(parsed);
+          return;
+        }
+
+        queuedMessages.get(socket)?.push(parsed);
+      });
+      socket.once("error", (error) => {
+        const waiting = pendingReceivers.get(socket) ?? [];
+        pendingReceivers.set(socket, []);
+        for (const receiver of waiting) {
+          receiver.reject(error instanceof Error ? error : new Error("socket error"));
+        }
+      });
+      socket.once("close", () => {
+        sockets.delete(socket);
+        const waiting = pendingReceivers.get(socket) ?? [];
+        pendingReceivers.set(socket, []);
+        for (const receiver of waiting) {
+          receiver.reject(new Error("socket closed"));
+        }
+      });
       sockets.add(socket);
-      socket.addEventListener("close", () => sockets.delete(socket), { once: true });
       return socket;
     },
   };
 }
 
-function closeSocket(socket: WebSocket): Promise<void> {
+function closeSocket(socket: NodeWebSocket): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
 
-  if (socket.readyState === WebSocket.CLOSED) {
+  if (socket.readyState === NodeWebSocket.CLOSED) {
     resolve();
     return promise;
   }
 
-  socket.addEventListener("close", () => resolve(), { once: true });
+  socket.once("close", () => resolve());
   socket.close();
   return promise;
 }
 
-function nextMessage(socket: WebSocket): Promise<ServerMessage> {
+function nextMessage(socket: NodeWebSocket): Promise<ServerMessage> {
+  const queued = queuedMessages.get(socket);
+  const first = queued?.shift();
+  if (first) {
+    return Promise.resolve(first);
+  }
+
   const { promise, resolve, reject } = Promise.withResolvers<ServerMessage>();
-
-  socket.addEventListener(
-    "message",
-    (event) => {
-      const parsed: ServerMessage = JSON.parse(String(event.data));
-      resolve(parsed);
-    },
-    { once: true },
-  );
-  socket.addEventListener("error", () => reject(new Error("socket error")), { once: true });
-
+  const waiting = pendingReceivers.get(socket) ?? [];
+  waiting.push({ resolve, reject });
+  pendingReceivers.set(socket, waiting);
   return promise;
 }
 
-async function expectJoined(socket: WebSocket, expectedCount: number) {
+async function expectJoined(socket: NodeWebSocket, expectedCount: number) {
   const snapshot = await nextMessage(socket);
   expect(snapshot.type).toBe("snapshot");
   const presence = await nextMessage(socket);
@@ -236,13 +268,14 @@ describe("text session routes", () => {
     try {
       const response = await server.app.inject({ method: "POST", url: "/api/text" });
       expect(response.statusCode).toBe(200);
-      const created: { code: string } = JSON.parse(response.body);
+      const created: { code: string; protected: boolean } = JSON.parse(response.body);
       expect(created.code).toMatch(/^[2-9A-HJ-NP-Z]{6}$/);
+      expect(created.protected).toBe(false);
 
       const snapshot = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number } = JSON.parse(snapshot.body);
-      expect(payload).toEqual({ text: "", version: 0 });
+      const payload: { text: string; version: number; protected: boolean } = JSON.parse(snapshot.body);
+      expect(payload).toEqual({ text: "", version: 0, protected: false });
     } finally {
       await server.close();
     }
@@ -255,7 +288,7 @@ describe("text session routes", () => {
 
     try {
       const createResponse = await server.app.inject({ method: "POST", url: "/api/text" });
-      const created: { code: string } = JSON.parse(createResponse.body);
+      const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
       const author = server.connect(created.code);
       const snapshot = await expectJoined(author, 1);
       expect(snapshot.text).toBe("");
@@ -278,8 +311,8 @@ describe("text session routes", () => {
       expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
-      const persistedPayload: { text: string; version: number } = JSON.parse(persisted.body);
-      expect(persistedPayload).toEqual({ text: "select 1", version: 1 });
+      const persistedPayload: { text: string; version: number; protected: boolean } = JSON.parse(persisted.body);
+      expect(persistedPayload).toEqual({ text: "select 1", version: 1, protected: false });
     } finally {
       await server.close();
     }
@@ -292,7 +325,7 @@ describe("text session routes", () => {
 
     try {
       const createResponse = await server.app.inject({ method: "POST", url: "/api/text" });
-      const created: { code: string } = JSON.parse(createResponse.body);
+      const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
       const author = server.connect(created.code);
       await expectJoined(author, 1);
 
@@ -312,7 +345,76 @@ describe("text session routes", () => {
 
     try {
       const socket = server.connect("ZZZZZZ");
-      expect(await nextMessage(socket)).toEqual({ type: "error", message: "Sala não encontrada." });
+      expect(await nextMessage(socket)).toEqual({ type: "error", error: "not_found", message: "Sala não encontrada." });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("requires a valid PIN for protected rooms", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      const createResponse = await server.app.inject({
+        method: "POST",
+        url: "/api/text",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ pin: "1234" }),
+      });
+      expect(createResponse.statusCode).toBe(200);
+      const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
+      expect(created.protected).toBe(true);
+      const creatorCookie = String(createResponse.headers["set-cookie"]);
+
+      const anonymousRead = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
+      expect(anonymousRead.statusCode).toBe(401);
+      expect(anonymousRead.json().error).toBe("pin_required");
+
+      const missingPin = await server.app.inject({ method: "POST", url: `/api/text/${created.code}/access` });
+      expect(missingPin.statusCode).toBe(401);
+      expect(missingPin.json().error).toBe("pin_required");
+
+      const wrongPin = await server.app.inject({
+        method: "POST",
+        url: `/api/text/${created.code}/access`,
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ pin: "9999" }),
+      });
+      expect(wrongPin.statusCode).toBe(401);
+      expect(wrongPin.json().error).toBe("pin_invalid");
+
+      const access = await server.app.inject({
+        method: "POST",
+        url: `/api/text/${created.code}/access`,
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ pin: "1234" }),
+      });
+      expect(access.statusCode).toBe(200);
+      const joinCookie = String(access.headers["set-cookie"]);
+
+      const protectedRead = await server.app.inject({
+        method: "GET",
+        url: `/api/text/${created.code}`,
+        headers: { cookie: joinCookie },
+      });
+      expect(protectedRead.statusCode).toBe(200);
+      const protectedPayload: { text: string; version: number; protected: boolean } = JSON.parse(protectedRead.body);
+      expect(protectedPayload).toEqual({ text: "", version: 0, protected: true });
+
+      const blockedSocket = server.connect(created.code);
+      expect(await nextMessage(blockedSocket)).toEqual({
+        type: "error",
+        error: "pin_required",
+        message: "Sala protegida por PIN.",
+      });
+      await closeSocket(blockedSocket);
+
+      const creatorSocket = server.connect(created.code, creatorCookie);
+      const creatorSnapshot = await expectJoined(creatorSocket, 1);
+      expect(creatorSnapshot.type).toBe("snapshot");
+      await closeSocket(creatorSocket);
     } finally {
       await server.close();
     }
@@ -324,7 +426,7 @@ describe("text session routes", () => {
     const firstServer = await startTestServer(repository, clock);
 
     const createResponse = await firstServer.app.inject({ method: "POST", url: "/api/text" });
-    const created: { code: string } = JSON.parse(createResponse.body);
+    const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
     const author = firstServer.connect(created.code);
     await expectJoined(author, 1);
     const ack = nextMessage(author);
@@ -336,8 +438,8 @@ describe("text session routes", () => {
     try {
       const snapshot = await secondServer.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number } = JSON.parse(snapshot.body);
-      expect(payload).toEqual({ text: "survives restart", version: 1 });
+      const payload: { text: string; version: number; protected: boolean } = JSON.parse(snapshot.body);
+      expect(payload).toEqual({ text: "survives restart", version: 1, protected: false });
     } finally {
       await secondServer.close();
     }
