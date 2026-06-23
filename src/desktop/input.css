@@ -523,6 +523,14 @@ html.quickdrop-text-page a {
   letter-spacing: 0.04em;
 }
 
+.quickdrop-text-room-typing {
+  color: #fcd34d;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+
 
 .quickdrop-text-badge {
   align-self: center;
@@ -603,10 +611,47 @@ html.quickdrop-text-page a {
 }
 
 .quickdrop-text-editor {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
 }
+
+.quickdrop-text-pointer-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 24px;
+}
+
+.quickdrop-text-pointer {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transform: translate(-8px, -8px);
+}
+
+.quickdrop-text-pointer-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgb(15 23 42 / 0.5);
+}
+
+.quickdrop-text-pointer-label {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+}
+
 
 .quickdrop-text-textarea {
   flex: 1;

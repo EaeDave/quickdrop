@@ -11,6 +11,7 @@ import { textRoomsRepository } from "./text-rooms-repository";
 const liveSockets = new WeakSet<WebSocket>();
 const CODE_GENERATION_ATTEMPTS = 8;
 const EXPIRED_SWEEP_LIMIT = 100;
+const POINTER_COORD_PRECISION = 1000;
 
 export type TextSessionRouteDeps = {
   hub: TextSessionHub;
@@ -243,7 +244,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       socket.on("message", (raw: RawData) => {
-        void handleWrite(raw, code, clientId, socket, deps, repository, now);
+        void handleRealtimeMessage(raw, code, clientId, socket, deps, repository, now);
       });
 
       let closed = false;
@@ -259,6 +260,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         }
         liveSockets.delete(socket);
         const remaining = deps.hub.leave(code, clientId);
+        deps.hub.broadcast(code, JSON.stringify({ type: "peer_left", by: clientId }));
         deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: remaining }));
 
         if (remaining === 0) {
@@ -277,7 +279,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
   );
 }
 
-async function handleWrite(
+async function handleRealtimeMessage(
   raw: RawData,
   code: string,
   clientId: string,
@@ -286,9 +288,32 @@ async function handleWrite(
   repository: TextRoomsRepository,
   now: () => Date,
 ): Promise<void> {
-  const message = parseWriteMessage(raw);
+  const message = parseRealtimeMessage(raw);
 
   if (!message) {
+    return;
+  }
+
+  if (message.type === "typing") {
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "typing", by: clientId, active: message.active }),
+      clientId,
+    );
+    return;
+  }
+
+  if (message.type === "pointer") {
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({
+        type: "pointer",
+        by: clientId,
+        visible: message.visible,
+        ...(message.visible ? { x: message.x, y: message.y } : {}),
+      }),
+      clientId,
+    );
     return;
   }
 
@@ -312,7 +337,11 @@ async function handleWrite(
   socket.send(JSON.stringify({ type: "ack", version: updated.version }));
 }
 
-function parseWriteMessage(raw: RawData): { text: string } | null {
+function parseRealtimeMessage(raw: RawData):
+  | { type: "write"; text: string }
+  | { type: "typing"; active: boolean }
+  | { type: "pointer"; visible: boolean; x?: number; y?: number }
+  | null {
   let parsed: unknown;
 
   try {
@@ -321,18 +350,45 @@ function parseWriteMessage(raw: RawData): { text: string } | null {
     return null;
   }
 
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "type" in parsed &&
-    parsed.type === "write" &&
-    "text" in parsed &&
-    typeof parsed.text === "string"
-  ) {
-    return { text: parsed.text };
+  if (!parsed || typeof parsed !== "object" || !("type" in parsed)) {
+    return null;
+  }
+
+  if (parsed.type === "write" && "text" in parsed && typeof parsed.text === "string") {
+    return { type: "write", text: parsed.text };
+  }
+
+  if (parsed.type === "typing" && "active" in parsed && typeof parsed.active === "boolean") {
+    return { type: "typing", active: parsed.active };
+  }
+
+  if (parsed.type === "pointer" && "visible" in parsed && typeof parsed.visible === "boolean") {
+    if (!parsed.visible) {
+      return { type: "pointer", visible: false };
+    }
+
+    if (
+      "x" in parsed &&
+      "y" in parsed &&
+      typeof parsed.x === "number" &&
+      Number.isFinite(parsed.x) &&
+      typeof parsed.y === "number" &&
+      Number.isFinite(parsed.y)
+    ) {
+      return {
+        type: "pointer",
+        visible: true,
+        x: clampNormalized(parsed.x),
+        y: clampNormalized(parsed.y),
+      };
+    }
   }
 
   return null;
+}
+
+function clampNormalized(value: number): number {
+  return Math.round(Math.min(1, Math.max(0, value)) * POINTER_COORD_PRECISION) / POINTER_COORD_PRECISION;
 }
 
 function parsePinFromBody(body: unknown): PinParseResult {
