@@ -11,6 +11,11 @@ export type AppConfig = {
   maxFileSizeBytes: number;
   githubToken: string | undefined;
   githubReleaseRepository: string;
+  textSessionTtlHours: number;
+  textSessionMaxBytes: number;
+  textSessionCodeLength: number;
+  textSessionMaxSessions: number;
+  textSessionMaxClientsPerSession: number;
 };
 
 const DEFAULT_PORT = 3000;
@@ -18,6 +23,11 @@ const DEFAULT_R2_BUCKET_NAME = "quickdrop";
 const DEFAULT_FILE_EXPIRATION_HOURS = 24;
 const DEFAULT_MAX_FILE_SIZE_MB = 500;
 const DEFAULT_GITHUB_RELEASE_REPOSITORY = "EaeDave/quickdrop";
+const DEFAULT_TEXT_SESSION_TTL_HOURS = 12;
+const DEFAULT_TEXT_SESSION_MAX_KB = 256;
+const DEFAULT_TEXT_SESSION_CODE_LENGTH = 6;
+const DEFAULT_TEXT_SESSION_MAX_SESSIONS = 500;
+const DEFAULT_TEXT_SESSION_MAX_CLIENTS = 20;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = readPositiveInteger(env, "PORT", DEFAULT_PORT);
@@ -30,6 +40,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env,
     "MAX_FILE_SIZE_MB",
     DEFAULT_MAX_FILE_SIZE_MB,
+  );
+  const textSessionTtlHours = readPositiveInteger(
+    env,
+    "TEXT_SESSION_TTL_HOURS",
+    DEFAULT_TEXT_SESSION_TTL_HOURS,
+  );
+  const textSessionMaxKb = readPositiveInteger(
+    env,
+    "TEXT_SESSION_MAX_KB",
+    DEFAULT_TEXT_SESSION_MAX_KB,
+  );
+  const textSessionCodeLength = readPositiveInteger(
+    env,
+    "TEXT_SESSION_CODE_LENGTH",
+    DEFAULT_TEXT_SESSION_CODE_LENGTH,
+  );
+  const textSessionMaxSessions = readPositiveInteger(
+    env,
+    "TEXT_SESSION_MAX_SESSIONS",
+    DEFAULT_TEXT_SESSION_MAX_SESSIONS,
+  );
+  const textSessionMaxClientsPerSession = readPositiveInteger(
+    env,
+    "TEXT_SESSION_MAX_CLIENTS",
+    DEFAULT_TEXT_SESSION_MAX_CLIENTS,
   );
   const publicBaseUrl = readRequired(env, "PUBLIC_BASE_URL").replace(/\/+$/, "");
 
@@ -47,6 +82,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     githubToken: readOptional(env, "QUICKDROP_GITHUB_TOKEN") ?? readOptional(env, "GITHUB_TOKEN"),
     githubReleaseRepository:
       readOptional(env, "QUICKDROP_GITHUB_REPOSITORY") ?? DEFAULT_GITHUB_RELEASE_REPOSITORY,
+    textSessionTtlHours,
+    textSessionMaxBytes: textSessionMaxKb * 1024,
+    textSessionCodeLength,
+    textSessionMaxSessions,
+    textSessionMaxClientsPerSession,
   };
 }
 

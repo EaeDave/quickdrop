@@ -16,6 +16,11 @@ const config: AppConfig = {
   maxFileSizeBytes: 500 * 1024 * 1024,
   githubToken: undefined,
   githubReleaseRepository: "EaeDave/quickdrop",
+  textSessionTtlHours: 12,
+  textSessionMaxBytes: 256 * 1024,
+  textSessionCodeLength: 6,
+  textSessionMaxSessions: 500,
+  textSessionMaxClientsPerSession: 20,
 };
 
 describe("createR2Client", () => {

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
+import websocket from "@fastify/websocket";
 import Fastify, { type FastifyReply } from "fastify";
 import { loadConfig } from "./config";
 import { startCleanupJob } from "./cleanup";
@@ -12,6 +13,8 @@ import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
 import { handleLinuxInstallerDownload } from "./linux-installer-service";
 import { handleWindowsInstallerDownload } from "./windows-installer-service";
+import { TextSessionStore } from "./text-session-store";
+import { registerTextSessionRoutes, startTextSessionHeartbeat, startTextSessionSweep } from "./text-session-service";
 
 export function buildApp() {
   const config = loadConfig();
@@ -29,6 +32,16 @@ export function buildApp() {
 
   app.register(multipart);
   app.register(rateLimit, { global: false });
+  app.register(websocket, {
+    options: { maxPayload: config.textSessionMaxBytes + 1024 },
+  });
+
+  const textStore = new TextSessionStore({
+    maxBytes: config.textSessionMaxBytes,
+    maxSessions: config.textSessionMaxSessions,
+    maxClientsPerSession: config.textSessionMaxClientsPerSession,
+    codeLength: config.textSessionCodeLength,
+  });
 
   const sendScriptFile = (reply: FastifyReply, fileName: string) =>
     readFile(join(process.cwd(), "scripts", fileName), "utf8").then((script) =>
@@ -50,6 +63,10 @@ export function buildApp() {
   app.get("/linux/latest", async (_request, reply) =>
     handleLinuxInstallerDownload(reply, { config }),
   );
+  app.get("/t", async (_request, reply) => reply.redirect("/?c=", 302));
+  app.get<{ Params: { code: string } }>("/t/:code", async (request, reply) =>
+    reply.redirect(`/?c=${encodeURIComponent(request.params.code)}`, 302),
+  );
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),
     prefix: "/",
@@ -67,19 +84,23 @@ export function buildApp() {
       { preHandler: app.rateLimit({ max: 20, timeWindow: "1 hour" }) },
       async (request, reply) => handleUpload(request, reply, { config, r2Client }),
     );
+
+    registerTextSessionRoutes(app, textStore);
   });
 
   app.get<{ Params: { shortId: string } }>("/f/:shortId", async (request, reply) => {
     await handleDownload(request.params.shortId, reply, { config, r2Client });
   });
 
-  return { app, config };
+  return { app, config, textStore };
 }
 
 export async function startServer(): Promise<void> {
-  const { app, config } = buildApp();
+  const { app, config, textStore } = buildApp();
   await app.listen({ host: "0.0.0.0", port: config.port });
   startCleanupJob();
+  startTextSessionSweep(textStore, config.textSessionTtlHours * 60 * 60 * 1000);
+  startTextSessionHeartbeat(app);
 }
 
 if (import.meta.main) {
