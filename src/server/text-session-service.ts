@@ -1,46 +1,86 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { RawData, WebSocket } from "ws";
-import { normalizeSessionCode } from "./ids";
-import type { TextSessionStore } from "./text-session-store";
+import { generateSessionCode, normalizeSessionCode } from "./ids";
+import type { TextSessionHub } from "./text-session-hub";
+import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
+import { textRoomsRepository } from "./text-rooms-repository";
 
 const liveSockets = new WeakSet<WebSocket>();
+const CODE_GENERATION_ATTEMPTS = 8;
+const EXPIRED_SWEEP_LIMIT = 100;
 
-export function registerTextSessionRoutes(app: FastifyInstance, store: TextSessionStore): void {
+export type TextSessionRouteDeps = {
+  hub: TextSessionHub;
+  repository?: TextRoomsRepository;
+  maxBytes: number;
+  maxSessions: number;
+  codeLength: number;
+  ttlMs: number;
+  now?: () => Date;
+};
+
+export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessionRouteDeps): void {
+  const repository = deps.repository ?? textRoomsRepository;
+  const now = deps.now ?? (() => new Date());
+
   app.post(
     "/api/text",
     { preHandler: app.rateLimit({ max: 60, timeWindow: "1 hour" }) },
     async (_request, reply) => {
-      const created = store.createSession();
-
-      if (!created.ok) {
+      if ((await repository.countActiveTextRooms(now())) >= deps.maxSessions) {
         reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
         return;
       }
 
-      return { code: created.session.code };
+      for (let attempt = 0; attempt < CODE_GENERATION_ATTEMPTS; attempt += 1) {
+        const createdAt = now();
+        const code = generateSessionCode(deps.codeLength);
+        const room = await repository.createTextRoom({
+          code,
+          text: "",
+          version: 0,
+          createdAt,
+          updatedAt: createdAt,
+          expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+        });
+
+        if (room) {
+          return { code: room.code };
+        }
+      }
+
+      reply.code(503).send({ error: "code_exhausted", message: "Não foi possível reservar um código de sala." });
     },
   );
 
   app.get<{ Params: { code: string } }>("/api/text/:code", async (request, reply) => {
-    const session = store.getSession(request.params.code);
+    const code = normalizeSessionCode(request.params.code);
+    const room = await repository.findTextRoomByCode(code);
 
-    if (!session) {
+    if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
       reply.code(404).send({ error: "not_found", message: "Sala não encontrada." });
       return;
     }
 
-    return { text: session.text, version: session.version };
+    return { text: room.text, version: room.version };
   });
 
   app.get<{ Params: { code: string } }>(
     "/api/text/:code/ws",
     { websocket: true },
-    (socket, request) => {
+    async (socket, request) => {
       const code = normalizeSessionCode(request.params.code);
-      const clientId = randomUUID();
+      const room = await repository.findTextRoomByCode(code);
 
-      const joined = store.join(code, {
+      if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
+        socket.send(JSON.stringify({ type: "error", message: "Sala não encontrada." }));
+        socket.close(1008, "not_found");
+        return;
+      }
+
+      const clientId = randomUUID();
+      const joined = deps.hub.join(code, {
         id: clientId,
         send: (data) => {
           try {
@@ -59,53 +99,82 @@ export function registerTextSessionRoutes(app: FastifyInstance, store: TextSessi
       });
 
       if (!joined.ok) {
-        const message = joined.reason === "full" ? "Sala cheia." : "Sala não encontrada.";
-        socket.send(JSON.stringify({ type: "error", message }));
+        socket.send(JSON.stringify({ type: "error", message: "Sala cheia." }));
         socket.close(1008, joined.reason);
         return;
       }
 
+      if (joined.clientCount === 1) {
+        await repository.markTextRoomActive(code, now());
+      }
+
       liveSockets.add(socket);
       socket.on("pong", () => liveSockets.add(socket));
-
-      socket.send(JSON.stringify({ type: "snapshot", text: joined.text, version: joined.version, clientId }));
+      socket.send(JSON.stringify({ type: "snapshot", text: room.text, version: room.version, clientId }));
 
       socket.on("message", (raw: RawData) => {
-        const message = parseWriteMessage(raw);
-
-        if (!message) {
-          return;
-        }
-
-        const result = store.applyWrite(code, message.text);
-
-        if (!result.ok) {
-          if (result.reason === "too_large") {
-            socket.send(JSON.stringify({ type: "error", message: "Texto excede o limite da sala." }));
-          }
-          return;
-        }
-
-        const session = store.getSession(code);
-        if (session) {
-          store.broadcast(
-            session,
-            JSON.stringify({ type: "update", text: message.text, version: result.version, by: clientId }),
-            clientId,
-          );
-        }
-
-        socket.send(JSON.stringify({ type: "ack", version: result.version }));
+        void handleWrite(raw, code, clientId, socket, deps, repository, now);
       });
 
+      let closed = false;
       const onClose = () => {
+        if (closed) {
+          return;
+        }
+
+        closed = true;
         liveSockets.delete(socket);
-        store.leave(code, clientId);
+        const remaining = deps.hub.leave(code, clientId);
+
+        if (remaining === 0) {
+          const closedAt = now();
+          void repository.scheduleTextRoomExpiry(
+            code,
+            new Date(closedAt.getTime() + deps.ttlMs),
+            closedAt,
+          );
+        }
       };
+
       socket.on("close", onClose);
       socket.on("error", onClose);
     },
   );
+}
+
+async function handleWrite(
+  raw: RawData,
+  code: string,
+  clientId: string,
+  socket: WebSocket,
+  deps: TextSessionRouteDeps,
+  repository: TextRoomsRepository,
+  now: () => Date,
+): Promise<void> {
+  const message = parseWriteMessage(raw);
+
+  if (!message) {
+    return;
+  }
+
+  if (Buffer.byteLength(message.text, "utf8") > deps.maxBytes) {
+    socket.send(JSON.stringify({ type: "error", message: "Texto excede o limite da sala." }));
+    return;
+  }
+
+  const updated = await repository.updateTextRoomText({ code, text: message.text, now: now() });
+
+  if (!updated || isExpired(updated, now(), deps.hub.clientCount(code))) {
+    socket.send(JSON.stringify({ type: "error", message: "Sala não encontrada." }));
+    return;
+  }
+
+  deps.hub.broadcast(
+    code,
+    JSON.stringify({ type: "update", text: updated.text, version: updated.version, by: clientId }),
+    clientId,
+  );
+  socket.send(JSON.stringify({ type: "ack", version: updated.version }));
 }
 
 function parseWriteMessage(raw: RawData): { text: string } | null {
@@ -131,17 +200,38 @@ function parseWriteMessage(raw: RawData): { text: string } | null {
   return null;
 }
 
-export function startTextSessionSweep(
-  store: TextSessionStore,
+function isExpired(room: TextRoomRow, now: Date, activeClientCount: number): boolean {
+  return activeClientCount === 0 && room.expires_at !== null && room.expires_at <= now;
+}
+
+export async function rearmTextRoomsAfterRestart(
   ttlMs: number,
+  repository: TextRoomsRepository = textRoomsRepository,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const reopenedAt = now();
+  await repository.rearmOpenTextRooms(new Date(reopenedAt.getTime() + ttlMs), reopenedAt);
+}
+
+export function startTextSessionSweep(
+  repository: TextRoomsRepository = textRoomsRepository,
   intervalMs = 60 * 1000,
+  now: () => Date = () => new Date(),
 ): NodeJS.Timeout {
   const timer = setInterval(() => {
-    store.sweepExpired(ttlMs);
+    void sweepExpiredRooms(repository, now());
   }, intervalMs);
 
   timer.unref();
   return timer;
+}
+
+async function sweepExpiredRooms(repository: TextRoomsRepository, currentTime: Date): Promise<void> {
+  const expiredRooms = await repository.findExpiredTextRooms(currentTime, EXPIRED_SWEEP_LIMIT);
+
+  for (const room of expiredRooms) {
+    await repository.markTextRoomDeleted(room.code, currentTime);
+  }
 }
 
 export function startTextSessionHeartbeat(app: FastifyInstance, intervalMs = 30 * 1000): NodeJS.Timeout {
