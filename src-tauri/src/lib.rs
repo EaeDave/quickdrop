@@ -329,6 +329,10 @@ fn notify_success(file_count: Option<usize>) -> Result<(), String> {
 
     Ok(())
 }
+#[tauri::command]
+fn get_api_base_url(state: tauri::State<'_, DesktopConfig>) -> String {
+    state.api_base_url.clone()
+}
 
 fn compute_window_position(app: &tauri::App) -> (f64, f64) {
     let launch_point = launcher_position_from_env()
@@ -470,7 +474,8 @@ pub fn run() {
             upload_file,
             upload_files,
             copy_link,
-            notify_success
+            notify_success,
+            get_api_base_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

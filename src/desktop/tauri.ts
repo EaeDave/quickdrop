@@ -18,11 +18,12 @@ export function emitWebProgress(percent: number) {
 }
 
 export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse> {
-  if (isTauri) {
+  const isLocalPaths = inputs.length > 0 && typeof inputs[0] === "string";
+
+  if (isTauri && isLocalPaths) {
     const paths = inputs.filter((i): i is string => typeof i === "string");
     return invoke<UploadResponse>("upload_files", { paths });
   }
-
   const files = inputs.filter((i): i is File => i instanceof File);
   if (files.length === 0) {
     throw new Error("Nenhum arquivo selecionado.");
@@ -54,10 +55,12 @@ export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse
     });
   }
 
-  return new Promise<UploadResponse>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/upload");
+  return new Promise<UploadResponse>(async (resolve, reject) => {
+    const apiBaseUrl = isTauri ? await invoke<string>("get_api_base_url") : "";
+    const uploadUrl = apiBaseUrl ? `${apiBaseUrl}/api/upload` : "/api/upload";
 
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.round((event.loaded / event.total) * 100);
