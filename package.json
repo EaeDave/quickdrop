@@ -15,6 +15,7 @@
     "desktop:dev": "bun run desktop:css && bun tauri dev",
     "desktop:build": "bun tauri build",
     "desktop:install": "bun run scripts/install-desktop.ts",
+    "waybar:install": "bun run scripts/install-waybar-module.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test"
   },

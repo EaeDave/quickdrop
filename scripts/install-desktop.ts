@@ -1,5 +1,6 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { installWaybarModule } from "./install-waybar-module.ts";
 
 const releaseBinary = "src-tauri/target/release/quickdrop";
 const home = process.env.HOME;
@@ -24,6 +25,7 @@ await Bun.write(target, Bun.file(releaseBinary));
 await chmod(target, 0o755);
 await Bun.write(waybarTarget, Bun.file("scripts/quickdrop-waybar"));
 await chmod(waybarTarget, 0o755);
+await installWaybarModule();
 
 console.log("Installed quickdrop to ~/.local/bin/quickdrop");
 console.log("Installed quickdrop-waybar to ~/.local/bin/quickdrop-waybar");

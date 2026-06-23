@@ -46,6 +46,7 @@ PUBLIC_BASE_URL=https://files.example.com
 FILE_EXPIRATION_HOURS=24
 MAX_FILE_SIZE_MB=500
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000
+RUN_MIGRATIONS_ON_START=true
 ```
 
 Preencha `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` e `PUBLIC_BASE_URL` antes de iniciar o backend real.
@@ -74,6 +75,27 @@ Health check:
 curl -sS http://127.0.0.1:3000/api/health
 ```
 
+### Deploy Coolify / Dockerfile
+
+O `Dockerfile` publica somente o backend HTTP. No Coolify, use build por Dockerfile, exponha a porta `3000` ou a porta injetada em `PORT`, e configure estas variáveis no app:
+
+```env
+PORT=3000
+DATABASE_URL=postgres://...
+R2_ACCOUNT_ID=...
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET_NAME=quickdrop
+PUBLIC_BASE_URL=https://files.seu-dominio.com
+FILE_EXPIRATION_HOURS=24
+MAX_FILE_SIZE_MB=500
+RUN_MIGRATIONS_ON_START=true
+```
+
+`PUBLIC_BASE_URL` deve ser o domínio público do backend no Coolify, não o bucket R2 direto. A URL copiada pelo desktop será `${PUBLIC_BASE_URL}/f/:shortId`, e esse endpoint redireciona para uma URL assinada temporária do R2.
+
+Na inicialização, o container executa `bun run db:migrate` antes de `bun run server:start`. Se quiser rodar migrações fora do container, defina `RUN_MIGRATIONS_ON_START=false`. Health check: `/api/health`.
+
 Limpeza manual de expirados:
 
 ```bash
@@ -93,24 +115,32 @@ bun run desktop:build:web
 bun run desktop:build
 ```
 
-Instalar comando usado pela Waybar:
+Instalar binário e integrar com Waybar:
 
 ```bash
 bun run desktop:install
 test -x "$HOME/.local/bin/quickdrop"
+test -x "$HOME/.local/bin/quickdrop-waybar"
 ```
 
-`quickdrop` só resolve na Waybar se `~/.local/bin` estiver no `PATH`; caso contrário, use `/home/<user>/.local/bin/quickdrop` em `on-click`.
+`desktop:install` copia o binário, instala o launcher `quickdrop-waybar`, atualiza `~/.config/waybar/config.jsonc`, cria backup `config.jsonc.bak.quickdrop.*` e reinicia a Waybar quando `omarchy` está disponível. Para reaplicar só o módulo Waybar:
 
-Módulo Waybar:
+```bash
+bun run waybar:install
+```
+
+Snippet manual equivalente:
 
 ```json
 "custom/quickdrop": {
   "format": "󰇚",
-  "tooltip": "QuickDrop",
-  "on-click": "quickdrop"
+  "tooltip": true,
+  "tooltip-format": "QuickDrop\nArraste um arquivo para enviar",
+  "on-click": "/home/<user>/.local/bin/quickdrop-waybar"
 }
 ```
+
+Inclua `"custom/quickdrop"` em `modules-right` ou no bloco da Waybar onde o ícone deve aparecer.
 
 ### Verificação
 

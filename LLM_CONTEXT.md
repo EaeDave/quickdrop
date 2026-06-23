@@ -19,14 +19,19 @@
 - Download workflow: `src/server/download-service.ts` rejects missing/deleted, deletes+marks expired, otherwise signs R2 GET and redirects 302.
 - Desktop Rust commands: `src-tauri/src/lib.rs` implements `upload_file`, `copy_link`, `notify_success`; config reads `QUICKDROP_API_BASE_URL` with default `http://127.0.0.1:3000`.
 - Desktop UI: `src/desktop/App.tsx` uses Tauri drag-drop events, progress event `upload-progress`, close button and `Esc`; no Vite, Bun HTML import dev server in `src/desktop/dev-server.ts`.
-- Commands: `bun run server:dev`, `bun run server:start`, `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run cleanup:run`, `bun run desktop:dev`, `bun run desktop:build:web`, `bun run desktop:build`, `bun run desktop:install`, `bun run typecheck`, `bun test`.
+- Commands: `bun run server:dev`, `bun run server:start`, `bun run db:generate`, `bun run db:check`, `bun run db:migrate`, `bun run cleanup:run`, `bun run desktop:dev`, `bun run desktop:build:web`, `bun run desktop:build`, `bun run desktop:install`, `bun run waybar:install`, `bun run typecheck`, `bun test`.
+- Waybar install: `scripts/install-desktop.ts` copies `quickdrop` and `quickdrop-waybar`; `scripts/install-waybar-module.ts` idempotently patches `~/.config/waybar/config.jsonc`, backs it up, and restarts Waybar via `omarchy restart waybar` when available.
+- Deploy backend: `Dockerfile` builds a production Bun image for `src/server`; `scripts/docker-entrypoint.sh` runs `bun run db:migrate` by default before `bun run server:start`; `.dockerignore` excludes desktop/Tauri build artifacts and secrets. Coolify must set `PUBLIC_BASE_URL` to the public backend domain and real PostgreSQL/R2 env vars.
 
 ## Conflicts and unknowns
 
 - End-to-end upload/download requires real Cloudflare R2 credentials and PostgreSQL running; repository defaults do not contain secrets.
 - Desktop Wayland flow requires local `wl-copy`, `wl-paste`, `notify-send`, Tauri Linux system dependencies, and a graphical Wayland session.
+- Deploy Dockerfile covers only the backend HTTP service; desktop Tauri/Waybar remains a local Linux client.
 
 ## History
 
 - 2026-06-22: Implementado MVP descrito em `docs/mvp.md` com base nas convenções de `docs/CLAUDE.md`; fontes inspecionadas/implementadas incluem `package.json`, `tsconfig.json`, `drizzle.config.ts`, `src/server/*`, `src-tauri/*`, `src/desktop/*`, `migrations/001_create_uploads.sql`, `.env.example`, `compose.yml` e README. O usuário esclareceu que o projeto deve usar Drizzle como ORM, então a persistência usa Drizzle ORM sobre `Bun.SQL`.
+- 2026-06-23: Adicionado instalador automático do módulo Waybar; fontes atualizadas incluem `scripts/install-desktop.ts`, `scripts/install-waybar-module.ts`, `scripts/quickdrop-waybar`, `README.md` e `package.json`. O snippet manual agora aponta para `~/.local/bin/quickdrop-waybar`, não para o binário direto.
+- 2026-06-23: Adicionado deploy Docker/Coolify para backend: `Dockerfile`, `.dockerignore`, `scripts/docker-entrypoint.sh`, `.env.example`, README e LLM context. Container roda migrações por padrão via `RUN_MIGRATIONS_ON_START=true` antes de iniciar o Fastify.
 <!-- business-readme:context:end -->
