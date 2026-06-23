@@ -84,6 +84,7 @@ export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse
 
     const formData = new FormData();
     formData.append("file", uploadFile);
+    xhr.setRequestHeader("x-quickdrop-file-size", uploadFile.size.toString());
     xhr.send(formData);
   });
 }
