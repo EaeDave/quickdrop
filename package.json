@@ -25,8 +25,7 @@
     "quickdrop:install": "bun install && CI=false bun run desktop:build && bun run desktop:install",
     "quickdrop:install:local": "bun install && CI=false bun run desktop:build && bun run desktop:install:local",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test",
-    "doctor": "npx react-doctor@latest"
+    "test": "bun test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "latest",
