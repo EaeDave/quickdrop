@@ -96,6 +96,8 @@ const TRAY_MENU_OPEN_ID: &str = "open";
 const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
 #[cfg(target_os = "windows")]
 const TRAY_MENU_QUIT_ID: &str = "quit";
+#[cfg(any(target_os = "windows", test))]
+const AUTOSTART_CONFIGURED_MARKER: &str = "autostart-configured";
 
 #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -856,6 +858,72 @@ fn tray_event_position_to_physical(position: tauri::Position) -> PhysicalPositio
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn autostart_configured_marker_path(app_config_dir: &Path) -> PathBuf {
+    app_config_dir.join(AUTOSTART_CONFIGURED_MARKER)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn should_enable_initial_autostart(
+    configured_marker_exists: bool,
+    autostart_enabled: bool,
+) -> bool {
+    !configured_marker_exists && !autostart_enabled
+}
+
+#[cfg(target_os = "windows")]
+fn write_autostart_configured_marker(marker_path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = marker_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(marker_path, "configured=true\n")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_autostart_marker_path(app: &AppHandle) -> Option<PathBuf> {
+    match app.path().app_config_dir() {
+        Ok(path) => Some(autostart_configured_marker_path(&path)),
+        Err(error) => {
+            eprintln!("Failed to resolve QuickDrop config directory: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn persist_windows_autostart_configured(app: &AppHandle) {
+    let Some(marker_path) = windows_autostart_marker_path(app) else {
+        return;
+    };
+
+    if let Err(error) = write_autostart_configured_marker(&marker_path) {
+        eprintln!("Failed to persist QuickDrop autostart setup marker: {error}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_initial_windows_autostart(app: &AppHandle) {
+    let Some(marker_path) = windows_autostart_marker_path(app) else {
+        return;
+    };
+    let marker_exists = marker_path.exists();
+
+    if marker_exists {
+        return;
+    }
+
+    let currently_enabled = app.autolaunch().is_enabled().unwrap_or(false);
+    if should_enable_initial_autostart(marker_exists, currently_enabled) {
+        if let Err(error) = app.autolaunch().enable() {
+            eprintln!("Failed to enable QuickDrop autostart on first Windows launch: {error}");
+            return;
+        }
+    }
+
+    persist_windows_autostart_configured(app);
+}
+
 #[cfg(target_os = "windows")]
 fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
     let open_item = MenuItem::with_id(
@@ -901,6 +969,7 @@ fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
                 match result {
                     Ok(()) => {
                         let _ = autostart_item_for_menu.set_checked(!currently_enabled);
+                        persist_windows_autostart_configured(app);
                     }
                     Err(error) => {
                         eprintln!("Failed to toggle QuickDrop autostart: {error}");
@@ -1039,6 +1108,24 @@ mod tests {
         assert_eq!(
             DesktopConfig::from_env().api_base_url,
             "https://example.com"
+        );
+    }
+
+    #[test]
+    fn initial_autostart_only_enables_before_first_configuration() {
+        assert!(should_enable_initial_autostart(false, false));
+        assert!(!should_enable_initial_autostart(false, true));
+        assert!(!should_enable_initial_autostart(true, false));
+        assert!(!should_enable_initial_autostart(true, true));
+    }
+
+    #[test]
+    fn autostart_configured_marker_lives_in_app_config_dir() {
+        let path = autostart_configured_marker_path(Path::new("QuickDrop"));
+
+        assert_eq!(
+            path,
+            Path::new("QuickDrop").join(AUTOSTART_CONFIGURED_MARKER)
         );
     }
 
@@ -1262,7 +1349,10 @@ pub fn run() {
         .manage(DesktopConfig::from_env())
         .setup(|app| {
             #[cfg(target_os = "windows")]
-            setup_windows_tray(app)?;
+            {
+                ensure_initial_windows_autostart(app.handle());
+                setup_windows_tray(app)?;
+            }
 
             build_quickdrop_window(app.handle(), !started_in_tray_mode())?;
 

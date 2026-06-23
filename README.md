@@ -13,7 +13,7 @@
 - Links públicos são acessíveis sem autenticação. `GET /f/:shortId` busca o registro, verifica expiração, incrementa `download_count` e redireciona para uma URL assinada temporária do R2. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
 - Arquivos expiram por padrão após 24 horas, configurável por `FILE_EXPIRATION_HOURS`. Upload expirado é removido do R2 e marcado com `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads` e Endpoint interno `GET /f/:shortId`.
 - Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
-- A janela do MVP tem 500x300, exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, fechar encerra a janela como antes; no Windows, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. Fonte: configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
+- A janela do MVP tem 500x300, exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, fechar encerra a janela como antes; no Windows, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -151,13 +151,21 @@ bun run desktop:build:web
 bun run desktop:build
 ```
 
+Instalação Windows via PowerShell:
+
+```powershell
+irm https://quickdrop.eaedave.xyz/install.ps1 | iex
+```
+
+O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o asset `QuickDrop_*_x64-setup.exe` do último GitHub Release (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido), roda o NSIS em modo silencioso para o usuário atual e inicia o app com `--tray-start`.
+
 Build Windows (em Windows local/CI; o CI do GitHub Actions pode ser religado depois quando houver cota):
 
 ```bash
 bun run desktop:build:windows
 ```
 
-No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a janela QuickDrop posicionada acima da tray; a barra superior customizada permite arrastar a janela; botão fechar/Esc apenas ocultam a janela; o menu da tray tem `Abrir QuickDrop`, `Iniciar com Windows` e `Sair`.
+No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a janela QuickDrop posicionada acima da tray; a barra superior customizada permite arrastar a janela; botão fechar/Esc apenas ocultam a janela; no primeiro start o autostart é ativado automaticamente; o menu da tray tem `Abrir QuickDrop`, `Iniciar com Windows` e `Sair`.
 
 O executável Windows gerado aponta para produção por padrão: se `QUICKDROP_API_BASE_URL` não estiver definido no ambiente do usuário, o app usa `https://quickdrop.eaedave.xyz`. Defina `QUICKDROP_API_BASE_URL` apenas para testar outro backend.
 

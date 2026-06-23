@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
@@ -26,6 +27,15 @@ export function buildApp() {
 
   app.register(multipart);
   app.register(rateLimit, { global: false });
+
+  app.get("/install.ps1", async (_request, reply) => {
+    const script = await readFile(join(process.cwd(), "scripts", "install-windows.ps1"), "utf8");
+
+    return reply
+      .type("text/plain; charset=utf-8")
+      .header("cache-control", "public, max-age=300")
+      .send(script);
+  });
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),
     prefix: "/",

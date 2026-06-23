@@ -56,4 +56,24 @@ describe("buildApp", () => {
       await app.close();
     }
   });
+
+  test("serves the Windows PowerShell installer script", async () => {
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/install.ps1",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/plain");
+      expect(response.body).toContain("QuickDrop");
+      expect(response.body).toContain("releases/latest");
+      expect(response.body).toContain("/S");
+      expect(response.body).toContain("--tray-start");
+    } finally {
+      await app.close();
+    }
+  });
 });
