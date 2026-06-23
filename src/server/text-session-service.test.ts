@@ -9,12 +9,16 @@ import { hashRoomPin } from "./text-room-pin";
 import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
-  type: "snapshot" | "update" | "presence" | "ack" | "error";
+  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error";
   text?: string;
   version?: number;
   clientId?: string;
   by?: string;
   count?: number;
+  active?: boolean;
+  visible?: boolean;
+  x?: number;
+  y?: number;
   error?: string;
   message?: string;
 };
@@ -306,13 +310,53 @@ describe("text session routes", () => {
       expect(await updateOnViewer).toEqual({ type: "update", text: "select 1", version: 1, by: snapshot.clientId });
       expect(await ackOnAuthor).toEqual({ type: "ack", version: 1 });
 
+      const authorPeerLeftAfterLeave = nextMessage(author);
       const authorPresenceAfterLeave = nextMessage(author);
       await closeSocket(viewer);
+      expect(await authorPeerLeftAfterLeave).toEqual({ type: "peer_left", by: viewerSnapshot.clientId });
       expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       const persistedPayload: { text: string; version: number; protected: boolean } = JSON.parse(persisted.body);
       expect(persistedPayload).toEqual({ text: "select 1", version: 1, protected: false });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("relays typing, pointer, and peer-left events", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      const createResponse = await server.app.inject({ method: "POST", url: "/api/text" });
+      const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
+      const author = server.connect(created.code);
+      const authorSnapshot = await expectJoined(author, 1);
+
+      const authorPresenceAfterViewer = nextMessage(author);
+      const viewer = server.connect(created.code);
+      await expectJoined(viewer, 2);
+      expect(await authorPresenceAfterViewer).toEqual({ type: "presence", count: 2 });
+
+      author.send(JSON.stringify({ type: "typing", active: true }));
+      expect(await nextMessage(viewer)).toEqual({ type: "typing", by: authorSnapshot.clientId, active: true });
+
+      author.send(JSON.stringify({ type: "pointer", visible: true, x: 0.42, y: 0.18 }));
+      expect(await nextMessage(viewer)).toEqual({
+        type: "pointer",
+        by: authorSnapshot.clientId,
+        visible: true,
+        x: 0.42,
+        y: 0.18,
+      });
+
+      const peerLeftOnViewer = nextMessage(viewer);
+      const presenceAfterLeave = nextMessage(viewer);
+      await closeSocket(author);
+      expect(await peerLeftOnViewer).toEqual({ type: "peer_left", by: authorSnapshot.clientId });
+      expect(await presenceAfterLeave).toEqual({ type: "presence", count: 1 });
     } finally {
       await server.close();
     }

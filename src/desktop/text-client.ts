@@ -1,10 +1,15 @@
 export type RoomStatus = "connecting" | "open" | "closed";
 export type RoomErrorCode = "pin_required" | "pin_invalid" | "invalid_token" | "not_found" | "too_large" | "room_full" | null;
 
+export type RoomPointer = { visible: boolean; x?: number; y?: number };
+
 export type RoomHandlers = {
   onSnapshot(payload: { text: string; version: number; clientId: string }): void;
   onUpdate(payload: { text: string; version: number; by: string }): void;
   onPresence(payload: { count: number }): void;
+  onTyping(payload: { by: string; active: boolean }): void;
+  onPointer(payload: { by: string; pointer: RoomPointer }): void;
+  onPeerLeft(payload: { by: string }): void;
   onAck(payload: { version: number }): void;
   onError(payload: { code: RoomErrorCode; message: string }): void;
   onStatus(status: RoomStatus): void;
@@ -12,6 +17,8 @@ export type RoomHandlers = {
 
 export type RoomController = {
   sendWrite(text: string, baseVersion: number): void;
+  sendTyping(active: boolean): void;
+  sendPointer(pointer: RoomPointer): void;
   close(): void;
 };
 
@@ -296,6 +303,50 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         return;
       }
 
+      if (payload.type === "typing") {
+        const by = "by" in payload ? parseString(payload.by) : null;
+        const active = "active" in payload && typeof payload.active === "boolean" ? payload.active : null;
+        if (by === null || active === null) {
+          return;
+        }
+
+        handlers.onTyping({ by, active });
+        return;
+      }
+
+      if (payload.type === "pointer") {
+        const by = "by" in payload ? parseString(payload.by) : null;
+        const visible = "visible" in payload && typeof payload.visible === "boolean" ? payload.visible : null;
+        if (by === null || visible === null) {
+          return;
+        }
+
+        if (!visible) {
+          handlers.onPointer({ by, pointer: { visible: false } });
+          return;
+        }
+
+        const x = "x" in payload ? parseNumber(payload.x) : null;
+        const y = "y" in payload ? parseNumber(payload.y) : null;
+        if (x === null || y === null) {
+          return;
+        }
+
+        handlers.onPointer({ by, pointer: { visible: true, x, y } });
+        return;
+      }
+
+      if (payload.type === "peer_left") {
+        const by = "by" in payload ? parseString(payload.by) : null;
+        if (by === null) {
+          return;
+        }
+
+        handlers.onPeerLeft({ by });
+        return;
+      }
+
+
       if (payload.type === "ack") {
         const version = "version" in payload ? parseNumber(payload.version) : null;
         if (version === null) {
@@ -366,6 +417,28 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
 
       queuedWrite = { text, baseVersion };
       flushQueuedWrite();
+    },
+    sendTyping(active: boolean) {
+      if (!socket || socket.readyState !== WebSocket.OPEN || closedByUser || fatalClose) {
+        return;
+      }
+
+      try {
+        socket.send(JSON.stringify({ type: "typing", active }));
+      } catch {
+        scheduleReconnect();
+      }
+    },
+    sendPointer(pointer: RoomPointer) {
+      if (!socket || socket.readyState !== WebSocket.OPEN || closedByUser || fatalClose) {
+        return;
+      }
+
+      try {
+        socket.send(JSON.stringify({ type: "pointer", ...pointer }));
+      } catch {
+        scheduleReconnect();
+      }
     },
     close() {
       if (closedByUser) {
