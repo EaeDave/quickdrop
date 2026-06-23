@@ -211,6 +211,40 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeWindow]);
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      setState((current) => {
+        if (current.status === "uploading") {
+          return current;
+        }
+
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) return current;
+
+        const files = clipboardData.files ? Array.from(clipboardData.files) : [];
+        if (files.length > 0) {
+          setTimeout(() => {
+            void handleUploadInputs(files);
+          }, 0);
+          return current;
+        }
+
+        const text = clipboardData.getData("text");
+        if (text && text.trim().length > 0) {
+          const file = new File([text], "quickdrop-paste.txt", { type: "text/plain" });
+          setTimeout(() => {
+            void handleUploadInputs([file]);
+          }, 0);
+          return current;
+        }
+
+        return current;
+      });
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [handleUploadInputs]);
 
   return (
     <main className="quickdrop-shell">
