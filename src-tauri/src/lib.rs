@@ -7,7 +7,21 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
-use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+#[cfg(target_os = "windows")]
+use tauri::{
+    image::Image,
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
+#[cfg(target_os = "windows")]
+use tauri_plugin_autostart::ManagerExt as _;
+#[cfg(target_os = "windows")]
+use tauri_plugin_clipboard_manager::ClipboardExt as _;
+#[cfg(target_os = "windows")]
+use tauri_plugin_notification::NotificationExt as _;
 use tokio_util::io::ReaderStream;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
@@ -64,6 +78,14 @@ struct ZipInput {
 const WINDOW_WIDTH: f64 = 500.0;
 const WINDOW_HEIGHT: f64 = 300.0;
 const LAUNCHER_GAP: f64 = 10.0;
+#[cfg(target_os = "windows")]
+const TRAY_ID: &str = "quickdrop-tray";
+#[cfg(target_os = "windows")]
+const TRAY_MENU_OPEN_ID: &str = "open";
+#[cfg(target_os = "windows")]
+const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
+#[cfg(target_os = "windows")]
+const TRAY_MENU_QUIT_ID: &str = "quit";
 
 impl DesktopConfig {
     fn from_env() -> Self {
@@ -509,7 +531,19 @@ fn is_quickdrop_clipboard_temp_path(path: &Path) -> bool {
 }
 
 #[tauri::command]
-fn copy_link(link: String) -> Result<(), String> {
+fn copy_link(app: AppHandle, link: String) -> Result<(), String> {
+    copy_link_for_platform(&app, link)
+}
+
+#[cfg(target_os = "windows")]
+fn copy_link_for_platform(app: &AppHandle, link: String) -> Result<(), String> {
+    app.clipboard()
+        .write_text(link)
+        .map_err(|error| format!("Falha ao copiar link para o clipboard: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn copy_link_for_platform(_app: &AppHandle, link: String) -> Result<(), String> {
     let mut child = Command::new("wl-copy")
         .stdin(Stdio::piped())
         .spawn()
@@ -536,13 +570,31 @@ fn copy_link(link: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn notify_success(file_count: Option<usize>) -> Result<(), String> {
-    let message = match file_count.unwrap_or(1) {
+fn notify_success(app: AppHandle, file_count: Option<usize>) -> Result<(), String> {
+    notify_success_for_platform(&app, upload_success_message(file_count))
+}
+
+fn upload_success_message(file_count: Option<usize>) -> String {
+    match file_count.unwrap_or(1) {
         1 => "Upload concluído. Link copiado para a área de transferência.".to_string(),
         count => format!(
             "{count} arquivos enviados em um ZIP. Link copiado para a área de transferência."
         ),
-    };
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn notify_success_for_platform(app: &AppHandle, message: String) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title("QuickDrop")
+        .body(message)
+        .show()
+        .map_err(|error| format!("Falha ao exibir notificação: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn notify_success_for_platform(_app: &AppHandle, message: String) -> Result<(), String> {
     let status = Command::new("notify-send")
         .arg("QuickDrop")
         .arg(message)
@@ -560,7 +612,28 @@ fn get_api_base_url(state: tauri::State<'_, DesktopConfig>) -> String {
     state.api_base_url.clone()
 }
 
-fn compute_window_position(app: &tauri::App) -> (f64, f64) {
+#[tauri::command]
+fn dismiss_window(window: tauri::Window) -> Result<(), String> {
+    dismiss_window_for_platform(&window)
+        .map_err(|error| format!("Falha ao fechar janela QuickDrop: {error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
+    window.hide()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
+    window.close()
+}
+
+#[tauri::command]
+fn uses_native_clipboard_paste() -> bool {
+    cfg!(target_os = "linux")
+}
+
+fn compute_window_position(app: &AppHandle) -> (f64, f64) {
     let launch_point = launcher_position_from_env()
         .or_else(|| app.cursor_position().ok())
         .unwrap_or_else(|| PhysicalPosition::new(WINDOW_WIDTH, WINDOW_HEIGHT));
@@ -596,11 +669,207 @@ fn launcher_position_from_env() -> Option<PhysicalPosition<f64>> {
     Some(PhysicalPosition::new(x, y))
 }
 
+fn build_quickdrop_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
+    let (x, y) = compute_window_position(app);
+
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("QuickDrop")
+        .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+        .position(x, y)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .background_color(Color(0, 0, 0, 0))
+        .shadow(false)
+        .always_on_top(true)
+        .visible(visible)
+        .build()
+}
+
+fn show_quickdrop_window(app: &AppHandle) -> tauri::Result<()> {
+    let window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => build_quickdrop_window(app, false)?,
+    };
+    let (x, y) = compute_window_position(app);
+
+    window.set_position(PhysicalPosition::new(x, y))?;
+    window.show()?;
+    window.unminimize()?;
+    window.set_focus()?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
+    let open_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_ID,
+        "Abrir QuickDrop",
+        true,
+        None::<&str>,
+    )?;
+    let autostart_item = CheckMenuItem::with_id(
+        app,
+        TRAY_MENU_AUTOSTART_ID,
+        "Iniciar com Windows",
+        true,
+        app.handle().autolaunch().is_enabled().unwrap_or(false),
+        None::<&str>,
+    )?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Sair", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &autostart_item, &separator, &quit_item])?;
+    let autostart_item_for_menu = autostart_item.clone();
+    let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
+
+    TrayIconBuilder::with_id(TRAY_ID)
+        .icon(tray_icon)
+        .tooltip("QuickDrop")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            TRAY_MENU_OPEN_ID => {
+                if let Err(error) = show_quickdrop_window(app) {
+                    eprintln!("Failed to show QuickDrop from tray menu: {error}");
+                }
+            }
+            TRAY_MENU_AUTOSTART_ID => {
+                let currently_enabled = app.autolaunch().is_enabled().unwrap_or(false);
+                let result = if currently_enabled {
+                    app.autolaunch().disable()
+                } else {
+                    app.autolaunch().enable()
+                };
+
+                match result {
+                    Ok(()) => {
+                        let _ = autostart_item_for_menu.set_checked(!currently_enabled);
+                    }
+                    Err(error) => {
+                        eprintln!("Failed to toggle QuickDrop autostart: {error}");
+                        let _ = autostart_item_for_menu.set_checked(currently_enabled);
+                    }
+                }
+            }
+            TRAY_MENU_QUIT_ID => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Err(error) = show_quickdrop_window(tray.app_handle()) {
+                    eprintln!("Failed to show QuickDrop from tray click: {error}");
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn started_in_tray_mode() -> bool {
+    std::env::args().any(|arg| arg == "--tray-start")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn started_in_tray_mode() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::ffi::OsString;
     use std::fs;
     use std::io::Read as _;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct PathGuard {
+        original: Option<OsString>,
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => env::set_var("PATH", value),
+                None => env::remove_var("PATH"),
+            }
+        }
+    }
+
+    fn prepend_path_for_test(dir: &Path) -> PathGuard {
+        let original = env::var_os("PATH");
+        let mut paths = vec![dir.to_path_buf()];
+
+        if let Some(original_value) = &original {
+            paths.extend(env::split_paths(original_value));
+        }
+
+        let joined = env::join_paths(paths).unwrap();
+        env::set_var("PATH", joined);
+
+        PathGuard { original }
+    }
+
+    #[cfg(unix)]
+    fn write_executable(path: &Path, contents: &str) {
+        fs::write(path, contents).unwrap();
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wayland_clipboard_payload_reads_image_bytes() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "quickdrop-wl-paste-test-{}-{}",
+            process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis())
+                .unwrap_or_default()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let wl_paste = root.join("wl-paste");
+        write_executable(
+            &wl_paste,
+            r#"#!/usr/bin/env sh
+if [ "$1" = "--list-types" ]; then
+  printf 'text/plain\nimage/png\n'
+  exit 0
+fi
+
+if [ "$1" = "--type" ] && [ "$2" = "image/png" ]; then
+  printf 'image-bytes'
+  exit 0
+fi
+
+exit 1
+"#,
+        );
+
+        let _path_guard = prepend_path_for_test(&root);
+        let payload = read_wayland_clipboard_payload().unwrap();
+
+        assert_eq!(payload.file_name, "quickdrop-clipboard.png");
+        assert_eq!(payload.bytes, b"image-bytes");
+
+        fs::remove_dir_all(root).ok();
+    }
 
     #[test]
     fn create_zip_archive_keeps_files_and_deduplicates_names() {
@@ -706,31 +975,34 @@ pub fn run() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    tauri::Builder::default()
+
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == "--tray-start") {
+                return;
             }
-        }))
+
+            if let Err(error) = show_quickdrop_window(app) {
+                eprintln!("Failed to show existing QuickDrop window: {error}");
+            }
+        }));
+
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--tray-start"]),
+    ));
+
+    builder
         .manage(DesktopConfig::from_env())
         .setup(|app| {
-            let (x, y) = compute_window_position(app);
+            #[cfg(target_os = "windows")]
+            setup_windows_tray(app)?;
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("QuickDrop")
-                .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
-                .position(x, y)
-                .resizable(false)
-                .decorations(false)
-                .transparent(true)
-                .background_color(Color(0, 0, 0, 0))
-                .shadow(false)
-                .always_on_top(true)
-                .visible(true)
-                .build()?;
+            build_quickdrop_window(app.handle(), !started_in_tray_mode())?;
 
             Ok(())
         })
@@ -740,7 +1012,9 @@ pub fn run() {
             read_clipboard_upload_inputs,
             copy_link,
             notify_success,
-            get_api_base_url
+            get_api_base_url,
+            dismiss_window,
+            uses_native_clipboard_paste
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

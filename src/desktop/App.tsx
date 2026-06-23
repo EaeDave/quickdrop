@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { copyLink, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, type UploadInput } from "./tauri";
+import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 
 type UploadState =
   | { status: "idle" }
@@ -13,6 +12,7 @@ export function App() {
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const [useNativeClipboardPaste, setUseNativeClipboardPaste] = useState(false);
   const stateRef = useRef(state);
 
   const reset = useCallback(() => {
@@ -22,7 +22,7 @@ export function App() {
 
   const closeWindow = useCallback(() => {
     if (isTauri) {
-      void getCurrentWindow().close();
+      void dismissWindow();
     } else {
       reset();
     }
@@ -33,6 +33,26 @@ export function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let disposed = false;
+
+    usesNativeClipboardPaste().then((enabled) => {
+      if (!disposed) {
+        setUseNativeClipboardPaste(enabled);
+      }
+    }).catch((error) => {
+      console.error("Falha ao detectar modo de clipboard nativo", error);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   const handleUploadInputs = useCallback(async (inputs: UploadInput[]) => {
     setManualUrl(null);
@@ -227,7 +247,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTauri && isPasteShortcut(event)) {
+      if (isTauri && useNativeClipboardPaste && isPasteShortcut(event)) {
         event.preventDefault();
         void handleNativeClipboardPaste();
         return;
@@ -240,7 +260,7 @@ export function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeWindow, handleNativeClipboardPaste]);
+  }, [closeWindow, handleNativeClipboardPaste, useNativeClipboardPaste]);
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
       setState((current) => {

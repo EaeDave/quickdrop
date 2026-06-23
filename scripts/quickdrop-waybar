@@ -59,7 +59,7 @@ mapfile -t quickdrop_windows < <(
   hyprctl clients -j | bun -e '
 const clients = JSON.parse(await Bun.stdin.text());
 for (const client of clients) {
-  if (client.class === "quickdrop" || String(client.title).includes("QuickDrop")) {
+  if (client.class === "quickdrop" || client.initialClass === "quickdrop") {
     console.log(client.address);
   }
 }

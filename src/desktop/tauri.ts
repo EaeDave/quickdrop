@@ -138,6 +138,15 @@ export async function readClipboardUploadInputs(): Promise<LocalUploadInput[]> {
   return invoke<LocalUploadInput[]>("read_clipboard_upload_inputs");
 }
 
+export async function usesNativeClipboardPaste(): Promise<boolean> {
+  if (!isTauri) {
+    return false;
+  }
+
+  return invoke<boolean>("uses_native_clipboard_paste");
+}
+
+
 export async function selectLocalFiles(): Promise<string[]> {
   const selection = await open({ title: "Selecionar arquivos", multiple: true, directory: false });
 
@@ -146,6 +155,14 @@ export async function selectLocalFiles(): Promise<string[]> {
   }
 
   return Array.isArray(selection) ? selection : [selection];
+}
+
+export function dismissWindow(): Promise<void> {
+  if (isTauri) {
+    return invoke("dismiss_window");
+  }
+
+  return Promise.resolve();
 }
 
 export function copyLink(link: string): Promise<void> {

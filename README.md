@@ -3,16 +3,16 @@
 <!-- business-readme:business-rules:start -->
 ## Regras de negócio
 
- - QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar) e uma interface web minimalista correspondente, servida diretamente na raiz do servidor (`GET /`). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs` e `@fastify/static` em `src/server/index.ts`.
+ - QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar), cliente Windows com ícone residente na system tray e uma interface web minimalista correspondente, servida diretamente na raiz do servidor (`GET /`). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
-- Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
+- Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
 - O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop; o limite padrão de 500 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
 - Uploads são públicos e não exigem autenticação no MVP. Há limite de 20 uploads por hora por IP. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts`.
 - Upload válido é enviado ao Cloudflare R2, registrado no PostgreSQL e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
 - Links públicos são acessíveis sem autenticação. `GET /f/:shortId` busca o registro, verifica expiração, incrementa `download_count` e redireciona para uma URL assinada temporária do R2. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
 - Arquivos expiram por padrão após 24 horas, configurável por `FILE_EXPIRATION_HOURS`. Upload expirado é removido do R2 e marcado com `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads` e Endpoint interno `GET /f/:shortId`.
-- Ao concluir o upload no desktop, o app copia o link único via `wl-copy` e chama `notify-send`. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
-- A janela do MVP tem 500x300, exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. Fonte: configuração Tauri `src-tauri/tauri.conf.json` e UI `src/desktop/App.tsx`.
+- Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
+- A janela do MVP tem 500x300, exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, fechar encerra a janela como antes; no Windows, fechar oculta a janela e mantém o app vivo na tray até o usuário escolher `Sair`. Fonte: configuração Tauri `src-tauri/tauri.conf.json`, tray em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -24,6 +24,7 @@
 - Docker/Compose para PostgreSQL local e backend local opcional
 - Rust e dependências Linux do Tauri v2
 - `wl-copy`, `wl-paste` e `notify-send` para o fluxo desktop Wayland
+- Windows 10/11 com WebView2 Runtime para o cliente Tauri/tray
 - Credenciais Cloudflare R2 reais para uploads de ponta a ponta
 
 ### Configuração
@@ -140,7 +141,7 @@ bun run cleanup:run
 bun run desktop:dev
 ```
 
-Na janela desktop ou web, o usuário pode arrastar 1 ou vários arquivos para a caixa, clicar na seta para selecionar arquivos locais ou usar `Ctrl+V` para colar imagem/arquivo/texto do clipboard. Texto colado vira `quickdrop-paste.txt`; no desktop Wayland o `Ctrl+V` lê o clipboard via `wl-paste`; múltiplos arquivos são compactados em um ZIP temporário antes do envio e geram um único link.
+Na janela desktop ou web, o usuário pode arrastar 1 ou vários arquivos para a caixa, clicar na seta para selecionar arquivos locais ou usar `Ctrl+V` para colar imagem/arquivo/texto do clipboard. Texto colado vira `quickdrop-paste.txt`; no desktop Wayland o `Ctrl+V` lê o clipboard via `wl-paste`; no Windows o WebView2 entrega o paste event padrão; múltiplos arquivos são compactados em um ZIP temporário antes do envio e geram um único link.
 
 Build web/Tauri:
 
@@ -148,6 +149,14 @@ Build web/Tauri:
 bun run desktop:build:web
 bun run desktop:build
 ```
+
+Build Windows (em Windows local/CI; o CI do GitHub Actions pode ser religado depois quando houver cota):
+
+```bash
+bun run desktop:build:windows
+```
+
+No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a janela QuickDrop; botão fechar/Esc apenas ocultam a janela; o menu da tray tem `Abrir QuickDrop`, `Iniciar com Windows` e `Sair`.
 
 Instalar binário e integrar com Waybar usando o backend remoto persistente:
 
@@ -181,6 +190,7 @@ Inclua `"custom/quickdrop"` em `modules-right` ou no bloco da Waybar onde o íco
 ```bash
 bun run typecheck
 bun test
+cargo test --manifest-path src-tauri/Cargo.toml
 bun run desktop:build:web
 bun run desktop:build
 ```

@@ -390,9 +390,13 @@ FILE_EXPIRATION_HOURS=24
 MAX_FILE_SIZE_MB=500
 ```
 
-# Future Features (Not MVP)
+# Post-MVP Implemented
 
 - Múltiplos arquivos
+- Cliente Windows via system tray
+
+# Future Features (Not MVP)
+
 - Upload de screenshots
 - Histórico de uploads
 - Senha por arquivo
@@ -400,7 +404,6 @@ MAX_FILE_SIZE_MB=500
 - Auto-delete após download
 - Compressão automática
 - Drag and drop diretamente da Waybar
-- Cliente Windows
 - Cliente macOS
 - Upload de diretórios
 - Compartilhamento anônimo via QR Code
