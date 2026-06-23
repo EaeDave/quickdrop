@@ -1,4 +1,5 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { Readable } from "node:stream";
 import type { AppConfig } from "./config";
@@ -7,6 +8,7 @@ export function createR2Client(config: AppConfig): S3Client {
   return new S3Client({
     region: "auto",
     requestChecksumCalculation: "WHEN_REQUIRED",
+    requestHandler: new NodeHttpHandler(),
     responseChecksumValidation: "WHEN_REQUIRED",
     endpoint: `https://${config.r2AccountId}.r2.cloudflarestorage.com`,
     credentials: {

@@ -87,7 +87,9 @@ export async function handleUpload(
       return;
     }
 
-    throw error;
+    request.log.error({ error }, "Failed to store upload");
+    sendUploadError(reply, 500, "upload_failed", "Falha ao enviar arquivo.");
+    return;
   }
 
   if (!uploadedObject) {
