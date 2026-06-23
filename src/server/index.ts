@@ -45,6 +45,8 @@ export function buildApp() {
     maxClientsPerSession: config.textSessionMaxClientsPerSession,
   });
 
+
+
   const sendScriptFile = (reply: FastifyReply, fileName: string) =>
     readFile(join(process.cwd(), "scripts", fileName), "utf8").then((script) =>
       reply

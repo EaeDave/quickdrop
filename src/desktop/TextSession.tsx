@@ -1,5 +1,5 @@
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
-import { connectRoom, createRoom, type RoomController } from "./text-client";
+import { connectRoom, createRoom, joinRoom, RoomAccessError, type RoomController, type RoomErrorCode } from "./text-client";
 import { uploadFiles } from "./tauri";
 import { initialRoomCode, setRoomInUrl } from "./web-route";
 
@@ -13,20 +13,23 @@ type ExportState =
 
 export default function TextSession() {
   const initialCode = initialRoomCode();
-  const [roomCode, setRoomCode] = useState<string | null>(initialCode);
+  const [roomCode, setRoomCode] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState(initialCode ?? "");
+  const [joinPin, setJoinPin] = useState("");
+  const [pinRequired, setPinRequired] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   const [text, setText] = useState("");
   const [version, setVersion] = useState(0);
   const [clientId, setClientId] = useState<string | null>(null);
-  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(initialCode ? "connecting" : "closed");
+  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>("closed");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
-  const roomCodeRef = useRef<string | null>(initialCode);
-  const connectionPhaseRef = useRef<ConnectionPhase>(initialCode ? "connecting" : "closed");
+  const roomCodeRef = useRef<string | null>(null);
+  const connectionPhaseRef = useRef<ConnectionPhase>("closed");
   const hasOpenedRef = useRef(false);
   const snapshotReadyRef = useRef(false);
   const debounceTimerRef = useRef<number | null>(null);
@@ -39,7 +42,9 @@ export default function TextSession() {
   const queuedTextRef = useRef<string | null>(null);
   const leavingRoomRef = useRef(false);
   const suppressNextClosedRef = useRef(false);
+  const preserveJoinContextRef = useRef(false);
   const discardNextAckRef = useRef(false);
+  const autoJoinAttemptedRef = useRef(false);
 
   const clearDebounceTimer = useCallback(() => {
     if (debounceTimerRef.current !== null) {
@@ -79,16 +84,18 @@ export default function TextSession() {
     history.replaceState(history.state, "", "/t");
   }, []);
 
-  const enterRoom = useCallback(
+  const activateRoom = useCallback(
     (code: string) => {
       const normalized = code.trim().toUpperCase();
-      if (normalized.length === 0) {
+      if (!normalized) {
         return;
       }
 
       roomCodeRef.current = normalized;
       setRoomCode(normalized);
       setJoinCode(normalized);
+      setJoinPin("");
+      setPinRequired(false);
       setErrorMessage(null);
       setPendingRemote(null);
       setConnectionPhase("connecting");
@@ -97,6 +104,74 @@ export default function TextSession() {
     },
     [resetRoomData],
   );
+
+  const copyText = useCallback(async (value: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.readOnly = true;
+    field.style.position = "fixed";
+    field.style.left = "-9999px";
+    document.body.appendChild(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  }, []);
+
+  const handleAccessError = useCallback((error: unknown) => {
+    if (error instanceof RoomAccessError) {
+      if (
+        error.code === "pin_required" ||
+        error.code === "pin_invalid" ||
+        error.code === "invalid_token"
+      ) {
+        setPinRequired(true);
+      }
+      setErrorMessage(error.message);
+      return;
+    }
+
+    setErrorMessage(error instanceof Error ? error.message : "Falha ao acessar a sala");
+  }, []);
+
+  const requestRoomAccess = useCallback(
+    async (code: string, pin?: string) => {
+      setIsJoining(true);
+      try {
+        await joinRoom(code, pin);
+        activateRoom(code);
+      } catch (error) {
+        handleAccessError(error);
+      } finally {
+        setIsJoining(false);
+      }
+    },
+    [activateRoom, handleAccessError],
+  );
+
+  const handleJoin = useCallback(() => {
+    if (!joinCode.trim()) {
+      return;
+    }
+
+    void requestRoomAccess(joinCode, joinPin);
+  }, [joinCode, joinPin, requestRoomAccess]);
+
+  const handleCreateRoom = useCallback(async () => {
+    setIsJoining(true);
+    try {
+      const created = await createRoom(joinPin);
+      activateRoom(created.code);
+    } catch (error) {
+      handleAccessError(error);
+    } finally {
+      setIsJoining(false);
+    }
+  }, [activateRoom, handleAccessError, joinPin]);
 
   const flushPendingWrite = useCallback(() => {
     if (!roomCodeRef.current || !controllerRef.current || connectionPhaseRef.current !== "open" || !snapshotReadyRef.current) {
@@ -134,41 +209,13 @@ export default function TextSession() {
     roomCodeRef.current = null;
     setRoomCode(null);
     clearRoomUrl();
+    setJoinPin("");
+    setPinRequired(false);
     resetRoomData();
     setConnectionPhase("closed");
     setPendingRemote(null);
     setErrorMessage(null);
   }, [clearRoomUrl, resetRoomData]);
-
-  const handleJoin = useCallback(() => {
-    enterRoom(joinCode);
-  }, [enterRoom, joinCode]);
-
-  const copyText = useCallback(async (value: string) => {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return;
-    }
-
-    const field = document.createElement("textarea");
-    field.value = value;
-    field.readOnly = true;
-    field.style.position = "fixed";
-    field.style.left = "-9999px";
-    document.body.appendChild(field);
-    field.select();
-    document.execCommand("copy");
-    field.remove();
-  }, []);
-
-  const handleCreateRoom = useCallback(async () => {
-    try {
-      const code = await createRoom();
-      enterRoom(code);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Falha ao criar sala");
-    }
-  }, [enterRoom]);
 
   const handleCopyCode = useCallback(async () => {
     if (!roomCode) {
@@ -246,6 +293,15 @@ export default function TextSession() {
   }, []);
 
   useEffect(() => {
+    if (!initialCode || roomCode || autoJoinAttemptedRef.current) {
+      return;
+    }
+
+    autoJoinAttemptedRef.current = true;
+    void requestRoomAccess(initialCode, undefined);
+  }, [initialCode, requestRoomAccess, roomCode]);
+
+  useEffect(() => {
     if (!roomCode) {
       return;
     }
@@ -271,7 +327,10 @@ export default function TextSession() {
           return;
         }
 
-        const hasLocalChanges = draftTextRef.current !== syncedTextRef.current || inFlightRef.current || queuedTextRef.current !== null;
+        const hasLocalChanges =
+          draftTextRef.current !== syncedTextRef.current ||
+          inFlightRef.current ||
+          queuedTextRef.current !== null;
         if (!hasLocalChanges) {
           draftTextRef.current = payload.text;
           syncedTextRef.current = payload.text;
@@ -283,6 +342,9 @@ export default function TextSession() {
         }
 
         setPendingRemote({ text: payload.text, version: payload.version });
+      },
+      onPresence(payload) {
+        setPresenceCount(payload.count);
       },
       onAck(payload) {
         if (discardNextAckRef.current) {
@@ -300,10 +362,20 @@ export default function TextSession() {
 
         flushPendingWrite();
       },
-      onPresence(payload) {
-        setPresenceCount(payload.count);
-      },
       onError(payload) {
+        if (
+          payload.code === "pin_required" ||
+          payload.code === "pin_invalid" ||
+          payload.code === "invalid_token"
+        ) {
+          preserveJoinContextRef.current = true;
+          setPinRequired(true);
+          setJoinPin("");
+          setErrorMessage(payload.message);
+          controllerRef.current?.close();
+          return;
+        }
+
         setErrorMessage(payload.message);
       },
       onStatus(status) {
@@ -330,6 +402,14 @@ export default function TextSession() {
           }
 
           controllerRef.current = null;
+          if (preserveJoinContextRef.current) {
+            preserveJoinContextRef.current = false;
+            roomCodeRef.current = null;
+            setRoomCode(null);
+            resetRoomData();
+            return;
+          }
+
           if (roomCodeRef.current) {
             roomCodeRef.current = null;
             setRoomCode(null);
@@ -380,13 +460,22 @@ export default function TextSession() {
           ? "reconnecting"
           : "connecting"
     : null;
-  const statusLabel = badgeVariant === "open" ? "Conectado" : badgeVariant === "closed" ? "Desconectado" : badgeVariant === "reconnecting" ? "Reconectando" : "Conectando";
+  const statusLabel =
+    badgeVariant === "open"
+      ? "Conectado"
+      : badgeVariant === "closed"
+        ? "Desconectado"
+        : badgeVariant === "reconnecting"
+          ? "Reconectando"
+          : "Conectando";
   const presenceLabel =
     presenceCount === null ? null : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
   const exportButtonLabel = exportState.status === "uploading" ? "Enviando..." : "Enviar como arquivo";
   const showExportSuccess = exportState.status === "success";
   const showExportError = exportState.status === "error";
-
+  const pinLabel = pinRequired ? "PIN da sala" : "PIN (opcional)";
+  const primaryJoinLabel = isJoining ? "Entrando..." : "Entrar";
+  const createLabel = isJoining ? "Criando..." : "Criar nova sala";
 
   if (!roomCode) {
     return (
@@ -395,7 +484,9 @@ export default function TextSession() {
           <div className="quickdrop-text-heading">
             <p className="quickdrop-text-kicker">Texto compartilhado</p>
             <h1>Sala de texto</h1>
-            <p className="quickdrop-text-copy">Crie uma sala para colar SQL, comandos ou qualquer texto e abrir no outro computador.</p>
+            <p className="quickdrop-text-copy">
+              Crie uma sala para colar SQL, comandos ou qualquer texto e abrir no outro computador.
+            </p>
           </div>
 
           {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
@@ -419,12 +510,32 @@ export default function TextSession() {
             />
           </label>
 
+          <label className="quickdrop-text-field">
+            <span>{pinLabel}</span>
+            <input
+              className="quickdrop-text-input"
+              autoComplete="off"
+              inputMode="text"
+              type="password"
+              maxLength={64}
+              placeholder={pinRequired ? "Informe o PIN" : "Proteja a sala se quiser"}
+              value={joinPin}
+              onChange={(event) => setJoinPin(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleJoin();
+                }
+              }}
+            />
+          </label>
+
           <div className="quickdrop-text-actions">
-            <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim()} onClick={handleJoin}>
-              Entrar
+            <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim() || isJoining} onClick={handleJoin}>
+              {primaryJoinLabel}
             </button>
-            <button className="quickdrop-text-button" type="button" onClick={handleCreateRoom}>
-              Criar nova sala
+            <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={handleCreateRoom}>
+              {createLabel}
             </button>
           </div>
         </section>
@@ -470,14 +581,12 @@ export default function TextSession() {
               "Texto enviado. Link copiado."
             ) : (
               <>
-                Texto enviado.{" "}
-                <a href={exportState.url} target="_blank" rel="noreferrer">
-                  Abrir link
-                </a>
+                Texto enviado. <a href={exportState.url} target="_blank" rel="noreferrer">Abrir link</a>
               </>
             )}
           </p>
         ) : null}
+        {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
         {pendingRemote ? (
           <div className="quickdrop-text-banner">
             <p>Conteúdo atualizado em outra máquina</p>
