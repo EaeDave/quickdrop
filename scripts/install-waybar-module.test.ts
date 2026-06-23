@@ -16,7 +16,22 @@ describe("patchWaybarConfig", () => {
     expect(changed).toBe(true);
     expect(text).toContain(`"modules-right": [\n    "custom/quickdrop",\n    "clock"`);
     expect(text).toContain(`"custom/quickdrop": {`);
-    expect(text).toContain(`"on-click": "/home/user/.local/bin/quickdrop-waybar"`);
+    expect(text).toContain(`"on-click": "env QUICKDROP_API_BASE_URL='https://quickdrop.eaedave.xyz' '/home/user/.local/bin/quickdrop-waybar'"`);
+  });
+
+  test("uses configured API base URL without trailing slash", () => {
+    const input = `{
+  "modules-right": ["tray"],
+  "tray": { "icon-size": 12 }
+}`;
+
+    const { text } = patchWaybarConfig(
+      input,
+      "/home/user/.local/bin/quickdrop-waybar",
+      "http://127.0.0.1:3000/",
+    );
+
+    expect(text).toContain(`"on-click": "env QUICKDROP_API_BASE_URL='http://127.0.0.1:3000' '/home/user/.local/bin/quickdrop-waybar'"`);
   });
 
   test("replaces old direct binary module with Waybar launcher", () => {
@@ -35,7 +50,7 @@ describe("patchWaybarConfig", () => {
     expect(changed).toBe(true);
     expect(text).not.toContain(`"on-click": "quickdrop"`);
     expect(text).toContain(`"tooltip-format": "QuickDrop\\nArraste um arquivo para enviar"`);
-    expect(text).toContain(`"on-click": "/home/user/.local/bin/quickdrop-waybar"`);
+    expect(text).toContain(`"on-click": "env QUICKDROP_API_BASE_URL='https://quickdrop.eaedave.xyz' '/home/user/.local/bin/quickdrop-waybar'"`);
   });
 
   test("is idempotent after install", () => {

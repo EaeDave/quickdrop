@@ -1,6 +1,7 @@
 import { $ } from "bun";
 
 const QUICKDROP_MODULE = "custom/quickdrop";
+const DEFAULT_QUICKDROP_API_BASE_URL = "https://quickdrop.eaedave.xyz";
 
 export type InstallWaybarModuleResult = {
   configPath: string;
@@ -15,12 +16,18 @@ export type InstallWaybarModuleOptions = {
   home?: string;
   configPath?: string;
   launcherPath?: string;
+  apiBaseUrl?: string;
   restart?: boolean;
 };
 
-export function patchWaybarConfig(input: string, launcherPath: string): { text: string; changed: boolean } {
+export function patchWaybarConfig(
+  input: string,
+  launcherPath: string,
+  apiBaseUrl = DEFAULT_QUICKDROP_API_BASE_URL,
+): { text: string; changed: boolean } {
+  const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
   let text = ensureQuickdropInModulesRight(input);
-  text = upsertQuickdropModule(text, launcherPath);
+  text = upsertQuickdropModule(text, launcherPath, normalizedApiBaseUrl);
   return { text, changed: text !== input };
 }
 
@@ -36,6 +43,7 @@ export async function installWaybarModule(
 
   const configPath = options.configPath ?? process.env.QUICKDROP_WAYBAR_CONFIG ?? `${home}/.config/waybar/config.jsonc`;
   const launcherPath = options.launcherPath ?? `${home}/.local/bin/quickdrop-waybar`;
+  const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl ?? process.env.QUICKDROP_API_BASE_URL);
 
   if (!(await Bun.file(configPath).exists())) {
     console.warn(`Skipped Waybar module install: ${configPath} not found.`);
@@ -43,7 +51,7 @@ export async function installWaybarModule(
   }
 
   const original = await Bun.file(configPath).text();
-  const { text, changed } = patchWaybarConfig(original, launcherPath);
+  const { text, changed } = patchWaybarConfig(original, launcherPath, apiBaseUrl);
 
   if (!changed) {
     console.log(`Waybar module ${QUICKDROP_MODULE} already installed in ${configPath}`);
@@ -65,15 +73,26 @@ export async function installWaybarModule(
   return { configPath, changed: true, modulePresent: true, restarted, backupPath };
 }
 
-function renderQuickdropModule(launcherPath: string): string {
+function renderQuickdropModule(launcherPath: string, apiBaseUrl: string): string {
+  const onClick = `env QUICKDROP_API_BASE_URL=${shellQuote(apiBaseUrl)} ${shellQuote(launcherPath)}`;
+
   return [
     `  "${QUICKDROP_MODULE}": {`,
     `    "format": "󰇚",`,
     `    "tooltip": true,`,
     `    "tooltip-format": "QuickDrop\\nArraste um arquivo para enviar",`,
-    `    "on-click": ${JSON.stringify(launcherPath)}`,
+    `    "on-click": ${JSON.stringify(onClick)}`,
     "  }",
   ].join("\n");
+}
+
+function normalizeApiBaseUrl(input: string | undefined): string {
+  const trimmed = input?.trim();
+  return (trimmed && trimmed.length > 0 ? trimmed : DEFAULT_QUICKDROP_API_BASE_URL).replace(/\/+$/, "");
+}
+
+function shellQuote(input: string): string {
+  return `'${input.replaceAll("'", `'"'"'`)}'`;
 }
 
 function ensureQuickdropInModulesRight(text: string): string {
@@ -105,8 +124,8 @@ function ensureQuickdropInModulesRight(text: string): string {
   return text.slice(0, match.index) + replacement + text.slice(match.index + match[0].length);
 }
 
-function upsertQuickdropModule(text: string, launcherPath: string): string {
-  const block = renderQuickdropModule(launcherPath);
+function upsertQuickdropModule(text: string, launcherPath: string, apiBaseUrl: string): string {
+  const block = renderQuickdropModule(launcherPath, apiBaseUrl);
   const range = findModuleDefinitionRange(text);
 
   if (range) {

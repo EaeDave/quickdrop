@@ -123,7 +123,7 @@ test -x "$HOME/.local/bin/quickdrop"
 test -x "$HOME/.local/bin/quickdrop-waybar"
 ```
 
-`desktop:install` copia o binário, instala o launcher `quickdrop-waybar`, atualiza `~/.config/waybar/config.jsonc`, cria backup `config.jsonc.bak.quickdrop.*` e reinicia a Waybar quando `omarchy` está disponível. Para reaplicar só o módulo Waybar:
+`desktop:install` copia o binário, instala o launcher `quickdrop-waybar`, atualiza `~/.config/waybar/config.jsonc`, cria backup `config.jsonc.bak.quickdrop.*` e reinicia a Waybar quando `omarchy` está disponível. Por padrão, o módulo Waybar instalado usa `QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz`; para apontar para outro backend, rode `QUICKDROP_API_BASE_URL=https://seu-backend.example.com bun run waybar:install`. Para reaplicar só o módulo Waybar:
 
 ```bash
 bun run waybar:install
@@ -136,7 +136,7 @@ Snippet manual equivalente:
   "format": "󰇚",
   "tooltip": true,
   "tooltip-format": "QuickDrop\nArraste um arquivo para enviar",
-  "on-click": "/home/<user>/.local/bin/quickdrop-waybar"
+  "on-click": "env QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz /home/<user>/.local/bin/quickdrop-waybar"
 }
 ```
 

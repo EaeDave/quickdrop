@@ -6,7 +6,7 @@ exec 9>"$lock_path"
 flock 9
 
 quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
-api_base_url="${QUICKDROP_API_BASE_URL:-http://127.0.0.1:3000}"
+api_base_url="${QUICKDROP_API_BASE_URL:-https://quickdrop.eaedave.xyz}"
 window_width=552
 window_height=352
 
