@@ -9,12 +9,15 @@ export type AppConfig = {
   fileExpirationHours: number;
   maxFileSizeMb: number;
   maxFileSizeBytes: number;
+  githubToken: string | undefined;
+  githubReleaseRepository: string;
 };
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_R2_BUCKET_NAME = "quickdrop";
 const DEFAULT_FILE_EXPIRATION_HOURS = 24;
 const DEFAULT_MAX_FILE_SIZE_MB = 500;
+const DEFAULT_GITHUB_RELEASE_REPOSITORY = "EaeDave/quickdrop";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = readPositiveInteger(env, "PORT", DEFAULT_PORT);
@@ -41,6 +44,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     fileExpirationHours,
     maxFileSizeMb,
     maxFileSizeBytes: maxFileSizeMb * 1024 * 1024,
+    githubToken: readOptional(env, "QUICKDROP_GITHUB_TOKEN") ?? readOptional(env, "GITHUB_TOKEN"),
+    githubReleaseRepository:
+      readOptional(env, "QUICKDROP_GITHUB_REPOSITORY") ?? DEFAULT_GITHUB_RELEASE_REPOSITORY,
   };
 }
 

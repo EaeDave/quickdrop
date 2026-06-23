@@ -8,9 +8,11 @@ const testEnv = {
   R2_ACCESS_KEY_ID: "access-key",
   R2_SECRET_ACCESS_KEY: "secret-key",
   PUBLIC_BASE_URL: "https://quickdrop.eaedave.xyz",
+  QUICKDROP_GITHUB_TOKEN: "github-token",
 };
 
-const envKeys = Object.keys(testEnv);
+const envKeys = [...Object.keys(testEnv), "GITHUB_TOKEN"];
+const originalFetch = globalThis.fetch;
 let previousEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -30,6 +32,8 @@ afterEach(() => {
       process.env[key] = previous;
     }
   }
+
+  globalThis.fetch = originalFetch;
 });
 
 describe("buildApp", () => {
@@ -69,9 +73,77 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
-      expect(response.body).toContain("releases/latest");
+      expect(response.body).toContain("/windows/latest.exe");
       expect(response.body).toContain("/S");
       expect(response.body).toContain("--tray-start");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("proxies the latest Windows installer through the server GitHub token", async () => {
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      const headers = init?.headers as Record<string, string>;
+      calls.push({ url, headers });
+
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+        return Response.json({
+          assets: [
+            {
+              name: "QuickDrop_0.1.0_x64-setup.exe",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/1",
+            },
+          ],
+        });
+      }
+
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/1") {
+        return new Response("installer-binary", {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/windows/latest.exe",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-disposition"]).toContain("QuickDrop_0.1.0_x64-setup.exe");
+      expect(response.headers["cache-control"]).toBe("public, max-age=300");
+      expect(response.body).toBe("installer-binary");
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.headers.authorization).toBe("Bearer github-token");
+      expect(calls[0]?.headers.accept).toBe("application/vnd.github+json");
+      expect(calls[1]?.headers.authorization).toBe("Bearer github-token");
+      expect(calls[1]?.headers.accept).toBe("application/octet-stream");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("fails the Windows installer proxy when the server token is missing", async () => {
+    delete process.env.QUICKDROP_GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/windows/latest.exe",
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.body).toContain("QUICKDROP_GITHUB_TOKEN");
     } finally {
       await app.close();
     }

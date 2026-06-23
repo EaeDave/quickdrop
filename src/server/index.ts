@@ -10,6 +10,7 @@ import { startCleanupJob } from "./cleanup";
 import { handleDownload } from "./download-service";
 import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
+import { handleWindowsInstallerDownload } from "./windows-installer-service";
 
 export function buildApp() {
   const config = loadConfig();
@@ -36,6 +37,10 @@ export function buildApp() {
       .header("cache-control", "public, max-age=300")
       .send(script);
   });
+
+  app.get("/windows/latest.exe", async (_request, reply) =>
+    handleWindowsInstallerDownload(reply, { config }),
+  );
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),
     prefix: "/",

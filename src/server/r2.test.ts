@@ -14,6 +14,8 @@ const config: AppConfig = {
   fileExpirationHours: 24,
   maxFileSizeMb: 500,
   maxFileSizeBytes: 500 * 1024 * 1024,
+  githubToken: undefined,
+  githubReleaseRepository: "EaeDave/quickdrop",
 };
 
 describe("createR2Client", () => {

@@ -40,6 +40,17 @@ describe("loadConfig", () => {
     expect(config.publicBaseUrl).toBe("https://files.example.com");
   });
 
+  test("reads optional GitHub installer proxy config", () => {
+    const config = loadConfig({
+      ...requiredEnv,
+      QUICKDROP_GITHUB_TOKEN: "token",
+      QUICKDROP_GITHUB_REPOSITORY: "owner/repo",
+    });
+
+    expect(config.githubToken).toBe("token");
+    expect(config.githubReleaseRepository).toBe("owner/repo");
+  });
+
   test("rejects non-positive numeric values", () => {
     expect(() => loadConfig({ ...requiredEnv, PORT: "0" })).toThrow("PORT");
     expect(() => loadConfig({ ...requiredEnv, FILE_EXPIRATION_HOURS: "-1" })).toThrow("FILE_EXPIRATION_HOURS");

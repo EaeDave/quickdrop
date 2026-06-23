@@ -14,6 +14,7 @@
 - Arquivos expiram por padrão após 24 horas, configurável por `FILE_EXPIRATION_HOURS`. Upload expirado é removido do R2 e marcado com `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads` e Endpoint interno `GET /f/:shortId`.
 - Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
 - A janela do MVP tem 500x300, exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, fechar encerra a janela como antes; no Windows, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
+- A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. Fonte: `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -51,6 +52,8 @@ FILE_EXPIRATION_HOURS=24
 MAX_FILE_SIZE_MB=500
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000
 RUN_MIGRATIONS_ON_START=true
+QUICKDROP_GITHUB_TOKEN=
+QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop
 ```
 
 Preencha `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` e `PUBLIC_BASE_URL` antes de iniciar um backend real. Para uso diário na máquina local, o modo recomendado é deixar a Waybar apontando para o backend remoto `https://quickdrop.eaedave.xyz`; assim o QuickDrop continua funcionando após reiniciar o computador sem depender de um processo local.
@@ -96,9 +99,11 @@ PUBLIC_BASE_URL=https://files.seu-dominio.com
 FILE_EXPIRATION_HOURS=24
 MAX_FILE_SIZE_MB=500
 RUN_MIGRATIONS_ON_START=true
+QUICKDROP_GITHUB_TOKEN=github_pat_...
+QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop
 ```
 
-`PUBLIC_BASE_URL` deve ser o domínio público do backend no Coolify, não o bucket R2 direto. A URL copiada pelo desktop será `${PUBLIC_BASE_URL}/f/:shortId`, e esse endpoint redireciona para uma URL assinada temporária do R2.
+`PUBLIC_BASE_URL` deve ser o domínio público do backend no Coolify, não o bucket R2 direto. A URL copiada pelo desktop será `${PUBLIC_BASE_URL}/f/:shortId`, e esse endpoint redireciona para uma URL assinada temporária do R2. Para o instalador Windows funcionar com o repositório GitHub privado, configure `QUICKDROP_GITHUB_TOKEN` no ambiente do servidor com permissão de leitura do repositório; `GITHUB_TOKEN` também é aceito como fallback, mas não deve ser embutido no script público.
 
 Na inicialização, o container executa `bun run db:migrate` antes de `bun run server:start`. Se quiser rodar migrações fora do container, defina `RUN_MIGRATIONS_ON_START=false`. Health check: `/api/health`.
 
@@ -157,7 +162,7 @@ Instalação Windows via PowerShell:
 irm https://quickdrop.eaedave.xyz/install.ps1 | iex
 ```
 
-O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o asset `QuickDrop_*_x64-setup.exe` do último GitHub Release (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido), roda o NSIS em modo silencioso para o usuário atual e inicia o app com `--tray-start`.
+O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o instalador em `GET /windows/latest.exe` (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido); o backend usa `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` server-side para buscar o asset privado `QuickDrop_*_x64-setup.exe` do último GitHub Release, repassa o binário ao Windows, roda o NSIS em modo silencioso para o usuário atual e inicia o app com `--tray-start`.
 
 Build Windows (em Windows local/CI; o CI do GitHub Actions pode ser religado depois quando houver cota):
 

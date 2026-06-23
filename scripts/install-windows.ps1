@@ -3,8 +3,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $AppName = "QuickDrop"
-$Repository = "EaeDave/quickdrop"
-$ReleaseApiUrl = "https://api.github.com/repos/$Repository/releases/latest"
+$DefaultInstallerUrl = "https://quickdrop.eaedave.xyz/windows/latest.exe"
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("quickdrop-install-" + [System.Guid]::NewGuid().ToString("N"))
 $InstallerPath = Join-Path $TempDir "QuickDropSetup.exe"
 
@@ -13,17 +12,7 @@ function Resolve-InstallerUrl {
     return $env:QUICKDROP_WINDOWS_INSTALLER_URL
   }
 
-  Write-Host "Resolving latest QuickDrop Windows installer..."
-  $release = Invoke-RestMethod -Uri $ReleaseApiUrl -Headers @{ "User-Agent" = "quickdrop-installer" }
-  $asset = $release.assets |
-    Where-Object { $_.name -like "QuickDrop_*_x64-setup.exe" } |
-    Select-Object -First 1
-
-  if (-not $asset) {
-    throw "No QuickDrop Windows x64 installer asset found in the latest GitHub release."
-  }
-
-  return $asset.browser_download_url
+  return $DefaultInstallerUrl
 }
 
 try {
