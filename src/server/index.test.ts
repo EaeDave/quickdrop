@@ -74,8 +74,11 @@ describe("buildApp", () => {
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
       expect(response.body).toContain("/windows/latest.exe");
-      expect(response.body).toContain("/S");
-      expect(response.body).toContain("--tray-start");
+      expect(response.body).toContain("Start-InstalledQuickDrop");
+      expect(response.body).toContain("Start-Process -FilePath $ExePath");
+      expect(response.body).not.toContain('"/R"');
+      expect(response.body).not.toContain('"/ARGS"');
+      expect(response.body).not.toContain("--tray-start");
     } finally {
       await app.close();
     }

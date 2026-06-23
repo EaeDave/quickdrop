@@ -244,3 +244,236 @@ h1 {
 .quickdrop-action:hover {
   background: rgb(56 189 248 / 0.24);
 }
+
+html.quickdrop-web-page,
+html.quickdrop-web-page body,
+html.quickdrop-web-page #root {
+  min-height: 100%;
+  height: auto;
+  overflow: auto;
+  background: #020617;
+}
+
+html.quickdrop-web-page * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+html.quickdrop-web-page button,
+html.quickdrop-web-page a {
+  cursor: pointer;
+}
+
+.quickdrop-web {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 5%, rgb(236 72 153 / 0.24), transparent 28rem),
+    radial-gradient(circle at 78% 22%, rgb(56 189 248 / 0.18), transparent 24rem),
+    linear-gradient(180deg, #020617 0%, #0f172a 62%, #020617 100%);
+  color: #e5e7eb;
+}
+
+.quickdrop-web::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgb(226 232 240 / 0.34) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(180deg, rgb(0 0 0 / 0.72), transparent 78%);
+  content: "";
+}
+
+.quickdrop-web-inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(1120px, calc(100% - 32px));
+  min-height: 100vh;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  align-items: center;
+  gap: 40px;
+  margin: 0 auto;
+  padding: 64px 0;
+}
+
+.quickdrop-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.quickdrop-pill {
+  width: max-content;
+  border: 1px solid rgb(236 72 153 / 0.42);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.76);
+  color: #f0abfc;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 8px 12px;
+  text-transform: uppercase;
+}
+
+.quickdrop-hero h1 {
+  max-width: 780px;
+  color: #fff;
+  font-size: clamp(44px, 7vw, 88px);
+  font-weight: 850;
+  letter-spacing: -0.075em;
+  line-height: 0.94;
+}
+
+.quickdrop-hero-copy {
+  max-width: 680px;
+  color: #cbd5e1;
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.45;
+}
+
+.quickdrop-install-card {
+  max-width: 720px;
+  overflow: hidden;
+  border: 1px solid rgb(236 72 153 / 0.62);
+  border-radius: 7px;
+  background: rgb(15 23 42 / 0.78);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.34), 0 0 0 1px rgb(255 255 255 / 0.04) inset;
+}
+
+.quickdrop-install-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgb(236 72 153 / 0.40);
+  background: rgb(2 6 23 / 0.35);
+}
+
+.quickdrop-install-tabs {
+  display: flex;
+  align-items: stretch;
+}
+
+.quickdrop-install-tab,
+.quickdrop-install-script {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  color: #cbd5e1;
+  font-size: 14px;
+  padding: 0 16px;
+  text-decoration: none;
+}
+
+.quickdrop-install-tab--active {
+  background: #ec4899;
+  color: #111827;
+}
+
+.quickdrop-install-tab[aria-disabled="true"] {
+  color: #64748b;
+}
+
+.quickdrop-install-script:hover {
+  color: #f9a8d4;
+}
+
+.quickdrop-command {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 18px;
+  color: #f8fafc;
+  text-align: left;
+}
+
+.quickdrop-command code {
+  overflow: hidden;
+  color: #f8fafc;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(15px, 2vw, 20px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickdrop-command-prompt {
+  color: #94a3b8;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.quickdrop-command-copy {
+  border: 1px solid rgb(148 163 184 / 0.28);
+  border-radius: 6px;
+  color: #bae6fd;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.quickdrop-command:hover .quickdrop-command-copy {
+  border-color: rgb(56 189 248 / 0.58);
+  background: rgb(14 165 233 / 0.12);
+}
+
+.quickdrop-install-error {
+  border-top: 1px solid rgb(248 113 113 / 0.24);
+  color: #fecaca;
+  font-size: 13px;
+  margin: 0;
+  padding: 10px 16px 14px;
+}
+
+.quickdrop-web-upload {
+  height: auto;
+  min-height: 360px;
+  align-self: center;
+}
+
+.quickdrop-web-upload .quickdrop-drop-zone {
+  min-height: 336px;
+}
+
+@media (max-width: 900px) {
+  .quickdrop-web-inner {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 28px;
+    padding: 40px 0;
+  }
+
+  .quickdrop-web-upload {
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 560px) {
+  .quickdrop-web-inner {
+    width: min(100% - 20px, 1120px);
+    padding: 24px 0;
+  }
+
+  .quickdrop-install-header,
+  .quickdrop-command {
+    grid-template-columns: 1fr;
+  }
+
+  .quickdrop-install-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .quickdrop-install-script {
+    border-top: 1px solid rgb(236 72 153 / 0.24);
+  }
+
+  .quickdrop-command code {
+    white-space: normal;
+    word-break: break-word;
+  }
+}

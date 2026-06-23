@@ -1,7 +1,9 @@
-import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
+
+const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
 
 type UploadState =
   | { status: "idle" }
@@ -14,7 +16,10 @@ export function App() {
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [useNativeClipboardPaste, setUseNativeClipboardPaste] = useState(false);
+  const [copiedInstallCommand, setCopiedInstallCommand] = useState(false);
+  const [installCopyError, setInstallCopyError] = useState<string | null>(null);
   const stateRef = useRef(state);
+  const copiedInstallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback(() => {
     setManualUrl(null);
@@ -38,6 +43,23 @@ export function App() {
   }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isTauri) {
+      return;
+    }
+
+    document.documentElement.classList.add("quickdrop-web-page");
+    return () => document.documentElement.classList.remove("quickdrop-web-page");
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copiedInstallTimeoutRef.current) {
+        clearTimeout(copiedInstallTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     stateRef.current = state;
@@ -130,7 +152,7 @@ export function App() {
     }
   }, [handleUploadInputs]);
 
-  const handleFileInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? Array.from(event.target.files) : [];
     if (files.length > 0) {
       void handleUploadInputs(files);
@@ -140,6 +162,25 @@ export function App() {
       fileInputRef.current.value = "";
     }
   }, [handleUploadInputs]);
+
+  const copyInstallCommand = useCallback(async () => {
+    try {
+      await copyTextToClipboard(WINDOWS_INSTALL_COMMAND);
+      setInstallCopyError(null);
+      setCopiedInstallCommand(true);
+
+      if (copiedInstallTimeoutRef.current) {
+        clearTimeout(copiedInstallTimeoutRef.current);
+      }
+
+      copiedInstallTimeoutRef.current = setTimeout(() => {
+        setCopiedInstallCommand(false);
+        copiedInstallTimeoutRef.current = null;
+      }, 1600);
+    } catch (error) {
+      setInstallCopyError(`Não foi possível copiar automaticamente: ${formatError(error)}`);
+    }
+  }, []);
 
   const handleNativeClipboardPaste = useCallback(async () => {
     if (!isTauri || stateRef.current.status === "uploading") {
@@ -229,21 +270,21 @@ export function App() {
     };
   }, [handleUploadInputs]);
 
-  const handleDragOver = useCallback((event: React.DragEvent) => {
+  const handleDragOver = useCallback((event: DragEvent) => {
     if (!isTauri) {
       event.preventDefault();
       setDropActive(true);
     }
   }, []);
 
-  const handleDragLeave = useCallback((event: React.DragEvent) => {
+  const handleDragLeave = useCallback((event: DragEvent) => {
     if (!isTauri) {
       event.preventDefault();
       setDropActive(false);
     }
   }, []);
 
-  const handleDrop = useCallback((event: React.DragEvent) => {
+  const handleDrop = useCallback((event: DragEvent) => {
     if (!isTauri) {
       event.preventDefault();
       setDropActive(false);
@@ -305,6 +346,42 @@ export function App() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [handleUploadInputs]);
 
+  const fileInput = (
+    <input
+      type="file"
+      ref={fileInputRef}
+      onChange={handleFileInputChange}
+      multiple
+      style={{ display: "none" }}
+    />
+  );
+
+  const uploadState = (
+    <>
+      {state.status === "idle" && <IdleState onPickFile={handlePickFile} />}
+      {state.status === "uploading" && <UploadingState state={state} />}
+      {state.status === "success" && <SuccessState state={state} />}
+      {state.status === "error" && <ErrorState message={state.message} manualUrl={manualUrl} onReset={reset} />}
+    </>
+  );
+
+  if (!isTauri) {
+    return (
+      <WebLanding
+        copiedInstallCommand={copiedInstallCommand}
+        dropActive={dropActive}
+        fileInput={fileInput}
+        installCopyError={installCopyError}
+        onCopyInstallCommand={copyInstallCommand}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {uploadState}
+      </WebLanding>
+    );
+  }
+
   return (
     <main className="quickdrop-shell">
       <section
@@ -320,18 +397,8 @@ export function App() {
             ×
           </button>
         </header>
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileInputChange}
-          multiple
-          style={{ display: "none" }}
-        />
-
-        {state.status === "idle" && <IdleState onPickFile={handlePickFile} />}
-        {state.status === "uploading" && <UploadingState state={state} />}
-        {state.status === "success" && <SuccessState state={state} />}
-        {state.status === "error" && <ErrorState message={state.message} manualUrl={manualUrl} onReset={reset} />}
+        {fileInput}
+        {uploadState}
       </section>
     </main>
   );
@@ -409,6 +476,70 @@ function ErrorState(props: { message: string; manualUrl: string | null; onReset:
   );
 }
 
+function WebLanding(props: {
+  children: ReactNode;
+  copiedInstallCommand: boolean;
+  dropActive: boolean;
+  fileInput: ReactNode;
+  installCopyError: string | null;
+  onCopyInstallCommand: () => void;
+  onDragLeave: (event: DragEvent) => void;
+  onDragOver: (event: DragEvent) => void;
+  onDrop: (event: DragEvent) => void;
+}) {
+  return (
+    <main className="quickdrop-web">
+      <div className="quickdrop-web-inner">
+        <section className="quickdrop-hero" aria-labelledby="quickdrop-hero-title">
+          <p className="quickdrop-pill">QuickDrop para Windows</p>
+          <h1 id="quickdrop-hero-title">Envie arquivos rápido, copie o link e siga.</h1>
+          <p className="quickdrop-hero-copy">
+            App desktop com tray, autostart e backend de produção pronto. Instale pelo PowerShell ou use o upload web abaixo.
+          </p>
+          <InstallCommand
+            copied={props.copiedInstallCommand}
+            error={props.installCopyError}
+            onCopy={props.onCopyInstallCommand}
+          />
+        </section>
+
+        <section
+          className={`quickdrop-web-upload quickdrop-panel ${props.dropActive ? "quickdrop-panel--active" : ""}`}
+          aria-label="Enviar arquivos pelo navegador"
+          onDragOver={props.onDragOver}
+          onDragLeave={props.onDragLeave}
+          onDrop={props.onDrop}
+        >
+          {props.fileInput}
+          {props.children}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function InstallCommand(props: { copied: boolean; error: string | null; onCopy: () => void }) {
+  return (
+    <div className="quickdrop-install-card">
+      <div className="quickdrop-install-header">
+        <div className="quickdrop-install-tabs" aria-label="Plataformas">
+          <span className="quickdrop-install-tab quickdrop-install-tab--active">Windows</span>
+          <span className="quickdrop-install-tab" aria-disabled="true">Linux em breve</span>
+        </div>
+        <a className="quickdrop-install-script" href="/install.ps1" target="_blank" rel="noreferrer">
+          Ver script
+        </a>
+      </div>
+      <button className="quickdrop-command" type="button" onClick={props.onCopy}>
+        <span className="quickdrop-command-prompt">PS</span>
+        <code>{WINDOWS_INSTALL_COMMAND}</code>
+        <span className="quickdrop-command-copy">{props.copied ? "Copiado" : "Copiar"}</span>
+      </button>
+      {props.error && <p className="quickdrop-install-error">{props.error}</p>}
+    </div>
+  );
+}
+
 function formatSelectionName(inputs: UploadInput[]): string {
   if (inputs.length === 1) {
     const input = inputs[0]!;
@@ -426,6 +557,30 @@ function getFileName(path: string): string {
 
 function isPasteShortcut(event: KeyboardEvent): boolean {
   return (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v";
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("clipboard copy command failed");
+    }
+  } finally {
+    textArea.remove();
+  }
 }
 
 function formatError(error: unknown): string {
