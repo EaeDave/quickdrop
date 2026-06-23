@@ -4,6 +4,7 @@
 ## Regras de negócio
 
  - QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar), cliente Windows com ícone residente na system tray e uma interface web minimalista correspondente, servida diretamente na raiz do servidor (`GET /`). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
+- No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher da Waybar injeta esse mesmo backend remoto por padrão. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs` e `scripts/quickdrop-waybar`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
 - Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
 - O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop; o limite padrão de 500 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
@@ -157,6 +158,8 @@ bun run desktop:build:windows
 ```
 
 No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a janela QuickDrop; botão fechar/Esc apenas ocultam a janela; o menu da tray tem `Abrir QuickDrop`, `Iniciar com Windows` e `Sair`.
+
+O executável Windows gerado aponta para produção por padrão: se `QUICKDROP_API_BASE_URL` não estiver definido no ambiente do usuário, o app usa `https://quickdrop.eaedave.xyz`. Defina `QUICKDROP_API_BASE_URL` apenas para testar outro backend.
 
 Instalar binário e integrar com Waybar usando o backend remoto persistente:
 

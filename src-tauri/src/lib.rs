@@ -2,9 +2,13 @@ use futures_util::TryStreamExt;
 use reqwest::multipart::{Form, Part};
 use std::collections::HashMap;
 use std::fs::File as StdFile;
-use std::io::{BufReader, Write};
+use std::io::BufReader;
+#[cfg(not(target_os = "windows"))]
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command, Stdio};
+#[cfg(not(target_os = "windows"))]
+use std::process::Stdio;
+use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
 #[cfg(target_os = "windows")]
@@ -78,6 +82,11 @@ struct ZipInput {
 const WINDOW_WIDTH: f64 = 500.0;
 const WINDOW_HEIGHT: f64 = 300.0;
 const LAUNCHER_GAP: f64 = 10.0;
+const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
+#[cfg(target_os = "windows")]
+const DEFAULT_API_BASE_URL: &str = PRODUCTION_API_BASE_URL;
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_API_BASE_URL: &str = "http://127.0.0.1:3000";
 #[cfg(target_os = "windows")]
 const TRAY_ID: &str = "quickdrop-tray";
 #[cfg(target_os = "windows")]
@@ -90,7 +99,7 @@ const TRAY_MENU_QUIT_ID: &str = "quit";
 impl DesktopConfig {
     fn from_env() -> Self {
         let raw_base_url = std::env::var("QUICKDROP_API_BASE_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+            .unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_string());
         let api_base_url = raw_base_url.trim_end_matches('/').to_string();
 
         Self { api_base_url }
@@ -823,12 +832,65 @@ mod tests {
         PathGuard { original }
     }
 
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
+
+    fn remove_env_var_for_test(key: &'static str) -> EnvVarGuard {
+        let original = env::var_os(key);
+        env::remove_var(key);
+
+        EnvVarGuard { key, original }
+    }
+
+    fn set_env_var_for_test(key: &'static str, value: &str) -> EnvVarGuard {
+        let original = env::var_os(key);
+        env::set_var(key, value);
+
+        EnvVarGuard { key, original }
+    }
+
     #[cfg(unix)]
     fn write_executable(path: &Path, contents: &str) {
         fs::write(path, contents).unwrap();
         let mut permissions = fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[test]
+    fn desktop_config_uses_platform_default_api_url_when_env_missing() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = remove_env_var_for_test("QUICKDROP_API_BASE_URL");
+
+        assert_eq!(DesktopConfig::from_env().api_base_url, DEFAULT_API_BASE_URL);
+
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            DesktopConfig::from_env().api_base_url,
+            PRODUCTION_API_BASE_URL
+        );
+    }
+
+    #[test]
+    fn desktop_config_trims_api_url_env_override() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = set_env_var_for_test("QUICKDROP_API_BASE_URL", "https://example.com///");
+
+        assert_eq!(
+            DesktopConfig::from_env().api_base_url,
+            "https://example.com"
+        );
     }
 
     #[cfg(unix)]
