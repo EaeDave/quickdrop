@@ -15,22 +15,80 @@ function Resolve-InstallerUrl {
   return $DefaultInstallerUrl
 }
 
-function Resolve-ExecutablePath {
-  param([string]$Path)
+function Resolve-PathValue {
+  param([object]$Path)
 
-  $Candidate = $Path.Trim()
+  if ($null -eq $Path) {
+    return $null
+  }
+
+  $Candidate = ([string]$Path).Trim()
   if (-not $Candidate) {
     return $null
   }
 
+  $Candidate = [System.Environment]::ExpandEnvironmentVariables($Candidate)
   if ($Candidate.StartsWith('"')) {
     $ClosingQuote = $Candidate.IndexOf('"', 1)
     if ($ClosingQuote -gt 0) {
-      return $Candidate.Substring(1, $ClosingQuote - 1)
+      return $Candidate.Substring(1, $ClosingQuote - 1).Trim()
     }
   }
 
-  return ($Candidate -split ",", 2)[0].Trim().Trim('"')
+  return ($Candidate -split ",", 2)[0].Trim().Trim('"').Trim("'")
+}
+
+function Resolve-DirectoryPath {
+  param([object]$Path)
+
+  $Candidate = Resolve-PathValue $Path
+  if (-not $Candidate) {
+    return $null
+  }
+
+  if ([System.IO.Path]::GetExtension($Candidate) -ieq ".exe") {
+    return [System.IO.Path]::GetDirectoryName($Candidate)
+  }
+
+  return $Candidate
+}
+
+function Resolve-ExecutablePath {
+  param([object]$Path)
+
+  return Resolve-PathValue $Path
+}
+
+function Join-OptionalPath {
+  param(
+    [object]$Directory,
+    [string]$ChildPath
+  )
+
+  $ResolvedDirectory = Resolve-DirectoryPath $Directory
+  if (-not $ResolvedDirectory) {
+    return $null
+  }
+
+  try {
+    return Join-Path -Path $ResolvedDirectory -ChildPath $ChildPath
+  } catch {
+    return $null
+  }
+}
+
+function Test-ExistingFile {
+  param([object]$Path)
+
+  if (-not $Path) {
+    return $false
+  }
+
+  try {
+    return Test-Path -LiteralPath ([string]$Path) -PathType Leaf
+  } catch {
+    return $false
+  }
 }
 
 function Get-InstalledQuickDropPath {
@@ -50,8 +108,8 @@ function Get-InstalledQuickDropPath {
 
       $InstallLocationProperty = $InstalledApp.PSObject.Properties["InstallLocation"]
       if ($null -ne $InstallLocationProperty -and $InstallLocationProperty.Value) {
-        $Candidate = Join-Path $InstallLocationProperty.Value "$AppName.exe"
-        if (Test-Path -LiteralPath $Candidate -PathType Leaf) {
+        $Candidate = Join-OptionalPath $InstallLocationProperty.Value "$AppName.exe"
+        if ($Candidate -and (Test-ExistingFile $Candidate)) {
           return $Candidate
         }
       }
@@ -59,7 +117,7 @@ function Get-InstalledQuickDropPath {
       $DisplayIconProperty = $InstalledApp.PSObject.Properties["DisplayIcon"]
       if ($null -ne $DisplayIconProperty -and $DisplayIconProperty.Value) {
         $Candidate = Resolve-ExecutablePath $DisplayIconProperty.Value
-        if ($Candidate -and (Test-Path -LiteralPath $Candidate -PathType Leaf)) {
+        if ($Candidate -and (Test-ExistingFile $Candidate)) {
           return $Candidate
         }
       }
@@ -68,21 +126,25 @@ function Get-InstalledQuickDropPath {
 
   $FallbackDirectories = @()
   if ($env:LOCALAPPDATA) {
-    $FallbackDirectories += Join-Path $env:LOCALAPPDATA "Programs\$AppName"
-    $FallbackDirectories += Join-Path $env:LOCALAPPDATA $AppName
+    $LocalAppDataPrograms = Join-OptionalPath $env:LOCALAPPDATA "Programs"
+    if ($LocalAppDataPrograms) {
+      $FallbackDirectories += Join-OptionalPath $LocalAppDataPrograms $AppName
+    }
+
+    $FallbackDirectories += Join-OptionalPath $env:LOCALAPPDATA $AppName
   }
   if ($env:ProgramFiles) {
-    $FallbackDirectories += Join-Path $env:ProgramFiles $AppName
+    $FallbackDirectories += Join-OptionalPath $env:ProgramFiles $AppName
   }
 
   $ProgramFilesX86 = [System.Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
   if ($ProgramFilesX86) {
-    $FallbackDirectories += Join-Path $ProgramFilesX86 $AppName
+    $FallbackDirectories += Join-OptionalPath $ProgramFilesX86 $AppName
   }
 
   foreach ($Directory in $FallbackDirectories) {
-    $Candidate = Join-Path $Directory "$AppName.exe"
-    if (Test-Path -LiteralPath $Candidate -PathType Leaf) {
+    $Candidate = Join-OptionalPath $Directory "$AppName.exe"
+    if ($Candidate -and (Test-ExistingFile $Candidate)) {
       return $Candidate
     }
   }

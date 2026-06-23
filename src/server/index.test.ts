@@ -76,6 +76,9 @@ describe("buildApp", () => {
       expect(response.body).toContain("/windows/latest.exe");
       expect(response.body).toContain("Start-InstalledQuickDrop");
       expect(response.body).toContain("Start-Process -FilePath $ExePath");
+      expect(response.body).toContain("Resolve-DirectoryPath");
+      expect(response.body).toContain("Join-OptionalPath");
+      expect(response.body).not.toContain('Join-Path $InstallLocationProperty.Value "$AppName.exe"');
       expect(response.body).not.toContain('"/R"');
       expect(response.body).not.toContain('"/ARGS"');
       expect(response.body).not.toContain("--tray-start");
