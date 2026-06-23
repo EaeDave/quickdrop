@@ -82,6 +82,7 @@ struct ZipInput {
 const WINDOW_WIDTH: f64 = 500.0;
 const WINDOW_HEIGHT: f64 = 300.0;
 const LAUNCHER_GAP: f64 = 10.0;
+#[cfg(target_os = "windows")]
 const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
 #[cfg(target_os = "windows")]
 const DEFAULT_API_BASE_URL: &str = PRODUCTION_API_BASE_URL;
@@ -95,6 +96,19 @@ const TRAY_MENU_OPEN_ID: &str = "open";
 const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
 #[cfg(target_os = "windows")]
 const TRAY_MENU_QUIT_ID: &str = "quit";
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MonitorArea {
+    screen_x: f64,
+    screen_y: f64,
+    screen_width: f64,
+    screen_height: f64,
+    work_x: f64,
+    work_y: f64,
+    work_width: f64,
+    work_height: f64,
+}
 
 impl DesktopConfig {
     fn from_env() -> Self {
@@ -642,27 +656,126 @@ fn uses_native_clipboard_paste() -> bool {
     cfg!(target_os = "linux")
 }
 
+#[cfg(not(target_os = "windows"))]
 fn compute_window_position(app: &AppHandle) -> (f64, f64) {
     let launch_point = launcher_position_from_env()
         .or_else(|| app.cursor_position().ok())
         .unwrap_or_else(|| PhysicalPosition::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-    let mut x = launch_point.x - (WINDOW_WIDTH / 2.0);
-    let mut y = launch_point.y + LAUNCHER_GAP;
+    let monitor_area = app
+        .monitor_from_point(launch_point.x, launch_point.y)
+        .ok()
+        .flatten()
+        .map(|monitor| monitor_area_from_monitor(&monitor));
 
-    if let Ok(Some(monitor)) = app.monitor_from_point(launch_point.x, launch_point.y) {
-        let work_area = monitor.work_area();
-        let min_x = f64::from(work_area.position.x);
-        let min_y = f64::from(work_area.position.y);
-        let max_x = min_x + f64::from(work_area.size.width) - WINDOW_WIDTH;
-        let max_y = min_y + f64::from(work_area.size.height) - WINDOW_HEIGHT;
-
-        x = x.clamp(min_x, max_x.max(min_x));
-        y = y.clamp(min_y, max_y.max(min_y));
-    }
-
-    (x.round(), y.round())
+    compute_anchor_window_position(launch_point, monitor_area)
 }
 
+#[cfg(target_os = "windows")]
+fn compute_window_position(app: &AppHandle) -> (f64, f64) {
+    compute_windows_tray_window_position(app)
+}
+
+fn compute_anchor_window_position(
+    launch_point: PhysicalPosition<f64>,
+    monitor_area: Option<MonitorArea>,
+) -> (f64, f64) {
+    let x = launch_point.x - (WINDOW_WIDTH / 2.0);
+    let y = launch_point.y + LAUNCHER_GAP;
+
+    match monitor_area {
+        Some(area) => clamp_window_position(x, y, area),
+        None => (x.round(), y.round()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn compute_windows_tray_window_position(app: &AppHandle) -> (f64, f64) {
+    if let Ok(Some(monitor)) = app.primary_monitor() {
+        return compute_tray_window_position(monitor_area_from_monitor(&monitor));
+    }
+
+    if let Ok(cursor_position) = app.cursor_position() {
+        if let Ok(Some(monitor)) = app.monitor_from_point(cursor_position.x, cursor_position.y) {
+            return compute_tray_window_position(monitor_area_from_monitor(&monitor));
+        }
+    }
+
+    (
+        (WINDOW_WIDTH + LAUNCHER_GAP).round(),
+        (WINDOW_HEIGHT + LAUNCHER_GAP).round(),
+    )
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn compute_tray_window_position(area: MonitorArea) -> (f64, f64) {
+    let taskbar_left = area.work_x > area.screen_x;
+    let taskbar_right = area.work_right() < area.screen_right();
+    let taskbar_top = area.work_y > area.screen_y;
+    let taskbar_bottom = area.work_bottom() < area.screen_bottom();
+
+    let x = if taskbar_left && !taskbar_right && !taskbar_top && !taskbar_bottom {
+        area.work_x + LAUNCHER_GAP
+    } else {
+        area.work_right() - WINDOW_WIDTH - LAUNCHER_GAP
+    };
+
+    let y = if taskbar_top && !taskbar_bottom {
+        area.work_y + LAUNCHER_GAP
+    } else {
+        area.work_bottom() - WINDOW_HEIGHT - LAUNCHER_GAP
+    };
+
+    clamp_window_position(x, y, area)
+}
+
+fn clamp_window_position(x: f64, y: f64, area: MonitorArea) -> (f64, f64) {
+    let max_x = (area.work_right() - WINDOW_WIDTH).max(area.work_x);
+    let max_y = (area.work_bottom() - WINDOW_HEIGHT).max(area.work_y);
+
+    (
+        x.clamp(area.work_x, max_x).round(),
+        y.clamp(area.work_y, max_y).round(),
+    )
+}
+
+fn monitor_area_from_monitor(monitor: &tauri::window::Monitor) -> MonitorArea {
+    let position = monitor.position();
+    let size = monitor.size();
+    let work_area = monitor.work_area();
+
+    MonitorArea {
+        screen_x: f64::from(position.x),
+        screen_y: f64::from(position.y),
+        screen_width: f64::from(size.width),
+        screen_height: f64::from(size.height),
+        work_x: f64::from(work_area.position.x),
+        work_y: f64::from(work_area.position.y),
+        work_width: f64::from(work_area.size.width),
+        work_height: f64::from(work_area.size.height),
+    }
+}
+
+impl MonitorArea {
+    #[cfg(any(target_os = "windows", test))]
+    fn screen_right(self) -> f64 {
+        self.screen_x + self.screen_width
+    }
+
+    #[cfg(any(target_os = "windows", test))]
+    fn screen_bottom(self) -> f64 {
+        self.screen_y + self.screen_height
+    }
+
+    fn work_right(self) -> f64 {
+        self.work_x + self.work_width
+    }
+
+    fn work_bottom(self) -> f64 {
+        self.work_y + self.work_height
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 fn launcher_position_from_env() -> Option<PhysicalPosition<f64>> {
     let x = std::env::var("QUICKDROP_LAUNCHER_X")
         .ok()?
@@ -696,11 +809,21 @@ fn build_quickdrop_window(app: &AppHandle, visible: bool) -> tauri::Result<Webvi
 }
 
 fn show_quickdrop_window(app: &AppHandle) -> tauri::Result<()> {
+    show_quickdrop_window_at(app, None)
+}
+
+fn show_quickdrop_window_at(
+    app: &AppHandle,
+    launch_point: Option<PhysicalPosition<f64>>,
+) -> tauri::Result<()> {
     let window = match app.get_webview_window("main") {
         Some(window) => window,
         None => build_quickdrop_window(app, false)?,
     };
-    let (x, y) = compute_window_position(app);
+    let (x, y) = match launch_point {
+        Some(launch_point) => compute_window_position_from_anchor(app, launch_point),
+        None => compute_window_position(app),
+    };
 
     window.set_position(PhysicalPosition::new(x, y))?;
     window.show()?;
@@ -708,6 +831,29 @@ fn show_quickdrop_window(app: &AppHandle) -> tauri::Result<()> {
     window.set_focus()?;
 
     Ok(())
+}
+
+fn compute_window_position_from_anchor(
+    app: &AppHandle,
+    launch_point: PhysicalPosition<f64>,
+) -> (f64, f64) {
+    let monitor_area = app
+        .monitor_from_point(launch_point.x, launch_point.y)
+        .ok()
+        .flatten()
+        .map(|monitor| monitor_area_from_monitor(&monitor));
+
+    compute_anchor_window_position(launch_point, monitor_area)
+}
+
+#[cfg(target_os = "windows")]
+fn tray_event_position_to_physical(position: tauri::Position) -> PhysicalPosition<f64> {
+    match position {
+        tauri::Position::Physical(position) => {
+            PhysicalPosition::new(f64::from(position.x), f64::from(position.y))
+        }
+        tauri::Position::Logical(position) => PhysicalPosition::new(position.x, position.y),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -769,10 +915,13 @@ fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
+                rect,
                 ..
             } = event
             {
-                if let Err(error) = show_quickdrop_window(tray.app_handle()) {
+                let launch_point = tray_event_position_to_physical(rect.position);
+                if let Err(error) = show_quickdrop_window_at(tray.app_handle(), Some(launch_point))
+                {
                     eprintln!("Failed to show QuickDrop from tray click: {error}");
                 }
             }
@@ -890,6 +1039,57 @@ mod tests {
         assert_eq!(
             DesktopConfig::from_env().api_base_url,
             "https://example.com"
+        );
+    }
+
+    #[test]
+    fn tray_window_position_uses_bottom_right_work_area() {
+        let area = MonitorArea {
+            screen_x: 0.0,
+            screen_y: 0.0,
+            screen_width: 1920.0,
+            screen_height: 1080.0,
+            work_x: 0.0,
+            work_y: 0.0,
+            work_width: 1920.0,
+            work_height: 1040.0,
+        };
+
+        assert_eq!(compute_tray_window_position(area), (1410.0, 730.0));
+    }
+
+    #[test]
+    fn tray_window_position_handles_top_taskbar() {
+        let area = MonitorArea {
+            screen_x: 0.0,
+            screen_y: 0.0,
+            screen_width: 1920.0,
+            screen_height: 1080.0,
+            work_x: 0.0,
+            work_y: 40.0,
+            work_width: 1920.0,
+            work_height: 1040.0,
+        };
+
+        assert_eq!(compute_tray_window_position(area), (1410.0, 50.0));
+    }
+
+    #[test]
+    fn tray_click_anchor_clamps_window_above_taskbar() {
+        let area = MonitorArea {
+            screen_x: 0.0,
+            screen_y: 0.0,
+            screen_width: 1920.0,
+            screen_height: 1080.0,
+            work_x: 0.0,
+            work_y: 0.0,
+            work_width: 1920.0,
+            work_height: 1040.0,
+        };
+
+        assert_eq!(
+            compute_anchor_window_position(PhysicalPosition::new(1850.0, 1040.0), Some(area)),
+            (1420.0, 740.0)
         );
     }
 

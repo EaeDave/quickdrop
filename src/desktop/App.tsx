@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 
@@ -27,6 +28,14 @@ export function App() {
       reset();
     }
   }, [reset]);
+
+  const startWindowDrag = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (!isTauri || event.button !== 0 || (event.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    void getCurrentWindow().startDragging();
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -305,7 +314,7 @@ export function App() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <header className="quickdrop-header">
+        <header className="quickdrop-header" onMouseDown={startWindowDrag}>
           <h1 className="quickdrop-title">QuickDrop</h1>
           <button className="quickdrop-close" type="button" aria-label="Fechar QuickDrop" onClick={closeWindow}>
             ×

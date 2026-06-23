@@ -69,6 +69,8 @@ h1 {
   justify-content: space-between;
   border-bottom: 1px solid rgb(148 163 184 / 0.12);
   padding: 0 10px 0 14px;
+  cursor: move;
+  user-select: none;
 }
 
 .quickdrop-title {
@@ -89,6 +91,7 @@ h1 {
   border-radius: 7px;
   color: #94a3b8;
   line-height: 1;
+  cursor: default;
 }
 
 .quickdrop-close:hover {
