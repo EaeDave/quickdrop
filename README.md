@@ -7,11 +7,12 @@
 - No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher da Waybar injeta esse mesmo backend remoto por padrão. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs` e `scripts/quickdrop-waybar`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
 - Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
-- O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop; o limite padrão de 500 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
-- Uploads são públicos e não exigem autenticação no MVP. Há limite de 20 uploads por hora por IP. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts`.
-- Upload válido é enviado ao Cloudflare R2, registrado no PostgreSQL e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
+- O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop/web; o limite padrão de 100 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
+- Uploads são públicos e não exigem autenticação no MVP, mas têm barreiras anti-abuso: limite padrão de 5 uploads por hora por IP (`UPLOAD_RATE_LIMIT_MAX`) e kill switch `UPLOADS_ENABLED=false` para bloquear uploads sem derrubar downloads/instaladores. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts` e `src/server/config.ts`.
+- O servidor mantém uma quota global de armazenamento antes de gravar no R2: por padrão `R2_STORAGE_HARD_LIMIT_GB=8`. Cada upload reserva bytes em PostgreSQL (`storage_reservations`/`storage_quota`) e só prossegue se `active_bytes + reserved_bytes + novo_arquivo` couber no hard cap; quando a quota estoura, o upload responde `507 storage_quota_exceeded`. Fonte: Endpoint interno `POST /api/upload`, `src/server/storage-quota.ts` e migração `migrations/003_create_storage_quota.sql`.
+- Upload válido é registrado no PostgreSQL, enviado ao Cloudflare R2 e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
 - Links públicos são acessíveis sem autenticação. `GET /f/:shortId` busca o registro, verifica expiração, incrementa `download_count` e redireciona para uma URL assinada temporária do R2. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
-- Arquivos expiram por padrão após 24 horas, configurável por `FILE_EXPIRATION_HOURS`. Upload expirado é removido do R2 e marcado com `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads` e Endpoint interno `GET /f/:shortId`.
+- Arquivos expiram por padrão após 6 horas, configurável por `FILE_EXPIRATION_HOURS`. O job `cleanupExpiredUploads` roda a cada 5 minutos, libera reservas vencidas, remove uploads expirados do R2 e marca `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads`, `src/server/cleanup.ts` e Endpoint interno `GET /f/:shortId`.
 - Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
 - A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, a Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher Waybar `scripts/quickdrop-waybar`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 - A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
@@ -50,13 +51,17 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=quickdrop
 PUBLIC_BASE_URL=https://files.example.com
 QUICKDROP_LOCAL_PUBLIC_BASE_URL=http://127.0.0.1:3000
-FILE_EXPIRATION_HOURS=24
+FILE_EXPIRATION_HOURS=6
+MAX_FILE_SIZE_MB=100
+UPLOAD_RATE_LIMIT_MAX=5
+UPLOADS_ENABLED=true
+R2_STORAGE_HARD_LIMIT_GB=8
+UPLOAD_RESERVATION_TTL_MINUTES=30
 TEXT_SESSION_TTL_HOURS=12
 TEXT_SESSION_MAX_KB=256
 TEXT_SESSION_CODE_LENGTH=6
 TEXT_SESSION_MAX_SESSIONS=500
 TEXT_SESSION_MAX_CLIENTS=20
-MAX_FILE_SIZE_MB=500
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000
 RUN_MIGRATIONS_ON_START=true
 QUICKDROP_GITHUB_TOKEN=
@@ -123,8 +128,12 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET_NAME=quickdrop
 PUBLIC_BASE_URL=https://files.seu-dominio.com
-FILE_EXPIRATION_HOURS=24
-MAX_FILE_SIZE_MB=500
+FILE_EXPIRATION_HOURS=6
+MAX_FILE_SIZE_MB=100
+UPLOAD_RATE_LIMIT_MAX=5
+UPLOADS_ENABLED=true
+R2_STORAGE_HARD_LIMIT_GB=8
+UPLOAD_RESERVATION_TTL_MINUTES=30
 TEXT_SESSION_TTL_HOURS=12
 TEXT_SESSION_MAX_KB=256
 TEXT_SESSION_CODE_LENGTH=6

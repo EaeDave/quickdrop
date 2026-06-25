@@ -22,6 +22,28 @@ export const uploads = pgTable(
 
 export type UploadRecord = typeof uploads.$inferSelect;
 
+export const storageQuota = pgTable("storage_quota", {
+  id: varchar("id", { length: 32 }).primaryKey(),
+  activeBytes: bigint("active_bytes", { mode: "bigint" }).default(0n).notNull(),
+  reservedBytes: bigint("reserved_bytes", { mode: "bigint" }).default(0n).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
+export type StorageQuotaRecord = typeof storageQuota.$inferSelect;
+
+export const storageReservations = pgTable(
+  "storage_reservations",
+  {
+    id: uuid("id").primaryKey(),
+    sizeBytes: bigint("size_bytes", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("storage_reservations_expires_idx").on(table.expiresAt)],
+);
+
+export type StorageReservationRecord = typeof storageReservations.$inferSelect;
+
 export const textRooms = pgTable(
   "text_rooms",
   {

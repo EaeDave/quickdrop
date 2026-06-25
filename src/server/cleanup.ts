@@ -1,11 +1,15 @@
 import { loadConfig } from "./config";
 import { deleteObject, createR2Client } from "./r2";
 import { findExpired, markDeleted } from "./uploads-repository";
+import { releaseExpiredStorageReservations } from "./storage-quota";
 
-export async function cleanupExpiredUploads(now = new Date()): Promise<{ scanned: number; deleted: number; failed: number }> {
+export async function cleanupExpiredUploads(
+  now = new Date(),
+): Promise<{ scanned: number; deleted: number; failed: number; releasedReservations: number; releasedReservationBytes: number }> {
+  const releasedReservations = await releaseExpiredStorageReservations(now);
   const config = loadConfig();
   const r2Client = createR2Client(config);
-  const expiredUploads = await findExpired(now, 100);
+  const expiredUploads = await findExpired(now, 500);
   let deleted = 0;
   let failed = 0;
 
@@ -20,7 +24,13 @@ export async function cleanupExpiredUploads(now = new Date()): Promise<{ scanned
     }
   }
 
-  return { scanned: expiredUploads.length, deleted, failed };
+  return {
+    scanned: expiredUploads.length,
+    deleted,
+    failed,
+    releasedReservations: releasedReservations.released,
+    releasedReservationBytes: releasedReservations.bytes,
+  };
 }
 
 export function startCleanupJob(): NodeJS.Timeout {
@@ -28,7 +38,7 @@ export function startCleanupJob(): NodeJS.Timeout {
     cleanupExpiredUploads().catch((error) => {
       console.error("Failed to run cleanup job", error);
     });
-  }, 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
 
   timer.unref();
   return timer;

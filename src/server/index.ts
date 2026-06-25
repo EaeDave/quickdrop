@@ -85,7 +85,7 @@ export function buildApp() {
 
     app.post(
       "/api/upload",
-      { preHandler: app.rateLimit({ max: 20, timeWindow: "1 hour" }) },
+      { preHandler: app.rateLimit({ max: config.uploadRateLimitMax, timeWindow: "1 hour" }) },
       async (request, reply) => handleUpload(request, reply, { config, r2Client }),
     );
 

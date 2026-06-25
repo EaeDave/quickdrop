@@ -9,6 +9,11 @@ export type AppConfig = {
   fileExpirationHours: number;
   maxFileSizeMb: number;
   maxFileSizeBytes: number;
+  uploadRateLimitMax: number;
+  uploadsEnabled: boolean;
+  r2StorageHardLimitGb: number;
+  r2StorageHardLimitBytes: number;
+  uploadReservationTtlMinutes: number;
   githubToken: string | undefined;
   githubReleaseRepository: string;
   textSessionTtlHours: number;
@@ -20,8 +25,11 @@ export type AppConfig = {
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_R2_BUCKET_NAME = "quickdrop";
-const DEFAULT_FILE_EXPIRATION_HOURS = 24;
-const DEFAULT_MAX_FILE_SIZE_MB = 500;
+const DEFAULT_FILE_EXPIRATION_HOURS = 6;
+const DEFAULT_MAX_FILE_SIZE_MB = 100;
+const DEFAULT_UPLOAD_RATE_LIMIT_MAX = 5;
+const DEFAULT_R2_STORAGE_HARD_LIMIT_GB = 8;
+const DEFAULT_UPLOAD_RESERVATION_TTL_MINUTES = 30;
 const DEFAULT_GITHUB_RELEASE_REPOSITORY = "EaeDave/quickdrop";
 const DEFAULT_TEXT_SESSION_TTL_HOURS = 12;
 const DEFAULT_TEXT_SESSION_MAX_KB = 256;
@@ -41,6 +49,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     "MAX_FILE_SIZE_MB",
     DEFAULT_MAX_FILE_SIZE_MB,
   );
+  const uploadRateLimitMax = readPositiveInteger(
+    env,
+    "UPLOAD_RATE_LIMIT_MAX",
+    DEFAULT_UPLOAD_RATE_LIMIT_MAX,
+  );
+  const r2StorageHardLimitGb = readPositiveInteger(
+    env,
+    "R2_STORAGE_HARD_LIMIT_GB",
+    DEFAULT_R2_STORAGE_HARD_LIMIT_GB,
+  );
+  const uploadReservationTtlMinutes = readPositiveInteger(
+    env,
+    "UPLOAD_RESERVATION_TTL_MINUTES",
+    DEFAULT_UPLOAD_RESERVATION_TTL_MINUTES,
+  );
+  const uploadsEnabled = readBoolean(env, "UPLOADS_ENABLED", true);
   const textSessionTtlHours = readPositiveInteger(
     env,
     "TEXT_SESSION_TTL_HOURS",
@@ -79,6 +103,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     fileExpirationHours,
     maxFileSizeMb,
     maxFileSizeBytes: maxFileSizeMb * 1024 * 1024,
+    uploadRateLimitMax,
+    uploadsEnabled,
+    r2StorageHardLimitGb,
+    r2StorageHardLimitBytes: r2StorageHardLimitGb * 1024 * 1024 * 1024,
+    uploadReservationTtlMinutes,
     githubToken: readOptional(env, "QUICKDROP_GITHUB_TOKEN") ?? readOptional(env, "GITHUB_TOKEN"),
     githubReleaseRepository:
       readOptional(env, "QUICKDROP_GITHUB_REPOSITORY") ?? DEFAULT_GITHUB_RELEASE_REPOSITORY,
@@ -103,6 +132,26 @@ function readRequired(env: NodeJS.ProcessEnv, name: string): string {
 function readOptional(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name]?.trim();
   return value ? value : undefined;
+}
+
+function readBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const rawValue = readOptional(env, name);
+
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const normalized = rawValue.toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`${name} must be a boolean`);
 }
 
 function readPositiveInteger(

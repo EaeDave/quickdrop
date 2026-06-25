@@ -9,20 +9,40 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { AppConfig } from "./config";
 import { computeExpiresAt } from "./expiration";
-import { buildR2Key, generateShortId, generateUploadId, sanitizeFilename } from "./ids";
+import { buildR2Key, generateUploadId, sanitizeFilename } from "./ids";
 import { putObject, deleteObject } from "./r2";
-import { insertUpload } from "./uploads-repository";
+import {
+  registerUploadWithStorageReservation,
+  releaseUploadStorageReservation,
+  reserveUploadStorage,
+} from "./storage-quota";
+import { markDeleted } from "./uploads-repository";
 
 export type UploadResponse = { id: string; url: string; expiresAt: string };
-export type UploadDeps = { config: AppConfig; r2Client: S3Client };
+
+type StorageQuotaGateway = {
+  reserveUploadStorage: typeof reserveUploadStorage;
+  registerUploadWithStorageReservation: typeof registerUploadWithStorageReservation;
+  releaseUploadStorageReservation: typeof releaseUploadStorageReservation;
+};
+
+export type UploadDeps = { config: AppConfig; r2Client: S3Client; storageQuota?: StorageQuotaGateway };
+
+const defaultStorageQuotaGateway: StorageQuotaGateway = {
+  reserveUploadStorage,
+  registerUploadWithStorageReservation,
+  releaseUploadStorageReservation,
+};
 
 type UploadedObject = {
   id: string;
+  shortId: string;
   key: string;
   originalName: string;
   mimeType: string | null;
   sizeBytes: number;
   createdAt: Date;
+  expiresAt: Date;
 };
 
 type SpooledUpload = {
@@ -39,6 +59,30 @@ class FileTooLargeAfterUploadError extends Error {
   }
 }
 
+class EmptyFileUploadError extends Error {
+  readonly code = "QUICKDROP_EMPTY_FILE";
+
+  constructor() {
+    super("empty file");
+  }
+}
+
+class UploadsDisabledError extends Error {
+  readonly code = "QUICKDROP_UPLOADS_DISABLED";
+
+  constructor() {
+    super("uploads disabled");
+  }
+}
+
+class StorageQuotaExceededError extends Error {
+  readonly code = "QUICKDROP_STORAGE_QUOTA_EXCEEDED";
+
+  constructor() {
+    super("storage quota exceeded");
+  }
+}
+
 export async function handleUpload(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -46,6 +90,11 @@ export async function handleUpload(
 ): Promise<UploadResponse | void> {
   if (!request.isMultipart()) {
     sendUploadError(reply, 415, "invalid_multipart", "Envie multipart/form-data com o campo file.");
+    return;
+  }
+
+  if (!deps.config.uploadsEnabled) {
+    sendUploadError(reply, 503, "uploads_disabled", "Uploads temporariamente desativados.");
     return;
   }
 
@@ -80,7 +129,7 @@ export async function handleUpload(
     }
   } catch (error) {
     if (uploadedObject) {
-      await deleteUploadedObject(deps, uploadedObject.key);
+      await deleteRegisteredUpload(deps, uploadedObject);
     }
 
     if (hasErrorCode(error, "FST_FILES_LIMIT")) {
@@ -98,6 +147,20 @@ export async function handleUpload(
       return;
     }
 
+    if (hasErrorCode(error, "QUICKDROP_EMPTY_FILE")) {
+      sendUploadError(reply, 400, "empty_file", "Arquivo vazio não é permitido.");
+      return;
+    }
+
+    if (hasErrorCode(error, "QUICKDROP_UPLOADS_DISABLED")) {
+      sendUploadError(reply, 503, "uploads_disabled", "Uploads temporariamente desativados.");
+      return;
+    }
+
+    if (hasErrorCode(error, "QUICKDROP_STORAGE_QUOTA_EXCEEDED")) {
+      sendUploadError(reply, 507, "storage_quota_exceeded", "Limite de armazenamento temporário atingido.");
+      return;
+    }
     request.log.error({ error }, "Failed to store upload");
     sendUploadError(reply, 500, "upload_failed", "Falha ao enviar arquivo.");
     return;
@@ -108,36 +171,12 @@ export async function handleUpload(
     return;
   }
 
-  if (uploadedObject.sizeBytes === 0) {
-    await deleteUploadedObject(deps, uploadedObject.key);
-    sendUploadError(reply, 400, "empty_file", "Arquivo vazio não é permitido.");
-    return;
-  }
-
-  const expiresAt = computeExpiresAt(uploadedObject.createdAt, deps.config.fileExpirationHours);
-
-  try {
-    const row = await insertUploadWithRetries({
-      id: uploadedObject.id,
-      originalName: uploadedObject.originalName,
-      mimeType: uploadedObject.mimeType,
-      sizeBytes: uploadedObject.sizeBytes,
-      r2Key: uploadedObject.key,
-      createdAt: uploadedObject.createdAt,
-      expiresAt,
-    });
-
-    reply.code(201);
-    return {
-      id: row.id,
-      url: `${deps.config.publicBaseUrl}/f/${row.short_id}`,
-      expiresAt: row.expires_at.toISOString(),
-    };
-  } catch (error) {
-    await deleteUploadedObject(deps, uploadedObject.key);
-    request.log.error({ error }, "Failed to register upload");
-    sendUploadError(reply, 500, "upload_failed", "Falha ao registrar upload.");
-  }
+  reply.code(201);
+  return {
+    id: uploadedObject.id,
+    url: `${deps.config.publicBaseUrl}/f/${uploadedObject.shortId}`,
+    expiresAt: uploadedObject.expiresAt.toISOString(),
+  };
 }
 
 async function uploadMultipartFile(part: MultipartFile, deps: UploadDeps): Promise<UploadedObject> {
@@ -148,27 +187,80 @@ async function uploadMultipartFile(part: MultipartFile, deps: UploadDeps): Promi
   const id = generateUploadId();
   const originalName = sanitizeFilename(part.filename);
   const createdAt = new Date();
+  const expiresAt = computeExpiresAt(createdAt, deps.config.fileExpirationHours);
   const key = buildR2Key(id, originalName, createdAt);
   const spooledUpload = await spoolMultipartFile(part, deps.config.maxFileSizeBytes);
+  const storageQuota = deps.storageQuota ?? defaultStorageQuotaGateway;
+  let reservationId: string | null = null;
+  let registeredUpload: UploadedObject | null = null;
 
   try {
-    await putObject({
-      client: deps.r2Client,
-      bucket: deps.config.r2BucketName,
-      key,
-      body: createReadStream(spooledUpload.path),
-      contentType: part.mimetype || undefined,
-      contentLength: spooledUpload.sizeBytes,
+    if (spooledUpload.sizeBytes === 0) {
+      throw new EmptyFileUploadError();
+    }
+
+    const reservation = await storageQuota.reserveUploadStorage({
+      sizeBytes: spooledUpload.sizeBytes,
+      hardLimitBytes: deps.config.r2StorageHardLimitBytes,
+      reservationTtlMs: deps.config.uploadReservationTtlMinutes * 60 * 1000,
+      uploadsEnabled: deps.config.uploadsEnabled,
+      now: createdAt,
     });
 
-    return {
+    if (!reservation.ok) {
+      if (reservation.reason === "disabled") {
+        throw new UploadsDisabledError();
+      }
+
+      throw new StorageQuotaExceededError();
+    }
+
+    reservationId = reservation.reservation.id;
+
+    const row = await storageQuota.registerUploadWithStorageReservation({
+      reservationId,
       id,
+      originalName,
+      mimeType: part.mimetype || null,
+      sizeBytes: spooledUpload.sizeBytes,
+      r2Key: key,
+      createdAt,
+      expiresAt,
+    });
+
+    registeredUpload = {
+      id: row.id,
+      shortId: row.short_id,
       key,
       originalName,
       mimeType: part.mimetype || null,
       sizeBytes: spooledUpload.sizeBytes,
       createdAt,
+      expiresAt: row.expires_at,
     };
+    reservationId = null;
+
+    try {
+      await putObject({
+        client: deps.r2Client,
+        bucket: deps.config.r2BucketName,
+        key,
+        body: createReadStream(spooledUpload.path),
+        contentType: part.mimetype || undefined,
+        contentLength: spooledUpload.sizeBytes,
+      });
+    } catch (error) {
+      await deleteRegisteredUpload(deps, registeredUpload);
+      throw error;
+    }
+
+    return registeredUpload;
+  } catch (error) {
+    if (reservationId) {
+      await storageQuota.releaseUploadStorageReservation(reservationId);
+    }
+
+    throw error;
   } finally {
     await removeSpooledUpload(spooledUpload.directory);
   }
@@ -215,40 +307,20 @@ async function removeSpooledUpload(directory: string): Promise<void> {
   }
 }
 
-async function insertUploadWithRetries(input: {
-  id: string;
-  originalName: string;
-  mimeType: string | null;
-  sizeBytes: number;
-  r2Key: string;
-  createdAt: Date;
-  expiresAt: Date;
-}) {
-  let lastUniqueError: unknown;
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      return await insertUpload({
-        ...input,
-        shortId: generateShortId(),
-      });
-    } catch (error) {
-      if (!hasPostgresUniqueViolation(error)) {
-        throw error;
-      }
-
-      lastUniqueError = error;
-    }
+async function deleteRegisteredUpload(deps: UploadDeps, upload: UploadedObject): Promise<void> {
+  if (await deleteUploadedObject(deps, upload.key)) {
+    await markDeleted(upload.id, new Date());
   }
-
-  throw lastUniqueError ?? new Error("Could not generate a unique short_id");
 }
 
-async function deleteUploadedObject(deps: UploadDeps, key: string): Promise<void> {
+async function deleteUploadedObject(deps: UploadDeps, key: string): Promise<boolean> {
   try {
     await deleteObject({ client: deps.r2Client, bucket: deps.config.r2BucketName, key });
+    return true;
   } catch (error) {
     console.error("Failed to delete R2 object after upload failure", error);
+    return false;
   }
 }
 
@@ -304,20 +376,3 @@ function hasErrorCode(error: unknown, expectedCode: string): boolean {
   return typeof error.code === "string" && error.code === expectedCode;
 }
 
-function hasPostgresUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-
-  while (current && typeof current === "object") {
-    if ("code" in current && current.code === "23505") {
-      return true;
-    }
-
-    if (!("cause" in current)) {
-      return false;
-    }
-
-    current = current.cause;
-  }
-
-  return false;
-}

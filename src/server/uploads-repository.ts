@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, lte, sql as drizzleSql } from "drizzle-orm";
 import { db } from "./db";
-import { uploads, type UploadRecord } from "./schema";
+import { storageQuota, uploads, type UploadRecord } from "./schema";
 
 export type UploadRow = {
   id: string;
@@ -77,10 +77,34 @@ export async function findExpired(now: Date, limit = 100): Promise<UploadRow[]> 
 }
 
 export async function markDeleted(id: string, deletedAt: Date): Promise<void> {
-  await db.update(uploads).set({ deletedAt }).where(eq(uploads.id, id));
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(uploads)
+      .set({ deletedAt })
+      .where(and(eq(uploads.id, id), isNull(uploads.deletedAt)))
+      .returning({ sizeBytes: uploads.sizeBytes });
+    const row = rows[0];
+
+    if (!row) {
+      return;
+    }
+
+    await tx
+      .insert(storageQuota)
+      .values({ id: "global", activeBytes: 0n, reservedBytes: 0n, updatedAt: deletedAt })
+      .onConflictDoNothing();
+
+    await tx
+      .update(storageQuota)
+      .set({
+        activeBytes: drizzleSql`greatest(${storageQuota.activeBytes} - ${row.sizeBytes}, ${0n})`,
+        updatedAt: deletedAt,
+      })
+      .where(eq(storageQuota.id, "global"));
+  });
 }
 
-function toUploadRow(row: UploadRecord): UploadRow {
+export function toUploadRow(row: UploadRecord): UploadRow {
   return {
     id: row.id,
     short_id: row.shortId,

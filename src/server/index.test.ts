@@ -11,7 +11,16 @@ const testEnv = {
   QUICKDROP_GITHUB_TOKEN: "github-token",
 };
 
-const envKeys = [...Object.keys(testEnv), "GITHUB_TOKEN"];
+const envKeys = [
+  ...Object.keys(testEnv),
+  "GITHUB_TOKEN",
+  "UPLOADS_ENABLED",
+  "UPLOAD_RATE_LIMIT_MAX",
+  "MAX_FILE_SIZE_MB",
+  "FILE_EXPIRATION_HOURS",
+  "R2_STORAGE_HARD_LIMIT_GB",
+  "UPLOAD_RESERVATION_TTL_MINUTES",
+];
 const originalFetch = globalThis.fetch;
 let previousEnv: Record<string, string | undefined> = {};
 
@@ -56,6 +65,38 @@ describe("buildApp", () => {
       expect(String(response.headers["access-control-allow-headers"]).toLowerCase()).toContain(
         "x-quickdrop-file-size",
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("rejects uploads while the kill switch is disabled before touching storage", async () => {
+    process.env.UPLOADS_ENABLED = "false";
+    const { app } = buildApp();
+    const boundary = "quickdrop-test-boundary";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="hello.txt"',
+      "Content-Type: text/plain",
+      "",
+      "hello",
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/upload",
+        headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(JSON.parse(response.body)).toEqual({
+        error: "uploads_disabled",
+        message: "Uploads temporariamente desativados.",
+      });
     } finally {
       await app.close();
     }
