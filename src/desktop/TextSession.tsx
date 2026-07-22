@@ -2,6 +2,7 @@ import { type ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, 
 import { connectRoom, createRoom, joinRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomPointer } from "./text-client";
 import { uploadFiles } from "./tauri";
 import { initialRoomCode, setRoomInUrl } from "./web-route";
+import { UserCursor } from "./UserCursor";
 
 type PendingRemoteUpdate = { text: string; version: number };
 type ConnectionPhase = "connecting" | "open" | "closed";
@@ -17,12 +18,12 @@ const TYPING_IDLE_MS = 1200;
 const POINTER_SEND_INTERVAL_MS = 33;
 const POINTER_STALE_MS = 1500;
 const POINTER_COLORS = [
-  { name: "azul", color: "#38bdf8" },
-  { name: "laranja", color: "#fb923c" },
-  { name: "verde", color: "#4ade80" },
-  { name: "rosa", color: "#f472b6" },
-  { name: "roxo", color: "#a78bfa" },
-  { name: "ciano", color: "#22d3ee" },
+  { name: "Azul", color: "#38bdf8" },
+  { name: "Laranja", color: "#fb923c" },
+  { name: "Verde", color: "#4ade80" },
+  { name: "Rosa", color: "#f472b6" },
+  { name: "Roxo", color: "#a78bfa" },
+  { name: "Ciano", color: "#22d3ee" },
 ];
 
 function getPeerAppearance(clientId: string): { color: string; label: string } {
@@ -32,7 +33,7 @@ function getPeerAppearance(clientId: string): { color: string; label: string } {
   }
 
   const entry = POINTER_COLORS[hash % POINTER_COLORS.length]!;
-  return { color: entry.color, label: `Pessoa ${entry.name}` };
+  return { color: entry.color, label: entry.name };
 }
 
 export default function TextSession() {
@@ -881,16 +882,12 @@ export default function TextSession() {
           <span className="sr-only">Conteúdo da sala</span>
           <div className="quickdrop-text-pointer-layer" aria-hidden="true">
             {remotePointers.map((pointer) => (
-              <div
+              <UserCursor
                 key={pointer.by}
-                className="quickdrop-text-pointer"
-                style={{ left: `${pointer.x * 100}%`, top: `${pointer.y * 100}%`, color: pointer.color }}
-              >
-                <span className="quickdrop-text-pointer-dot" style={{ backgroundColor: pointer.color }} />
-                <span className="quickdrop-text-pointer-label" style={{ borderColor: `${pointer.color}66`, backgroundColor: `${pointer.color}22` }}>
-                  {pointer.label}
-                </span>
-              </div>
+                color={pointer.color}
+                label={pointer.label}
+                target={{ current: { x: pointer.x, y: pointer.y } }}
+              />
             ))}
           </div>
           <textarea

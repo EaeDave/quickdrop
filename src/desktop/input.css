@@ -625,31 +625,31 @@ html.quickdrop-text-page a {
   border-radius: 24px;
 }
 
-.quickdrop-text-pointer {
+.quickdrop-user-cursor {
   position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transform: translate(-8px, -8px);
+  left: 0;
+  top: 0;
+  will-change: transform;
 }
 
-.quickdrop-text-pointer-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  box-shadow: 0 0 0 3px rgb(15 23 42 / 0.5);
+.quickdrop-user-cursor svg {
+  display: block;
+  filter: drop-shadow(0 2px 6px rgb(2 6 23 / 0.45));
 }
 
-.quickdrop-text-pointer-label {
-  border: 1px solid transparent;
+.quickdrop-user-cursor-pill {
+  position: absolute;
+  left: 14px;
+  top: 19px;
+  padding: 3px 10px;
   border-radius: 999px;
-  padding: 4px 8px;
-  color: #fff;
+  color: #0f172a;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 14px rgb(2 6 23 / 0.4);
+  will-change: transform;
 }
 
 
