@@ -76,6 +76,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
           }
 
           if (lifecycleTargets.get(code) === target) {
+            lifecycleTargets.delete(code);
             return;
           }
         }
