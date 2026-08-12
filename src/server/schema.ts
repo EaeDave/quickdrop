@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, index, integer, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { bigint, index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const uploads = pgTable(
   "uploads",
@@ -47,7 +47,8 @@ export type StorageReservationRecord = typeof storageReservations.$inferSelect;
 export const textRooms = pgTable(
   "text_rooms",
   {
-    code: varchar("code", { length: 16 }).primaryKey(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    code: varchar("code", { length: 16 }).notNull(),
     text: text("text").notNull().default(""),
     version: integer("version").default(0).notNull(),
     pinHash: text("pin_hash"),
@@ -58,6 +59,7 @@ export const textRooms = pgTable(
   },
   (table) => [
     index("text_rooms_expires_idx").on(table.expiresAt).where(sql`${table.deletedAt} is null`),
+    uniqueIndex("text_rooms_active_code_unique").on(table.code).where(sql`${table.deletedAt} is null`),
   ],
 );
 

@@ -28,6 +28,8 @@ export type RoomAccess = {
   accessExpiresAt: string | null;
 };
 
+export type OpenRoomResult = RoomAccess & { created: boolean };
+
 export class RoomAccessError extends Error {
   code: RoomErrorCode;
   status: number;
@@ -131,6 +133,43 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
   }
 
   return { code: code.trim().toUpperCase(), protected: protectedRoom, accessExpiresAt: null };
+}
+
+export async function openRoom(code: string, pin?: string): Promise<OpenRoomResult> {
+  const normalizedCode = code.trim().toUpperCase();
+  const trimmedPin = pin?.trim();
+  const response = await fetch(
+    `/api/text/${encodeURIComponent(normalizedCode)}/open`,
+    createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
+  );
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new RoomAccessError(
+      getErrorMessage(payload, `Falha ao abrir clipboard (${response.status})`),
+      getErrorCode(payload),
+      response.status,
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
+  }
+
+  const returnedCode = "code" in payload ? parseString(payload.code) : null;
+  const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
+  const created = "created" in payload ? parseBoolean(payload.created) : null;
+  const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
+  if (!returnedCode || protectedRoom === null || created === null) {
+    throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
+  }
+
+  return {
+    code: returnedCode.trim().toUpperCase(),
+    protected: protectedRoom,
+    created,
+    accessExpiresAt,
+  };
 }
 
 export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> {

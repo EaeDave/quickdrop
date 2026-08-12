@@ -3,6 +3,7 @@ import { db } from "./db";
 import { textRooms, type TextRoomRecord } from "./schema";
 
 export type TextRoomRow = {
+  id: string;
   code: string;
   text: string;
   version: number;
@@ -64,14 +65,11 @@ export async function createTextRoom(input: {
         updatedAt: input.updatedAt,
         expiresAt: input.expiresAt,
       })
+      .onConflictDoNothing()
       .returning();
     const row = rows[0];
 
-    if (!row) {
-      throw new Error("Insert did not return a text room row");
-    }
-
-    return toTextRoomRow(row);
+    return row ? toTextRoomRow(row) : null;
   } catch (error) {
     if (hasPostgresUniqueViolation(error)) {
       return null;
@@ -159,6 +157,7 @@ function activeRoomFilter(now: Date) {
 
 function toTextRoomRow(row: TextRoomRecord): TextRoomRow {
   return {
+    id: row.id,
     code: row.code,
     text: row.text,
     version: row.version,
