@@ -398,7 +398,7 @@ Para cada PR:
 
 | PR | Escopo | Status | Link |
 |---|---|---|---|
-| — | Documento inicial do roadmap | Em revisão | — |
+| #8 | Documento inicial do roadmap e plano da Fase 1 | Em revisão | https://github.com/EaeDave/quickdrop/pull/8 |
 | 1 | Fundamento de códigos reutilizáveis | Planejado | — |
 | 2 | API atômica abrir ou criar | Planejado | — |
 | 3 | Nova entrada “Um código, uma ação” | Planejado | — |
