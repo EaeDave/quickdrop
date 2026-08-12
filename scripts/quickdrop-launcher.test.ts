@@ -23,7 +23,7 @@ test("launcher parses only the backend key without executing config contents", a
 
   await writeFile(
     join(configDir, "config.env"),
-    `QUICKDROP_API_BASE_URL=https://example.test/\ntouch '${marker}'\n`,
+    `QUICKDROP_API_BASE_URL='https://example.test/'\ntouch '${marker}'\n`,
   );
   await executable(join(bin, "hyprctl"), `#!/bin/sh
 case "$1" in

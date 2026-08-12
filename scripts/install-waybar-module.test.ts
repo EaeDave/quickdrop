@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const patcher = resolve("scripts/install-waybar-module.py");
+const hasPython = Boolean(Bun.which("python3"));
 
 async function patch(input: string, launcher = "/home/user/.local/bin/quickdrop-launcher") {
   const root = await mkdtemp(join(tmpdir(), "quickdrop-waybar-patch-"));
@@ -28,7 +29,7 @@ function occurrences(text: string, needle: string): number {
   return text.split(needle).length - 1;
 }
 
-describe("install-waybar-module.py", () => {
+describe.skipIf(!hasPython)("install-waybar-module.py", () => {
   test("adds QuickDrop to modules-right and defines the module", async () => {
     const { text } = await patch(`{
   "modules-right": [

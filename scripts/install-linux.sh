@@ -159,7 +159,7 @@ read_config_api_base_url() {
   [[ -f "$config_path" ]] || return 0
   sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?QUICKDROP_API_BASE_URL=//p' "$config_path" |
     tail -n 1 |
-    sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+    sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
 write_config() {
