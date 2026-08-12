@@ -149,7 +149,7 @@ export function redactTextCodeFromUrl(rawUrl: string): string {
   return rawUrl
     .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
     .replace(/^(\/t\/)[^/?]+/, "$1[code]")
-    .replace(/([?&]c=)[^&]*/i, "$1[code]");
+    .replace(/([?&]c=)[^&]*/gi, "$1[code]");
 }
 
 function isSensitiveTextRoute(rawUrl: string): boolean {

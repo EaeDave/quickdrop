@@ -81,7 +81,11 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
+    if (
+      !room ||
+      room.updated_at > updatedAt ||
+      (room.expires_at !== null && room.expires_at <= updatedAt)
+    ) {
       return;
     }
 
@@ -103,7 +107,11 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
+    if (
+      !room ||
+      room.updated_at > updatedAt ||
+      (room.expires_at !== null && room.expires_at <= updatedAt)
+    ) {
       return;
     }
 
@@ -159,6 +167,37 @@ class BarrierTextRoomsRepository extends InMemoryTextRoomsRepository {
     await this.barrier;
 
     return super.createTextRoomWithinLimit(input, maxSessions, now);
+  }
+}
+
+class DelayedExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
+  private readonly started = Promise.withResolvers<void>();
+  private readonly released = Promise.withResolvers<void>();
+  private readonly finished = Promise.withResolvers<void>();
+  private delayNextExpiry = true;
+
+  waitUntilExpiryStarts(): Promise<void> {
+    return this.started.promise;
+  }
+
+  releaseExpiry(): void {
+    this.released.resolve();
+  }
+
+  waitUntilExpiryFinishes(): Promise<void> {
+    return this.finished.promise;
+  }
+
+  override async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
+    if (!this.delayNextExpiry) {
+      return super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    }
+
+    this.delayNextExpiry = false;
+    this.started.resolve();
+    await this.released.promise;
+    await super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    this.finished.resolve();
   }
 }
 
@@ -386,6 +425,36 @@ describe("text session routes", () => {
         "2026-06-23T20:35:00.000Z",
       );
     } finally {
+      await server.close();
+    }
+  });
+
+  test("does not restore a stale expiry when a clipboard reconnects during the close write", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new DelayedExpiryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/A/open" });
+      const firstSocket = server.connect("A");
+      await expectJoined(firstSocket, 1);
+
+      clock.current = new Date("2026-06-23T20:05:00Z");
+      await closeSocket(firstSocket);
+      await repository.waitUntilExpiryStarts();
+
+      clock.current = new Date("2026-06-23T20:06:00Z");
+      const reconnectedSocket = server.connect("A");
+      await expectJoined(reconnectedSocket, 1);
+
+      repository.releaseExpiry();
+      await repository.waitUntilExpiryFinishes();
+
+      const room = await repository.findTextRoomByCode("A");
+      expect(room?.expires_at).toBeNull();
+      expect(room?.updated_at.toISOString()).toBe("2026-06-23T20:06:00.000Z");
+    } finally {
+      repository.releaseExpiry();
       await server.close();
     }
   });

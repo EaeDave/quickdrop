@@ -418,11 +418,19 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
         if (remaining === 0) {
           const closedAt = now();
-          void repository.scheduleTextRoomExpiry(
-            code,
-            new Date(closedAt.getTime() + roomExpiryMs(room, deps)),
-            closedAt,
-          );
+          void (async () => {
+            await repository.scheduleTextRoomExpiry(
+              code,
+              new Date(closedAt.getTime() + roomExpiryMs(room, deps)),
+              closedAt,
+            );
+
+            // A reconnect can join while the expiry transaction is waiting.
+            // Reassert the active state after that delayed write completes.
+            if (deps.hub.clientCount(code) > 0) {
+              await repository.markTextRoomActive(code, now());
+            }
+          })();
         }
       };
 

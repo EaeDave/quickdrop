@@ -52,6 +52,7 @@ export default function TextSession() {
   const [roomNotice, setRoomNotice] = useState<string | null>(null);
   const [roomKind, setRoomKind] = useState<RoomKind | null>(null);
   const [expiresAfterMinutes, setExpiresAfterMinutes] = useState<number | null>(null);
+  const [clearPending, setClearPending] = useState(false);
   const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
   const [remoteTypers, setRemoteTypers] = useState<string[]>([]);
@@ -63,6 +64,7 @@ export default function TextSession() {
   const connectionPhaseRef = useRef<ConnectionPhase>("closed");
   const hasOpenedRef = useRef(false);
   const snapshotReadyRef = useRef(false);
+  const clearPendingRef = useRef(false);
   const debounceTimerRef = useRef<number | null>(null);
   const draftTextRef = useRef("");
   const syncedTextRef = useRef("");
@@ -174,6 +176,7 @@ export default function TextSession() {
 
   const resetRoomData = useCallback(() => {
     snapshotReadyRef.current = false;
+    clearPendingRef.current = false;
     hasOpenedRef.current = false;
     clearPendingWrites(false);
     clearTypingStopTimer();
@@ -192,6 +195,7 @@ export default function TextSession() {
     setRoomNotice(null);
     setRoomKind(null);
     setExpiresAfterMinutes(null);
+    setClearPending(false);
     setText("");
     draftTextRef.current = "";
     syncedTextRef.current = "";
@@ -408,13 +412,15 @@ export default function TextSession() {
     }
 
     clearDebounceTimer();
+    clearPendingRef.current = true;
+    setClearPending(true);
     setPendingRemote(null);
     setText("");
     draftTextRef.current = "";
     queuedTextRef.current = "";
     sendTypingInactive();
     flushPendingWrite();
-    setRoomNotice("Clipboard limpo.");
+    setRoomNotice("Limpando clipboard...");
     setErrorMessage(null);
   }, [clearDebounceTimer, flushPendingWrite, sendTypingInactive, text]);
 
@@ -449,7 +455,10 @@ export default function TextSession() {
     }
 
     clearPendingWrites(true);
+    clearPendingRef.current = false;
+    setClearPending(false);
     setPendingRemote(null);
+    setRoomNotice(null);
     setText(pendingRemote.text);
     draftTextRef.current = pendingRemote.text;
     syncedTextRef.current = pendingRemote.text;
@@ -460,6 +469,11 @@ export default function TextSession() {
   const handleTextChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const nextText = event.currentTarget.value;
+      if (clearPendingRef.current) {
+        clearPendingRef.current = false;
+        setClearPending(false);
+        setRoomNotice(null);
+      }
       draftTextRef.current = nextText;
       setText(nextText);
       queuedTextRef.current = nextText;
@@ -600,20 +614,33 @@ export default function TextSession() {
 
     const controller = connectRoom(roomCode, {
       onSnapshot(payload) {
+        const shouldRetryClear = clearPendingRef.current && payload.text !== "";
+        const clearConfirmed = clearPendingRef.current && payload.text === "";
+
         snapshotReadyRef.current = true;
         clearPendingWrites(false);
         hasOpenedRef.current = true;
-        draftTextRef.current = payload.text;
+        draftTextRef.current = shouldRetryClear ? "" : payload.text;
         syncedTextRef.current = payload.text;
+        queuedTextRef.current = shouldRetryClear ? "" : null;
         versionRef.current = payload.version;
         clientIdRef.current = payload.clientId;
-        setText(payload.text);
+        setText(shouldRetryClear ? "" : payload.text);
         setVersion(payload.version);
         setClientId(payload.clientId);
         setRoomKind(payload.kind);
         setExpiresAfterMinutes(payload.expiresAfterMinutes);
         setPendingRemote(null);
         setErrorMessage(null);
+
+        if (clearConfirmed) {
+          clearPendingRef.current = false;
+          setClearPending(false);
+          setRoomNotice("Clipboard limpo.");
+        } else if (shouldRetryClear) {
+          setRoomNotice("Limpando clipboard...");
+        }
+
         flushPendingWrite();
       },
       onUpdate(payload) {
@@ -673,12 +700,20 @@ export default function TextSession() {
           return;
         }
 
+        const acknowledgedText = sentTextRef.current;
         versionRef.current = payload.version;
         setVersion(payload.version);
-        if (sentTextRef.current !== null) {
-          syncedTextRef.current = sentTextRef.current;
+        if (acknowledgedText !== null) {
+          syncedTextRef.current = acknowledgedText;
           sentTextRef.current = null;
           inFlightRef.current = false;
+        }
+
+        if (clearPendingRef.current && acknowledgedText === "") {
+          clearPendingRef.current = false;
+          setClearPending(false);
+          setPendingRemote(null);
+          setRoomNotice("Clipboard limpo.");
         }
 
         flushPendingWrite();
@@ -938,10 +973,10 @@ export default function TextSession() {
                 <button
                   className="quickdrop-text-button quickdrop-text-button--ghost"
                   type="button"
-                  disabled={text.length === 0 || connectionPhase !== "open" || clientId === null}
+                  disabled={clearPending || text.length === 0 || connectionPhase !== "open" || clientId === null}
                   onClick={handleClearRoomText}
                 >
-                  Limpar clipboard
+                  {clearPending ? "Limpando..." : "Limpar clipboard"}
                 </button>
                 <button
                   className="quickdrop-text-button"

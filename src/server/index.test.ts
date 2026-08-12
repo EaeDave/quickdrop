@@ -374,6 +374,8 @@ describe("redactTextCodeFromUrl", () => {
   test("removes clipboard codes from request-log URLs", () => {
     expect(redactTextCodeFromUrl("/api/text/SECRET/open")).toBe("/api/text/[code]/open");
     expect(redactTextCodeFromUrl("/t/SECRET")).toBe("/t/[code]");
-    expect(redactTextCodeFromUrl("/?c=SECRET&source=test")).toBe("/?c=[code]&source=test");
+    expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
+      "/?c=[code]&source=test&c=[code]",
+    );
   });
 });

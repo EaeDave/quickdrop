@@ -110,6 +110,7 @@ export async function markTextRoomActive(code: string, updatedAt: Date): Promise
       .where(and(
         eq(textRooms.code, code),
         isNull(textRooms.deletedAt),
+        lte(textRooms.updatedAt, updatedAt),
         or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
       ));
   });
@@ -143,6 +144,7 @@ export async function scheduleTextRoomExpiry(code: string, expiresAt: Date, upda
       .where(and(
         eq(textRooms.code, code),
         isNull(textRooms.deletedAt),
+        lte(textRooms.updatedAt, updatedAt),
         or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
       ));
   });
