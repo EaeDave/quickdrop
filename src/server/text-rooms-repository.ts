@@ -3,6 +3,7 @@ import { db } from "./db";
 import { textRooms, type TextRoomRecord } from "./schema";
 
 export type TextRoomRow = {
+  id: string;
   code: string;
   text: string;
   version: number;
@@ -13,37 +14,7 @@ export type TextRoomRow = {
   deleted_at: Date | null;
 };
 
-export type TextRoomsRepository = {
-  countActiveTextRooms(now: Date): Promise<number>;
-  createTextRoom(input: {
-    code: string;
-    text: string;
-    version: number;
-    pinHash?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    expiresAt: Date;
-  }): Promise<TextRoomRow | null>;
-  findTextRoomByCode(code: string): Promise<TextRoomRow | null>;
-  markTextRoomActive(code: string, updatedAt: Date): Promise<void>;
-  updateTextRoomText(input: { code: string; text: string; now: Date }): Promise<TextRoomRow | null>;
-  scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void>;
-  rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void>;
-  findExpiredTextRooms(now: Date, limit?: number): Promise<TextRoomRow[]>;
-  markTextRoomDeleted(code: string, deletedAt: Date): Promise<void>;
-};
-
-export async function countActiveTextRooms(now: Date): Promise<number> {
-  const rows = await db
-    .select({ count: drizzleSql<number>`count(*)` })
-    .from(textRooms)
-    .where(activeRoomFilter(now));
-  const row = rows[0];
-
-  return Number(row?.count ?? 0);
-}
-
-export async function createTextRoom(input: {
+export type CreateTextRoomInput = {
   code: string;
   text: string;
   version: number;
@@ -51,9 +22,51 @@ export async function createTextRoom(input: {
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date;
-}): Promise<TextRoomRow | null> {
-  try {
-    const rows = await db
+};
+
+export type TextRoomCreationResult =
+  | { status: "created"; room: TextRoomRow }
+  | { status: "conflict" }
+  | { status: "limit" };
+
+export type TextRoomsRepository = {
+  createTextRoomWithinLimit(input: CreateTextRoomInput, maxSessions: number, now: Date): Promise<TextRoomCreationResult>;
+  findTextRoomByCode(code: string): Promise<TextRoomRow | null>;
+  markTextRoomActive(code: string, updatedAt: Date): Promise<void>;
+  updateTextRoomText(input: { code: string; text: string; now: Date }): Promise<TextRoomRow | null>;
+  scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void>;
+  rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void>;
+  findExpiredTextRooms(now: Date, limit?: number): Promise<TextRoomRow[]>;
+  markTextRoomDeleted(id: string, deletedAt: Date): Promise<void>;
+};
+
+export async function createTextRoomWithinLimit(
+  input: CreateTextRoomInput,
+  maxSessions: number,
+  now: Date,
+): Promise<TextRoomCreationResult> {
+  return db.transaction(async (tx) => {
+    // Serialize capacity checks across every room-creation path. Code conflicts
+    // remain protected independently by the partial unique index.
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    const existingRows = await tx
+      .select({ id: textRooms.id })
+      .from(textRooms)
+      .where(and(eq(textRooms.code, input.code), isNull(textRooms.deletedAt)))
+      .limit(1);
+    if (existingRows.length > 0) {
+      return { status: "conflict" };
+    }
+
+    const countRows = await tx
+      .select({ count: drizzleSql<number>`count(*)` })
+      .from(textRooms)
+      .where(activeRoomFilter(now));
+    if (Number(countRows[0]?.count ?? 0) >= maxSessions) {
+      return { status: "limit" };
+    }
+
+    const rows = await tx
       .insert(textRooms)
       .values({
         code: input.code,
@@ -64,21 +77,14 @@ export async function createTextRoom(input: {
         updatedAt: input.updatedAt,
         expiresAt: input.expiresAt,
       })
+      .onConflictDoNothing()
       .returning();
     const row = rows[0];
 
-    if (!row) {
-      throw new Error("Insert did not return a text room row");
-    }
-
-    return toTextRoomRow(row);
-  } catch (error) {
-    if (hasPostgresUniqueViolation(error)) {
-      return null;
-    }
-
-    throw error;
-  }
+    return row
+      ? { status: "created", room: toTextRoomRow(row) }
+      : { status: "conflict" };
+  });
 }
 
 export async function findTextRoomByCode(code: string): Promise<TextRoomRow | null> {
@@ -93,10 +99,17 @@ export async function findTextRoomByCode(code: string): Promise<TextRoomRow | nu
 }
 
 export async function markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ updatedAt, expiresAt: null })
-    .where(and(eq(textRooms.code, code), isNull(textRooms.deletedAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ updatedAt, expiresAt: null })
+      .where(and(
+        eq(textRooms.code, code),
+        isNull(textRooms.deletedAt),
+        or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
+      ));
+  });
 }
 
 export async function updateTextRoomText(input: {
@@ -119,17 +132,27 @@ export async function updateTextRoomText(input: {
 }
 
 export async function scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ expiresAt, updatedAt })
-    .where(and(eq(textRooms.code, code), isNull(textRooms.deletedAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ expiresAt, updatedAt })
+      .where(and(
+        eq(textRooms.code, code),
+        isNull(textRooms.deletedAt),
+        or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
+      ));
+  });
 }
 
 export async function rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ expiresAt, updatedAt })
-    .where(and(isNull(textRooms.deletedAt), isNull(textRooms.expiresAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ expiresAt, updatedAt })
+      .where(and(isNull(textRooms.deletedAt), isNull(textRooms.expiresAt)));
+  });
 }
 
 export async function findExpiredTextRooms(now: Date, limit = 100): Promise<TextRoomRow[]> {
@@ -143,11 +166,11 @@ export async function findExpiredTextRooms(now: Date, limit = 100): Promise<Text
   return rows.map(toTextRoomRow);
 }
 
-export async function markTextRoomDeleted(code: string, deletedAt: Date): Promise<void> {
+export async function markTextRoomDeleted(id: string, deletedAt: Date): Promise<void> {
   await db
     .update(textRooms)
     .set({ deletedAt })
-    .where(and(eq(textRooms.code, code), isNull(textRooms.deletedAt)));
+    .where(and(eq(textRooms.id, id), isNull(textRooms.deletedAt)));
 }
 
 function activeRoomFilter(now: Date) {
@@ -159,6 +182,7 @@ function activeRoomFilter(now: Date) {
 
 function toTextRoomRow(row: TextRoomRecord): TextRoomRow {
   return {
+    id: row.id,
     code: row.code,
     text: row.text,
     version: row.version,
@@ -170,13 +194,8 @@ function toTextRoomRow(row: TextRoomRecord): TextRoomRow {
   };
 }
 
-function hasPostgresUniqueViolation(error: unknown): boolean {
-  return !!error && typeof error === "object" && "code" in error && error.code === "23505";
-}
-
 export const textRoomsRepository: TextRoomsRepository = {
-  countActiveTextRooms,
-  createTextRoom,
+  createTextRoomWithinLimit,
   findTextRoomByCode,
   markTextRoomActive,
   updateTextRoomText,

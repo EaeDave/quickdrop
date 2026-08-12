@@ -9,6 +9,7 @@ export function generateShortId(): string {
 }
 
 const SESSION_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CUSTOM_SESSION_CODE_PATTERN = /^[A-Z0-9_-]{1,16}$/;
 
 export function generateSessionCode(length = 6): string {
   const alphabet = SESSION_CODE_ALPHABET;
@@ -30,6 +31,10 @@ export function generateSessionCode(length = 6): string {
 
 export function normalizeSessionCode(input: string): string {
   return input.trim().toUpperCase();
+}
+
+export function isValidCustomSessionCode(input: string): boolean {
+  return CUSTOM_SESSION_CODE_PATTERN.test(normalizeSessionCode(input));
 }
 
 export function sanitizeFilename(input: string | undefined): string {

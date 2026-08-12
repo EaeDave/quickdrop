@@ -1,5 +1,5 @@
 import { type ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { connectRoom, createRoom, joinRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomPointer } from "./text-client";
+import { connectRoom, createRoom, openRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomPointer } from "./text-client";
 import { uploadFiles } from "./tauri";
 import { initialRoomCode, setRoomInUrl } from "./web-route";
 import { UserCursor } from "./UserCursor";
@@ -42,6 +42,7 @@ export default function TextSession() {
   const [joinCode, setJoinCode] = useState(initialCode ?? "");
   const [joinPin, setJoinPin] = useState("");
   const [pinRequired, setPinRequired] = useState(false);
+  const [showPrivacyOptions, setShowPrivacyOptions] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [text, setText] = useState("");
   const [version, setVersion] = useState(0);
@@ -254,11 +255,11 @@ export default function TextSession() {
     setErrorMessage(error instanceof Error ? error.message : "Falha ao acessar a sala");
   }, []);
 
-  const requestRoomAccess = useCallback(
+  const requestRoomOpen = useCallback(
     async (code: string, pin?: string) => {
       setIsJoining(true);
       try {
-        await joinRoom(code, pin);
+        await openRoom(code, pin);
         activateRoom(code);
       } catch (error) {
         handleAccessError(error);
@@ -274,8 +275,8 @@ export default function TextSession() {
       return;
     }
 
-    void requestRoomAccess(joinCode, joinPin);
-  }, [joinCode, joinPin, requestRoomAccess]);
+    void requestRoomOpen(joinCode, joinPin);
+  }, [joinCode, joinPin, requestRoomOpen]);
 
   const handleCreateRoom = useCallback(async () => {
     setIsJoining(true);
@@ -521,8 +522,8 @@ export default function TextSession() {
     }
 
     autoJoinAttemptedRef.current = true;
-    void requestRoomAccess(initialCode, undefined);
-  }, [initialCode, requestRoomAccess, roomCode]);
+    void requestRoomOpen(initialCode, undefined);
+  }, [initialCode, requestRoomOpen, roomCode]);
 
   useEffect(() => {
     if (!roomCode) {
@@ -693,7 +694,7 @@ export default function TextSession() {
     hideLocalPointer,
     initialCode,
     removeRemotePeerState,
-    requestRoomAccess,
+    requestRoomOpen,
     resetRoomData,
     roomCode,
     sendTypingInactive,
@@ -755,33 +756,33 @@ export default function TextSession() {
   const showExportSuccess = exportState.status === "success";
   const showExportError = exportState.status === "error";
   const pinLabel = pinRequired ? "PIN da sala" : "PIN (opcional)";
-  const primaryJoinLabel = isJoining ? "Entrando..." : "Entrar";
-  const createLabel = isJoining ? "Criando..." : "Criar nova sala";
+  const primaryJoinLabel = isJoining ? "Abrindo..." : "Abrir";
+  const createLabel = isJoining ? "Gerando..." : "Gerar código aleatório";
 
   if (!roomCode) {
     return (
       <main className="quickdrop-text-shell">
         <section className="quickdrop-text-card quickdrop-text-join">
           <div className="quickdrop-text-heading">
-            <p className="quickdrop-text-kicker">Texto compartilhado</p>
-            <h1>Sala de texto</h1>
+            <p className="quickdrop-text-kicker">Texto entre máquinas</p>
+            <h1>Clipboard temporário</h1>
             <p className="quickdrop-text-copy">
-              Crie uma sala para colar SQL, comandos ou qualquer texto e abrir no outro computador.
+              Digite o mesmo código nos dois computadores. Se não existir, o QuickDrop cria na hora.
             </p>
           </div>
 
           {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
 
           <label className="quickdrop-text-field">
-            <span>Código da sala</span>
+            <span>Digite um código</span>
             <input
               className="quickdrop-text-input"
               autoComplete="off"
               inputMode="text"
-              maxLength={6}
-              placeholder="Ex.: K7QF2M"
+              maxLength={16}
+              placeholder="Ex.: A, DEV ou SERVER-1"
               value={joinCode}
-              onChange={(event) => setJoinCode(event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onChange={(event) => setJoinCode(event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 16))}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -791,32 +792,43 @@ export default function TextSession() {
             />
           </label>
 
-          <label className="quickdrop-text-field">
-            <span>{pinLabel}</span>
-            <input
-              className="quickdrop-text-input"
-              autoComplete="off"
-              inputMode="text"
-              type="password"
-              maxLength={64}
-              placeholder={pinRequired ? "Informe o PIN" : "Proteja a sala se quiser"}
-              value={joinPin}
-              onChange={(event) => setJoinPin(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  handleJoin();
-                }
-              }}
-            />
-          </label>
+          {pinRequired || showPrivacyOptions ? (
+            <>
+              <label className="quickdrop-text-field">
+                <span>{pinLabel}</span>
+                <input
+                  className="quickdrop-text-input"
+                  autoComplete="off"
+                  inputMode="text"
+                  type="password"
+                  maxLength={64}
+                  placeholder={pinRequired ? "Informe o PIN" : "Proteja o clipboard se quiser"}
+                  value={joinPin}
+                  onChange={(event) => setJoinPin(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleJoin();
+                    }
+                  }}
+                />
+              </label>
+              <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={handleCreateRoom}>
+                {createLabel}
+              </button>
+            </>
+          ) : null}
+
+          <p className="quickdrop-text-copy">
+            Códigos curtos são públicos e fáceis de adivinhar. Não use para senhas ou dados sensíveis.
+          </p>
 
           <div className="quickdrop-text-actions">
             <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim() || isJoining} onClick={handleJoin}>
               {primaryJoinLabel}
             </button>
-            <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={handleCreateRoom}>
-              {createLabel}
+            <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={() => setShowPrivacyOptions((current) => !current)}>
+              {showPrivacyOptions ? "Ocultar privacidade" : "Opções de privacidade"}
             </button>
           </div>
         </section>

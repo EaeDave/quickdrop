@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { RawData, WebSocket } from "ws";
-import { generateSessionCode, normalizeSessionCode } from "./ids";
+import { generateSessionCode, isValidCustomSessionCode, normalizeSessionCode } from "./ids";
 import { clearRoomAccessCookie, createRoomAccessCookie, type RoomAccessCheck, verifyRoomAccessCookie } from "./text-room-access";
 import type { TextSessionHub } from "./text-session-hub";
 import { ROOM_PIN_MAX_LENGTH, ROOM_PIN_MIN_LENGTH, hashRoomPin, normalizeRoomPin, verifyRoomPin } from "./text-room-pin";
@@ -45,27 +45,32 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         return;
       }
 
-      if ((await repository.countActiveTextRooms(now())) >= deps.maxSessions) {
-        reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
-        return;
-      }
-
       const pinHash = parsedPin.pin ? await hashRoomPin(parsedPin.pin) : null;
 
       for (let attempt = 0; attempt < CODE_GENERATION_ATTEMPTS; attempt += 1) {
         const createdAt = now();
         const code = generateSessionCode(deps.codeLength);
-        const room = await repository.createTextRoom({
-          code,
-          text: "",
-          version: 0,
-          pinHash,
+        const creation = await repository.createTextRoomWithinLimit(
+          {
+            code,
+            text: "",
+            version: 0,
+            pinHash,
+            createdAt,
+            updatedAt: createdAt,
+            expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+          },
+          deps.maxSessions,
           createdAt,
-          updatedAt: createdAt,
-          expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
-        });
+        );
 
-        if (room) {
+        if (creation.status === "limit") {
+          reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
+          return;
+        }
+
+        if (creation.status === "created") {
+          const room = creation.room;
           if (room.pin_hash) {
             reply.header(
               "set-cookie",
@@ -84,6 +89,133 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       reply.code(503).send({ error: "code_exhausted", message: "Não foi possível reservar um código de sala." });
+    },
+  );
+
+  app.post<{ Params: { code: string } }>(
+    "/api/text/:code/open",
+    { preHandler: app.rateLimit({ max: 60, timeWindow: "1 hour" }) },
+    async (request, reply) => {
+      const code = normalizeSessionCode(request.params.code);
+      if (!isValidCustomSessionCode(code)) {
+        reply.code(400).send({
+          error: "invalid_code",
+          message: "Use de 1 a 16 letras, números, hífen ou sublinhado.",
+        });
+        return;
+      }
+
+      const parsedPin = parsePinFromBody(request.body);
+      if (!parsedPin.ok) {
+        reply.code(400).send({ error: "pin_invalid", message: parsedPin.message });
+        return;
+      }
+
+      let room = await repository.findTextRoomByCode(code);
+      if (room && isExpired(room, now(), deps.hub.clientCount(code))) {
+        await repository.markTextRoomDeleted(room.id, now());
+        room = null;
+      }
+
+      if (!room) {
+        const createdAt = now();
+        const pinHash = parsedPin.pin ? await hashRoomPin(parsedPin.pin) : null;
+        const creation = await repository.createTextRoomWithinLimit(
+          {
+            code,
+            text: "",
+            version: 0,
+            pinHash,
+            createdAt,
+            updatedAt: createdAt,
+            expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+          },
+          deps.maxSessions,
+          createdAt,
+        );
+
+        if (creation.status === "limit") {
+          reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
+          return;
+        }
+
+        if (creation.status === "created") {
+          room = creation.room;
+          if (room.pin_hash) {
+            reply.header(
+              "set-cookie",
+              createRoomAccessCookie({
+                code,
+                pinHash: room.pin_hash,
+                ttlMs: deps.ttlMs,
+                now: createdAt,
+                secure: isSecureRequest(request),
+              }),
+            );
+          }
+
+          return { code, created: true, protected: room.pin_hash !== null };
+        }
+
+        // A concurrent request won the active-code uniqueness race.
+        room = await repository.findTextRoomByCode(code);
+        if (!room) {
+          reply.code(503).send({ error: "create_failed", message: "Não foi possível abrir o clipboard." });
+          return;
+        }
+      }
+
+      if (!room.pin_hash) {
+        return { code, created: false, protected: false };
+      }
+
+      const cookieAccess = requireProtectedRoomAccess(room, request, now());
+      if (cookieAccess.ok) {
+        reply.header(
+          "set-cookie",
+          createRoomAccessCookie({
+            code,
+            pinHash: room.pin_hash,
+            ttlMs: deps.ttlMs,
+            now: now(),
+            secure: isSecureRequest(request),
+          }),
+        );
+        return {
+          code,
+          created: false,
+          protected: true,
+          accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
+        };
+      }
+
+      if (!parsedPin.pin) {
+        reply.code(401).send({ error: "pin_required", message: "Clipboard protegido por PIN." });
+        return;
+      }
+
+      if (!(await verifyRoomPin(parsedPin.pin, room.pin_hash))) {
+        reply.code(401).send({ error: "pin_invalid", message: "PIN inválido." });
+        return;
+      }
+
+      const grantedAt = now();
+      reply.header(
+        "set-cookie",
+        createRoomAccessCookie({
+          code,
+          pinHash: room.pin_hash,
+          ttlMs: deps.ttlMs,
+          now: grantedAt,
+          secure: isSecureRequest(request),
+        }),
+      );
+      return {
+        code,
+        created: false,
+        protected: true,
+        accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
+      };
     },
   );
 
@@ -482,7 +614,7 @@ async function sweepExpiredRooms(repository: TextRoomsRepository, currentTime: D
   const expiredRooms = await repository.findExpiredTextRooms(currentTime, EXPIRED_SWEEP_LIMIT);
 
   for (const room of expiredRooms) {
-    await repository.markTextRoomDeleted(room.code, currentTime);
+    await repository.markTextRoomDeleted(room.id, currentTime);
   }
 }
 
