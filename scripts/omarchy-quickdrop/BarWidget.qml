@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons
 import qs.Ui
 
 BarWidget {
@@ -18,7 +19,7 @@ BarWidget {
     onPressed: function(mouseButton) {
       if (mouseButton !== Qt.LeftButton || !root.bar) return
       var launcher = String(root.setting("launcher", "quickdrop-launcher"))
-      root.bar.run(root.bar.shellQuote(launcher))
+      root.bar.run(Util.shellQuote(launcher))
     }
   }
 }

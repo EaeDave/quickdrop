@@ -16,6 +16,8 @@ test("launcher parses only the backend key without executing config contents", a
   const bin = join(root, "bin");
   const configDir = join(root, ".config", "quickdrop");
   const dispatchLog = join(root, "dispatch.log");
+  const launchLog = join(root, "launch.log");
+  const fakeQuickdrop = join(bin, "quickdrop");
   const bunCalls = join(root, "bun-calls");
   const marker = join(root, "must-not-exist");
   await mkdir(bin, { recursive: true });
@@ -32,6 +34,9 @@ case "$1" in
   dispatch) printf '%s\\n' "$*" >> "$DISPATCH_LOG" ;;
 esac
 `);
+  await executable(fakeQuickdrop, `#!/bin/sh
+printf '%s\n' "$QUICKDROP_API_BASE_URL" > "$LAUNCH_LOG"
+`);
   await executable(join(bin, "bun"), `#!/bin/sh
 count=0
 [ ! -f "$BUN_CALLS" ] || count=$(cat "$BUN_CALLS")
@@ -47,12 +52,15 @@ printf '%s' "$count" > "$BUN_CALLS"
       PATH: `${bin}:${process.env.PATH}`,
       XDG_RUNTIME_DIR: root,
       DISPATCH_LOG: dispatchLog,
+      LAUNCH_LOG: launchLog,
+      QUICKDROP_BIN: fakeQuickdrop,
       BUN_CALLS: bunCalls,
     })
     .quiet();
 
   expect(await Bun.file(marker).exists()).toBe(false);
+  expect(await readFile(launchLog, "utf8")).toBe("https://example.test\n");
   const log = await readFile(dispatchLog, "utf8");
-  expect(log).toContain("QUICKDROP_API_BASE_URL=https://example.test ");
-  expect(log).not.toContain("https://example.test/");
+  expect(log).toContain("hl.dsp.window.float");
+  expect(log).toContain("hl.dsp.focus");
 });

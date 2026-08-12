@@ -79,12 +79,29 @@ for (const client of clients) {
 
 place_quickdrop_window() {
   local primary="$1"
+  local selector="address:$primary"
 
-  if (( has_cursor )); then
-    hyprctl dispatch movewindowpixel exact "$window_x" "$window_y,address:$primary" >/dev/null || true
+  # Hyprland 0.56+ dispatchers use Lua expressions. Fall back to the legacy
+  # dispatcher syntax for older Hyprland releases.
+  if hyprctl dispatch "hl.dsp.window.float({ action = 'set', window = '$selector' })" >/dev/null 2>&1; then
+    if (( has_cursor )); then
+      hyprctl dispatch "hl.dsp.window.move({ x = $window_x, y = $window_y, window = '$selector' })" >/dev/null 2>&1 || true
+    fi
+    hyprctl dispatch "hl.dsp.focus({ window = '$selector' })" >/dev/null 2>&1 || true
+    return
   fi
 
-  hyprctl dispatch focuswindow "address:$primary" >/dev/null || true
+  if (( has_cursor )); then
+    hyprctl dispatch movewindowpixel exact "$window_x" "$window_y,$selector" >/dev/null 2>&1 || true
+  fi
+  hyprctl dispatch focuswindow "$selector" >/dev/null 2>&1 || true
+}
+
+close_quickdrop_window() {
+  local address="$1"
+  local selector="address:$address"
+  hyprctl dispatch "hl.dsp.window.close({ window = '$selector' })" >/dev/null 2>&1 ||
+    hyprctl dispatch closewindow "$selector" >/dev/null 2>&1 || true
 }
 
 mapfile -t quickdrop_windows < <(quickdrop_window_addresses)
@@ -94,17 +111,20 @@ if (( ${#quickdrop_windows[@]} > 0 )); then
   place_quickdrop_window "$primary"
 
   for extra in "${quickdrop_windows[@]:1}"; do
-    hyprctl dispatch closewindow "address:$extra" >/dev/null || true
+    close_quickdrop_window "$extra"
   done
 
   exit 0
 fi
 
+launcher_env=(
+  "WEBKIT_DISABLE_DMABUF_RENDERER=1"
+  "QUICKDROP_API_BASE_URL=$api_base_url"
+)
 if (( has_cursor )); then
-  hyprctl dispatch exec "[float;move $window_x $window_y] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url QUICKDROP_LAUNCHER_X=$cursor_x QUICKDROP_LAUNCHER_Y=$cursor_y $quickdrop_bin" >/dev/null
-else
-  hyprctl dispatch exec "[float] env WEBKIT_DISABLE_DMABUF_RENDERER=1 QUICKDROP_API_BASE_URL=$api_base_url $quickdrop_bin" >/dev/null
+  launcher_env+=("QUICKDROP_LAUNCHER_X=$cursor_x" "QUICKDROP_LAUNCHER_Y=$cursor_y")
 fi
+nohup env "${launcher_env[@]}" "$quickdrop_bin" >/dev/null 2>&1 &
 
 for _ in {1..40}; do
   sleep 0.05
@@ -115,7 +135,7 @@ for _ in {1..40}; do
     place_quickdrop_window "$primary"
 
     for extra in "${quickdrop_windows[@]:1}"; do
-      hyprctl dispatch closewindow "address:$extra" >/dev/null || true
+      close_quickdrop_window "$extra"
     done
 
     exit 0

@@ -156,7 +156,8 @@ install_omarchy() {
   if [[ -d "$omarchy_plugin_dir" ]] && (( changed )); then
     local backup timestamp
     timestamp="$(date -u +%Y%m%d%H%M%S)"
-    backup="${omarchy_plugin_dir}.bak.quickdrop.${timestamp}"
+    # Hidden backup directories are ignored by Omarchy's plugin discovery.
+    backup="$(dirname "$omarchy_plugin_dir")/.${PLUGIN_ID}.bak.quickdrop.${timestamp}"
     cp -a "$omarchy_plugin_dir" "$backup"
     info "Existing OmarchyBar plugin backed up to $backup"
   fi
