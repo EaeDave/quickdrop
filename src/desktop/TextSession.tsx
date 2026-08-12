@@ -48,6 +48,7 @@ export default function TextSession() {
   const [version, setVersion] = useState(0);
   const [clientId, setClientId] = useState<string | null>(null);
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>("closed");
+  const [snapshotReady, setSnapshotReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [roomNotice, setRoomNotice] = useState<string | null>(null);
   const [roomKind, setRoomKind] = useState<RoomKind | null>(null);
@@ -176,6 +177,7 @@ export default function TextSession() {
 
   const resetRoomData = useCallback(() => {
     snapshotReadyRef.current = false;
+    setSnapshotReady(false);
     clearPendingRef.current = false;
     hasOpenedRef.current = false;
     clearPendingWrites(false);
@@ -618,6 +620,7 @@ export default function TextSession() {
         const clearConfirmed = clearPendingRef.current && payload.text === "";
 
         snapshotReadyRef.current = true;
+        setSnapshotReady(true);
         clearPendingWrites(false);
         hasOpenedRef.current = true;
         draftTextRef.current = shouldRetryClear ? "" : payload.text;
@@ -745,6 +748,7 @@ export default function TextSession() {
 
         clearPendingWrites(false);
         snapshotReadyRef.current = false;
+        setSnapshotReady(false);
 
         if (status === "closed") {
           if (suppressNextClosedRef.current) {
@@ -973,7 +977,7 @@ export default function TextSession() {
                 <button
                   className="quickdrop-text-button quickdrop-text-button--ghost"
                   type="button"
-                  disabled={clearPending || text.length === 0 || connectionPhase !== "open" || clientId === null}
+                  disabled={clearPending || text.length === 0 || connectionPhase !== "open" || !snapshotReady}
                   onClick={handleClearRoomText}
                 >
                   {clearPending ? "Limpando..." : "Limpar clipboard"}
