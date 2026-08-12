@@ -102,7 +102,7 @@ describe("buildApp", () => {
     }
   });
 
-  test("redirects /t to the text relay SPA query route", async () => {
+  test("serves the text relay SPA at /t", async () => {
     const { app } = buildApp();
 
     try {
@@ -111,14 +111,15 @@ describe("buildApp", () => {
         url: "/t",
       });
 
-      expect(response.statusCode).toBe(302);
-      expect(response.headers.location).toBe("/?c=");
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/html");
+      expect(response.body).toContain("QuickDrop");
     } finally {
       await app.close();
     }
   });
 
-  test("redirects /t/:code to the text relay SPA query route", async () => {
+  test("serves the text relay SPA at its canonical room URL", async () => {
     const { app } = buildApp();
 
     try {
@@ -127,8 +128,9 @@ describe("buildApp", () => {
         url: "/t/abc123",
       });
 
-      expect(response.statusCode).toBe(302);
-      expect(response.headers.location).toBe("/?c=abc123");
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/html");
+      expect(response.body).toContain("QuickDrop");
     } finally {
       await app.close();
     }

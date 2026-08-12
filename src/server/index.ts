@@ -75,14 +75,14 @@ export function buildApp() {
   app.get("/linux/latest", async (_request, reply) =>
     handleLinuxInstallerDownload(reply, { config }),
   );
-  app.get("/t", async (_request, reply) => reply.redirect("/?c=", 302));
-  app.get<{ Params: { code: string } }>("/t/:code", async (request, reply) =>
-    reply.redirect(`/?c=${encodeURIComponent(request.params.code)}`, 302),
-  );
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),
     prefix: "/",
   });
+  app.get("/t", async (_request, reply) => reply.sendFile("index.html"));
+  app.get<{ Params: { code: string } }>("/t/:code", async (_request, reply) =>
+    reply.sendFile("index.html"),
+  );
 
   app.get("/api/health", async () => ({ status: "ok" }));
 
