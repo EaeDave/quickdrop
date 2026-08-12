@@ -80,7 +80,7 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room) {
+    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
       return;
     }
 
@@ -102,7 +102,7 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room) {
+    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
       return;
     }
 

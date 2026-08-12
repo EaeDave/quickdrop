@@ -48,7 +48,7 @@ export async function createTextRoomWithinLimit(
   return db.transaction(async (tx) => {
     // Serialize capacity checks across every room-creation path. Code conflicts
     // remain protected independently by the partial unique index.
-    await tx.execute(drizzleSql`select pg_advisory_xact_lock(hashtext('quickdrop:text-room-capacity'))`);
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
     const existingRows = await tx
       .select({ id: textRooms.id })
       .from(textRooms)
@@ -99,10 +99,17 @@ export async function findTextRoomByCode(code: string): Promise<TextRoomRow | nu
 }
 
 export async function markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ updatedAt, expiresAt: null })
-    .where(and(eq(textRooms.code, code), isNull(textRooms.deletedAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ updatedAt, expiresAt: null })
+      .where(and(
+        eq(textRooms.code, code),
+        isNull(textRooms.deletedAt),
+        or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
+      ));
+  });
 }
 
 export async function updateTextRoomText(input: {
@@ -125,17 +132,27 @@ export async function updateTextRoomText(input: {
 }
 
 export async function scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ expiresAt, updatedAt })
-    .where(and(eq(textRooms.code, code), isNull(textRooms.deletedAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ expiresAt, updatedAt })
+      .where(and(
+        eq(textRooms.code, code),
+        isNull(textRooms.deletedAt),
+        or(isNull(textRooms.expiresAt), gt(textRooms.expiresAt, updatedAt)),
+      ));
+  });
 }
 
 export async function rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void> {
-  await db
-    .update(textRooms)
-    .set({ expiresAt, updatedAt })
-    .where(and(isNull(textRooms.deletedAt), isNull(textRooms.expiresAt)));
+  await db.transaction(async (tx) => {
+    await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
+    await tx
+      .update(textRooms)
+      .set({ expiresAt, updatedAt })
+      .where(and(isNull(textRooms.deletedAt), isNull(textRooms.expiresAt)));
+  });
 }
 
 export async function findExpiredTextRooms(now: Date, limit = 100): Promise<TextRoomRow[]> {
