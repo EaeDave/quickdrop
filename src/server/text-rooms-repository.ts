@@ -5,6 +5,7 @@ import { textRooms, type TextRoomRecord } from "./schema";
 export type TextRoomRow = {
   id: string;
   code: string;
+  kind: "custom" | "generated";
   text: string;
   version: number;
   pin_hash: string | null;
@@ -16,6 +17,7 @@ export type TextRoomRow = {
 
 export type CreateTextRoomInput = {
   code: string;
+  kind: "custom" | "generated";
   text: string;
   version: number;
   pinHash?: string | null;
@@ -35,7 +37,7 @@ export type TextRoomsRepository = {
   markTextRoomActive(code: string, updatedAt: Date): Promise<void>;
   updateTextRoomText(input: { code: string; text: string; now: Date }): Promise<TextRoomRow | null>;
   scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void>;
-  rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void>;
+  rearmOpenTextRooms(customExpiresAt: Date, generatedExpiresAt: Date, updatedAt: Date): Promise<void>;
   findExpiredTextRooms(now: Date, limit?: number): Promise<TextRoomRow[]>;
   markTextRoomDeleted(id: string, deletedAt: Date): Promise<void>;
 };
@@ -70,6 +72,7 @@ export async function createTextRoomWithinLimit(
       .insert(textRooms)
       .values({
         code: input.code,
+        kind: input.kind,
         text: input.text,
         version: input.version,
         pinHash: input.pinHash ?? null,
@@ -145,12 +148,19 @@ export async function scheduleTextRoomExpiry(code: string, expiresAt: Date, upda
   });
 }
 
-export async function rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void> {
+export async function rearmOpenTextRooms(
+  customExpiresAt: Date,
+  generatedExpiresAt: Date,
+  updatedAt: Date,
+): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.execute(drizzleSql`select pg_advisory_xact_lock(73821460913517)`);
     await tx
       .update(textRooms)
-      .set({ expiresAt, updatedAt })
+      .set({
+        expiresAt: drizzleSql`case when ${textRooms.kind} = 'custom' then ${customExpiresAt.toISOString()}::timestamptz else ${generatedExpiresAt.toISOString()}::timestamptz end`,
+        updatedAt,
+      })
       .where(and(isNull(textRooms.deletedAt), isNull(textRooms.expiresAt)));
   });
 }
@@ -184,6 +194,7 @@ function toTextRoomRow(row: TextRoomRecord): TextRoomRow {
   return {
     id: row.id,
     code: row.code,
+    kind: row.kind === "custom" ? "custom" : "generated",
     text: row.text,
     version: row.version,
     pin_hash: row.pinHash,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { buildApp } from "./index";
+import { buildApp, redactTextCodeFromUrl } from "./index";
 
 const testEnv = {
   PORT: "3000",
@@ -131,6 +131,26 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/html");
       expect(response.body).toContain("QuickDrop");
+      expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("prevents caching text API responses", async () => {
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/text/INVALID%20CODE/open",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
     } finally {
       await app.close();
     }
@@ -338,5 +358,13 @@ describe("buildApp", () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("redactTextCodeFromUrl", () => {
+  test("removes clipboard codes from request-log URLs", () => {
+    expect(redactTextCodeFromUrl("/api/text/SECRET/open")).toBe("/api/text/[code]/open");
+    expect(redactTextCodeFromUrl("/t/SECRET")).toBe("/t/[code]");
+    expect(redactTextCodeFromUrl("/?c=SECRET&source=test")).toBe("/?c=[code]&source=test");
   });
 });

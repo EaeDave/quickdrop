@@ -17,6 +17,7 @@ export type AppConfig = {
   githubToken: string | undefined;
   githubReleaseRepository: string;
   textSessionTtlHours: number;
+  textCustomSessionTtlMinutes: number;
   textSessionMaxBytes: number;
   textSessionCodeLength: number;
   textSessionMaxSessions: number;
@@ -32,6 +33,7 @@ const DEFAULT_R2_STORAGE_HARD_LIMIT_GB = 8;
 const DEFAULT_UPLOAD_RESERVATION_TTL_MINUTES = 30;
 const DEFAULT_GITHUB_RELEASE_REPOSITORY = "EaeDave/quickdrop";
 const DEFAULT_TEXT_SESSION_TTL_HOURS = 12;
+const DEFAULT_TEXT_CUSTOM_SESSION_TTL_MINUTES = 30;
 const DEFAULT_TEXT_SESSION_MAX_KB = 256;
 const DEFAULT_TEXT_SESSION_CODE_LENGTH = 6;
 const DEFAULT_TEXT_SESSION_MAX_SESSIONS = 500;
@@ -69,6 +71,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env,
     "TEXT_SESSION_TTL_HOURS",
     DEFAULT_TEXT_SESSION_TTL_HOURS,
+  );
+  const textCustomSessionTtlMinutes = readPositiveInteger(
+    env,
+    "TEXT_CUSTOM_SESSION_TTL_MINUTES",
+    DEFAULT_TEXT_CUSTOM_SESSION_TTL_MINUTES,
   );
   const textSessionMaxKb = readPositiveInteger(
     env,
@@ -112,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     githubReleaseRepository:
       readOptional(env, "QUICKDROP_GITHUB_REPOSITORY") ?? DEFAULT_GITHUB_RELEASE_REPOSITORY,
     textSessionTtlHours,
+    textCustomSessionTtlMinutes,
     textSessionMaxBytes: textSessionMaxKb * 1024,
     textSessionCodeLength,
     textSessionMaxSessions,

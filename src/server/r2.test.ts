@@ -22,6 +22,7 @@ const config: AppConfig = {
   githubToken: undefined,
   githubReleaseRepository: "EaeDave/quickdrop",
   textSessionTtlHours: 12,
+  textCustomSessionTtlMinutes: 30,
   textSessionMaxBytes: 256 * 1024,
   textSessionCodeLength: 6,
   textSessionMaxSessions: 500,

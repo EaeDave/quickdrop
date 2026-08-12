@@ -1,10 +1,11 @@
 export type RoomStatus = "connecting" | "open" | "closed";
+export type RoomKind = "custom" | "generated";
 export type RoomErrorCode = "pin_required" | "pin_invalid" | "invalid_token" | "not_found" | "too_large" | "room_full" | null;
 
 export type RoomPointer = { visible: boolean; x?: number; y?: number };
 
 export type RoomHandlers = {
-  onSnapshot(payload: { text: string; version: number; clientId: string }): void;
+  onSnapshot(payload: { text: string; version: number; clientId: string; kind: RoomKind; expiresAfterMinutes: number }): void;
   onUpdate(payload: { text: string; version: number; by: string }): void;
   onPresence(payload: { count: number }): void;
   onTyping(payload: { by: string; active: boolean }): void;
@@ -26,6 +27,8 @@ export type RoomAccess = {
   code: string;
   protected: boolean;
   accessExpiresAt: string | null;
+  kind: RoomKind;
+  expiresAfterMinutes: number;
 };
 
 export type OpenRoomResult = RoomAccess & { created: boolean };
@@ -93,6 +96,10 @@ function parseBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
+function parseRoomKind(value: unknown): RoomKind | null {
+  return value === "custom" || value === "generated" ? value : null;
+}
+
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
   if (!body) {
     return { method: "POST", credentials: "same-origin" };
@@ -128,11 +135,13 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
 
   const code = "code" in payload ? parseString(payload.code) : null;
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
-  if (!code || protectedRoom === null) {
+  const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
+  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+  if (!code || protectedRoom === null || kind === null || expiresAfterMinutes === null) {
     throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
   }
 
-  return { code: code.trim().toUpperCase(), protected: protectedRoom, accessExpiresAt: null };
+  return { code: code.trim().toUpperCase(), protected: protectedRoom, accessExpiresAt: null, kind, expiresAfterMinutes };
 }
 
 export async function openRoom(code: string, pin?: string): Promise<OpenRoomResult> {
@@ -160,7 +169,9 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const created = "created" in payload ? parseBoolean(payload.created) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
-  if (!returnedCode || protectedRoom === null || created === null) {
+  const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
+  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+  if (!returnedCode || protectedRoom === null || created === null || kind === null || expiresAfterMinutes === null) {
     throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
   }
 
@@ -169,6 +180,8 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
     protected: protectedRoom,
     created,
     accessExpiresAt,
+    kind,
+    expiresAfterMinutes,
   };
 }
 
@@ -194,7 +207,9 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
 
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
-  if (protectedRoom === null) {
+  const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
+  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+  if (protectedRoom === null || kind === null || expiresAfterMinutes === null) {
     throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
   }
 
@@ -202,10 +217,12 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
     code: code.trim().toUpperCase(),
     protected: protectedRoom,
     accessExpiresAt,
+    kind,
+    expiresAfterMinutes,
   };
 }
 
-export async function fetchSnapshot(code: string): Promise<{ text: string; version: number; protected: boolean }> {
+export async function fetchSnapshot(code: string): Promise<{ text: string; version: number; protected: boolean; kind: RoomKind; expiresAfterMinutes: number }> {
   const response = await fetch(`/api/text/${encodeURIComponent(code)}`, { credentials: "same-origin" });
   const payload = await readJsonResponse(response);
 
@@ -224,11 +241,13 @@ export async function fetchSnapshot(code: string): Promise<{ text: string; versi
   const text = "text" in payload ? parseString(payload.text) : null;
   const version = "version" in payload ? parseNumber(payload.version) : null;
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
-  if (text === null || version === null || protectedRoom === null) {
+  const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
+  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+  if (text === null || version === null || protectedRoom === null || kind === null || expiresAfterMinutes === null) {
     throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
   }
 
-  return { text, version, protected: protectedRoom };
+  return { text, version, protected: protectedRoom, kind, expiresAfterMinutes };
 }
 
 export function connectRoom(code: string, handlers: RoomHandlers): RoomController {
@@ -308,14 +327,16 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const text = "text" in payload ? parseString(payload.text) : null;
         const version = "version" in payload ? parseNumber(payload.version) : null;
         const clientId = "clientId" in payload ? parseString(payload.clientId) : null;
-        if (text === null || version === null || clientId === null) {
+        const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
+        const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+        if (text === null || version === null || clientId === null || kind === null || expiresAfterMinutes === null) {
           return;
         }
 
         readyForWrites = true;
         writeInFlight = false;
         queuedWrite = null;
-        handlers.onSnapshot({ text, version, clientId });
+        handlers.onSnapshot({ text, version, clientId, kind, expiresAfterMinutes });
         flushQueuedWrite();
         return;
       }
