@@ -30,6 +30,14 @@ ${waybarActive ? "exit 0" : "exit 1"}
 }
 
 describe.skipIf(!hasToolchain)("install-bar-integration.sh", () => {
+  test("uses Omarchy's shared shell quoting helper in the bar widget", async () => {
+    const widget = await readFile(join(pluginSource, "BarWidget.qml"), "utf8");
+
+    expect(widget).toContain("import qs.Commons");
+    expect(widget).toContain("Util.shellQuote(launcher)");
+    expect(widget).not.toContain("root.bar.shellQuote");
+  });
+
   test("auto-detects an active OmarchyBar before stale Waybar configuration", async () => {
     const root = await mkdtemp(join(tmpdir(), "quickdrop-bar-detect-"));
     const bin = await fakePath(root, true, false);
@@ -94,6 +102,7 @@ exit 0
     expect(callLog).toContain("omarchy-shell shell rescanPlugins");
     expect(callLog).toContain("omarchy plugin enable quickdrop.bar --section right");
     expect(callLog).toContain("omarchy bar set quickdrop.bar launcher");
+    expect(callLog).toContain("omarchy restart shell");
 
     const backups = (await readdir(join(root, "plugins"))).filter((name) => name.includes(".bak.quickdrop."));
     expect(backups).toHaveLength(0);
