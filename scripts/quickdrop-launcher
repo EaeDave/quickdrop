@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-waybar.lock"
+lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-launcher.lock"
 exec 9>"$lock_path"
 flock 9
 
 quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
-api_base_url="${QUICKDROP_API_BASE_URL:-https://quickdrop.eaedave.xyz}"
+config_path="${QUICKDROP_CONFIG:-$HOME/.config/quickdrop/config.env}"
+config_api_base_url=""
+if [[ -f "$config_path" ]]; then
+  # Read only the supported key; never execute config file contents.
+  config_api_base_url="$(
+    sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?QUICKDROP_API_BASE_URL=//p' "$config_path" |
+      tail -n 1 |
+      sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+  )"
+fi
+api_base_url="${QUICKDROP_API_BASE_URL:-${config_api_base_url:-https://quickdrop.eaedave.xyz}}"
+api_base_url="${api_base_url%/}"
 window_width="${QUICKDROP_WINDOW_WIDTH:-432}"
 window_height="${QUICKDROP_WINDOW_HEIGHT:-272}"
 

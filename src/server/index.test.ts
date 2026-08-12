@@ -241,26 +241,30 @@ describe("buildApp", () => {
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
       expect(response.body).toContain("/linux/latest");
-      expect(response.body).toContain("custom/quickdrop");
-      expect(response.body).toContain("quickdrop-waybar");
+      expect(response.body).toContain("/linux/quickdrop-launcher");
+      expect(response.body).toContain("/linux/install-bar-integration");
+      expect(response.body).toContain("QUICKDROP_BAR");
     } finally {
       await app.close();
     }
   });
 
-  test("serves the Waybar launcher", async () => {
+  test.each([
+    ["/linux/quickdrop-launcher", "quickdrop-launcher.lock"],
+    ["/linux/quickdrop-waybar", "quickdrop-launcher.lock"],
+    ["/linux/install-bar-integration", "quickdrop.bar"],
+    ["/linux/install-waybar-module.py", "custom/quickdrop"],
+    ["/linux/omarchy/manifest.json", '"id": "quickdrop.bar"'],
+    ["/linux/omarchy/BarWidget.qml", 'moduleName: "quickdrop.bar"'],
+  ])("serves Linux integration asset %s", async (url, expected) => {
     const { app } = buildApp();
 
     try {
-      const response = await app.inject({
-        method: "GET",
-        url: "/linux/quickdrop-waybar",
-      });
+      const response = await app.inject({ method: "GET", url });
 
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/plain");
-      expect(response.body).toContain("quickdrop-waybar.lock");
-      expect(response.body).toContain("hyprctl");
+      expect(response.body).toContain(expected);
     } finally {
       await app.close();
     }

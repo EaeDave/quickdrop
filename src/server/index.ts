@@ -45,8 +45,6 @@ export function buildApp() {
     maxClientsPerSession: config.textSessionMaxClientsPerSession,
   });
 
-
-
   const sendScriptFile = (reply: FastifyReply, fileName: string) =>
     readFile(join(process.cwd(), "scripts", fileName), "utf8").then((script) =>
       reply
@@ -57,9 +55,19 @@ export function buildApp() {
 
   app.get("/install.ps1", async (_request, reply) => sendScriptFile(reply, "install-windows.ps1"));
   app.get("/install.sh", async (_request, reply) => sendScriptFile(reply, "install-linux.sh"));
-  app.get("/linux/quickdrop-waybar", async (_request, reply) =>
-    sendScriptFile(reply, "quickdrop-waybar"),
-  );
+
+  const linuxAssets: Record<string, string> = {
+    "/linux/quickdrop-launcher": "quickdrop-launcher",
+    // Backward-compatible endpoint for existing Waybar-only installers.
+    "/linux/quickdrop-waybar": "quickdrop-launcher",
+    "/linux/install-bar-integration": "install-bar-integration.sh",
+    "/linux/install-waybar-module.py": "install-waybar-module.py",
+    "/linux/omarchy/manifest.json": "omarchy-quickdrop/manifest.json",
+    "/linux/omarchy/BarWidget.qml": "omarchy-quickdrop/BarWidget.qml",
+  };
+  for (const [route, fileName] of Object.entries(linuxAssets)) {
+    app.get(route, async (_request, reply) => sendScriptFile(reply, fileName));
+  }
 
   app.get("/windows/latest.exe", async (_request, reply) =>
     handleWindowsInstallerDownload(reply, { config }),
