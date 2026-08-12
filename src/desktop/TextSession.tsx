@@ -1,7 +1,7 @@
 import { type ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { connectRoom, createRoom, openRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomPointer } from "./text-client";
 import { uploadFiles } from "./tauri";
-import { initialRoomCode, setRoomInUrl } from "./web-route";
+import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
 import { UserCursor } from "./UserCursor";
 
 type PendingRemoteUpdate = { text: string; version: number };
@@ -49,6 +49,7 @@ export default function TextSession() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>("closed");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [roomNotice, setRoomNotice] = useState<string | null>(null);
   const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
   const [remoteTypers, setRemoteTypers] = useState<string[]>([]);
@@ -186,6 +187,7 @@ export default function TextSession() {
     setRemoteTypers([]);
     setRemotePointers([]);
     setExportState({ status: "idle" });
+    setRoomNotice(null);
     setText("");
     draftTextRef.current = "";
     syncedTextRef.current = "";
@@ -259,8 +261,9 @@ export default function TextSession() {
     async (code: string, pin?: string) => {
       setIsJoining(true);
       try {
-        await openRoom(code, pin);
+        const opened = await openRoom(code, pin);
         activateRoom(code);
+        setRoomNotice(opened.created ? "Clipboard criado. Abra este mesmo endereço na outra máquina." : "Clipboard aberto.");
       } catch (error) {
         handleAccessError(error);
       } finally {
@@ -283,6 +286,7 @@ export default function TextSession() {
     try {
       const created = await createRoom(joinPin);
       activateRoom(created.code);
+      setRoomNotice("Código aleatório criado. Compartilhe o endereço com a outra máquina.");
     } catch (error) {
       handleAccessError(error);
     } finally {
@@ -335,6 +339,7 @@ export default function TextSession() {
     setConnectionPhase("closed");
     setPendingRemote(null);
     setErrorMessage(null);
+    setRoomNotice(null);
   }, [clearRoomUrl, hideLocalPointer, resetRoomData, sendTypingInactive]);
 
   const handleCopyCode = useCallback(async () => {
@@ -347,6 +352,35 @@ export default function TextSession() {
       setErrorMessage(null);
     } catch {
       setErrorMessage("Não foi possível copiar o código agora.");
+    }
+  }, [copyText, roomCode]);
+
+  const handleCopyRoomText = useCallback(async () => {
+    if (!text) {
+      return;
+    }
+
+    try {
+      await copyText(text);
+      setRoomNotice("Texto copiado.");
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage("Não foi possível copiar o texto agora.");
+    }
+  }, [copyText, text]);
+
+  const handleCopyRoomLink = useCallback(async () => {
+    if (!roomCode) {
+      return;
+    }
+
+    try {
+      const roomUrl = new URL(textRoomPath(roomCode), window.location.origin).href;
+      await copyText(roomUrl);
+      setRoomNotice("Endereço do clipboard copiado.");
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage("Não foi possível copiar o endereço agora.");
     }
   }, [copyText, roomCode]);
 
@@ -845,9 +879,20 @@ export default function TextSession() {
               ← Voltar
             </button>
             <div>
-              <p className="quickdrop-text-kicker">Sala ativa</p>
+              <p className="quickdrop-text-kicker">Clipboard ativo</p>
               <div className="quickdrop-text-room-code-row">
                 <h1 className="quickdrop-text-room-code">{roomCode}</h1>
+                <button
+                  className="quickdrop-text-button quickdrop-text-button--primary"
+                  type="button"
+                  disabled={text.length === 0}
+                  onClick={handleCopyRoomText}
+                >
+                  Copiar texto
+                </button>
+                <button className="quickdrop-text-button" type="button" onClick={handleCopyRoomLink}>
+                  Compartilhar endereço
+                </button>
                 <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>
                   Copiar código
                 </button>
@@ -868,6 +913,7 @@ export default function TextSession() {
           <span className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}>{statusLabel}</span>
         </header>
 
+        {roomNotice ? <p className="quickdrop-text-note quickdrop-text-note--success" aria-live="polite">{roomNotice}</p> : null}
         {showExportError ? <p className="quickdrop-text-note quickdrop-text-note--error">{exportState.message}</p> : null}
         {showExportSuccess ? (
           <p className="quickdrop-text-note quickdrop-text-note--success">

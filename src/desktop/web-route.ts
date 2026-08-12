@@ -4,6 +4,10 @@ function normalizeRoomCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
+export function textRoomPath(code: string): string {
+  return `/t/${encodeURIComponent(normalizeRoomCode(code))}`;
+}
+
 export function isTextRoute(): boolean {
   if (isTauri) {
     return false;
@@ -31,7 +35,8 @@ export function setRoomInUrl(code: string): void {
   }
 
   const url = new URL(window.location.href);
+  url.pathname = textRoomPath(normalized);
   url.search = "";
-  url.searchParams.set("c", normalized);
+  url.hash = "";
   history.replaceState(history.state, "", url);
 }
