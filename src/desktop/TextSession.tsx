@@ -398,7 +398,12 @@ export default function TextSession() {
   }, [copyText, roomCode]);
 
   const handleClearRoomText = useCallback(() => {
-    if (!text || !window.confirm("Limpar o texto para todas as máquinas conectadas?")) {
+    if (
+      !text ||
+      connectionPhaseRef.current !== "open" ||
+      !snapshotReadyRef.current ||
+      !window.confirm("Limpar o texto para todas as máquinas conectadas?")
+    ) {
       return;
     }
 
@@ -933,7 +938,7 @@ export default function TextSession() {
                 <button
                   className="quickdrop-text-button quickdrop-text-button--ghost"
                   type="button"
-                  disabled={text.length === 0}
+                  disabled={text.length === 0 || connectionPhase !== "open" || clientId === null}
                   onClick={handleClearRoomText}
                 >
                   Limpar clipboard

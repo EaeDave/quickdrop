@@ -114,6 +114,15 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/html");
       expect(response.body).toContain("QuickDrop");
+
+      const responseWithQuery = await app.inject({
+        method: "GET",
+        url: "/t?source=shared",
+      });
+      expect(responseWithQuery.statusCode).toBe(200);
+      expect(responseWithQuery.headers["cache-control"]).toBe("no-store, max-age=0");
+      expect(responseWithQuery.headers["referrer-policy"]).toBe("no-referrer");
+      expect(responseWithQuery.headers["x-frame-options"]).toBe("DENY");
     } finally {
       await app.close();
     }

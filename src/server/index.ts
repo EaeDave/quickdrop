@@ -153,7 +153,7 @@ export function redactTextCodeFromUrl(rawUrl: string): string {
 }
 
 function isSensitiveTextRoute(rawUrl: string): boolean {
-  return rawUrl === "/t" || rawUrl.startsWith("/t/") || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
+  return rawUrl === "/t" || rawUrl.startsWith("/t?") || rawUrl.startsWith("/t/") || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
 }
 
 if (import.meta.main) {
