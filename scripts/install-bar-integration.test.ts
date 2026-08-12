@@ -90,12 +90,44 @@ exit 0
     expect(manifest.id).toBe("quickdrop.bar");
 
     const callLog = await readFile(calls, "utf8");
-    expect(callLog).toContain(`omarchy plugin validate ${target}`);
+    expect(callLog).toContain(`omarchy plugin validate ${pluginSource}`);
     expect(callLog).toContain("omarchy-shell shell rescanPlugins");
     expect(callLog).toContain("omarchy plugin enable quickdrop.bar --section right");
     expect(callLog).toContain("omarchy bar set quickdrop.bar launcher");
 
     const backups = (await readdir(join(root, "plugins"))).filter((name) => name.includes(".bak.quickdrop."));
     expect(backups).toHaveLength(0);
+  });
+
+  test("does not replace a working Omarchy plugin when staged validation fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "quickdrop-omarchy-invalid-"));
+    const bin = join(root, "fake-bin");
+    const source = join(root, "invalid-source");
+    const target = join(root, "plugins", "quickdrop.bar");
+    await Bun.$`mkdir -p ${bin} ${source} ${target}`.quiet();
+    await writeFile(join(source, "manifest.json"), "{ invalid }");
+    await writeFile(join(source, "BarWidget.qml"), "invalid widget");
+    await writeFile(join(target, "manifest.json"), '{"id":"working"}');
+    await writeFile(join(target, "BarWidget.qml"), "working widget");
+
+    await executable(join(bin, "omarchy"), `#!/bin/sh
+if [ "$1 $2" = "plugin validate" ]; then exit 1; fi
+exit 0
+`);
+    await executable(join(bin, "omarchy-shell"), "#!/bin/sh\nexit 0\n");
+
+    await $`bash ${installer}`
+      .env({
+        ...process.env,
+        HOME: root,
+        PATH: `${bin}:${process.env.PATH}`,
+        QUICKDROP_BAR: "omarchy",
+        QUICKDROP_OMARCHY_PLUGIN_SOURCE: source,
+        QUICKDROP_OMARCHY_PLUGIN_DIR: target,
+      })
+      .quiet();
+
+    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe('{"id":"working"}');
+    expect(await readFile(join(target, "BarWidget.qml"), "utf8")).toBe("working widget");
   });
 });

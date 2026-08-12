@@ -13,7 +13,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰇚"
-    tooltipText: "QuickDrop\nArraste arquivos para enviar"
+    tooltipText: "QuickDrop\nDrop files to upload"
 
     onPressed: function(mouseButton) {
       if (mouseButton !== Qt.LeftButton || !root.bar) return

@@ -155,9 +155,22 @@ install_integration_assets() {
   info "Installed launcher to $launcher_path"
 }
 
+read_config_api_base_url() {
+  [[ -f "$config_path" ]] || return 0
+  sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\?QUICKDROP_API_BASE_URL=//p' "$config_path" |
+    tail -n 1 |
+    sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
 write_config() {
+  local configured_base_url effective_base_url="$base_url"
+  if [[ -z "${QUICKDROP_API_BASE_URL:-}" ]]; then
+    configured_base_url="$(read_config_api_base_url)"
+    [[ -z "$configured_base_url" ]] || effective_base_url="${configured_base_url%/}"
+  fi
+
   mkdir -p "$config_dir"
-  printf 'QUICKDROP_API_BASE_URL=%q\n' "$base_url" > "$config_path"
+  printf 'QUICKDROP_API_BASE_URL=%q\n' "$effective_base_url" > "$config_path"
   chmod 0600 "$config_path"
   info "Saved QuickDrop configuration to $config_path"
 }
@@ -176,7 +189,7 @@ main() {
     install_binary
   fi
   install_integration_assets
-  write_config
+  [[ "${QUICKDROP_INTEGRATION_ONLY:-0}" == "1" ]] || write_config
   install_bar_integration
 
   case ":$PATH:" in

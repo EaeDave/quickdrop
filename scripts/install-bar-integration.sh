@@ -101,6 +101,10 @@ install_waybar() {
     return 0
   fi
 
+  if [[ "$patch_output" == *skipped* ]]; then
+    warn "$patch_output"
+    return 0
+  fi
   if [[ "$patch_output" == unchanged* ]]; then
     info "Waybar module $MODULE_NAME already present in $waybar_config"
     return 0
@@ -114,7 +118,7 @@ install_waybar() {
   if [[ "${QUICKDROP_BAR_NO_RESTART:-${QUICKDROP_WAYBAR_NO_RESTART:-0}}" == "1" ]]; then
     return 0
   fi
-  if pkill -SIGUSR2 waybar >/dev/null 2>&1; then
+  if pkill -SIGUSR2 -u "$(id -u)" -x waybar >/dev/null 2>&1; then
     info "Reloaded Waybar via SIGUSR2."
   elif command -v omarchy >/dev/null 2>&1 && omarchy restart waybar >/dev/null 2>&1; then
     info "Waybar restarted."
@@ -137,9 +141,22 @@ install_omarchy() {
     return 0
   }
 
+  # Validate the staged source before touching a previously working installation.
+  if ! omarchy plugin validate "$omarchy_plugin_source" >/dev/null; then
+    warn "Omarchy rejected the QuickDrop plugin manifest at $omarchy_plugin_source."
+    return 0
+  fi
+
   mkdir -p "$(dirname "$omarchy_plugin_dir")"
-  if [[ -d "$omarchy_plugin_dir" ]] && ! diff -qr "$omarchy_plugin_source" "$omarchy_plugin_dir" >/dev/null 2>&1; then
-    local backup="${omarchy_plugin_dir}.bak.quickdrop.$(date -u +%Y%m%d%H%M%S)"
+  local plugin_files=(manifest.json BarWidget.qml)
+  local changed=0 file
+  for file in "${plugin_files[@]}"; do
+    cmp -s "$omarchy_plugin_source/$file" "$omarchy_plugin_dir/$file" || changed=1
+  done
+  if [[ -d "$omarchy_plugin_dir" ]] && (( changed )); then
+    local backup timestamp
+    timestamp="$(date -u +%Y%m%d%H%M%S)"
+    backup="${omarchy_plugin_dir}.bak.quickdrop.${timestamp}"
     cp -a "$omarchy_plugin_dir" "$backup"
     info "Existing OmarchyBar plugin backed up to $backup"
   fi
@@ -148,16 +165,11 @@ install_omarchy() {
   install -m 0644 "$omarchy_plugin_source/manifest.json" "$omarchy_plugin_dir/manifest.json"
   install -m 0644 "$omarchy_plugin_source/BarWidget.qml" "$omarchy_plugin_dir/BarWidget.qml"
 
-  if ! omarchy plugin validate "$omarchy_plugin_dir" >/dev/null; then
-    warn "Omarchy rejected the QuickDrop plugin manifest at $omarchy_plugin_dir."
-    return 0
-  fi
-
   if ! omarchy-shell shell rescanPlugins >/dev/null 2>&1; then
     warn "QuickDrop's OmarchyBar plugin was installed, but the shell is not running; it will be discovered on the next shell start."
     return 0
   fi
-  if ! omarchy plugin list 2>/dev/null | grep -Eq "^${PLUGIN_ID}[[:space:]]+enabled([[:space:]]|$)"; then
+  if ! omarchy plugin list 2>/dev/null | awk -v id="$PLUGIN_ID" '$1 == id && $2 == "enabled" { found = 1 } END { exit !found }'; then
     if ! omarchy plugin enable "$PLUGIN_ID" --section right >/dev/null 2>&1; then
       warn "Plugin installed but could not be enabled automatically. Run: omarchy plugin enable $PLUGIN_ID --section right"
       return 0
@@ -165,7 +177,9 @@ install_omarchy() {
   fi
 
   # Persist a custom bin directory without baking machine-specific paths into QML.
-  omarchy bar set "$PLUGIN_ID" launcher "$launcher_path" >/dev/null 2>&1 || true
+  if ! omarchy bar set "$PLUGIN_ID" launcher "$launcher_path" >/dev/null 2>&1; then
+    warn "Could not persist the launcher path. Run: omarchy bar set $PLUGIN_ID launcher $launcher_path"
+  fi
   info "Installed OmarchyBar plugin $PLUGIN_ID in $omarchy_plugin_dir"
 }
 

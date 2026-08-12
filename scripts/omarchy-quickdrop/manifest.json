@@ -25,7 +25,7 @@
       {
         "key": "launcher",
         "type": "string",
-        "label": "Launcher command",
+        "label": "Launcher executable",
         "defaultValue": "quickdrop-launcher"
       }
     ]

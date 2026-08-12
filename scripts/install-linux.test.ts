@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
@@ -65,25 +65,31 @@ async function createSandbox(options: { config?: string; configDir?: string } = 
   };
 }
 
-async function runInstaller(sandbox: Sandbox, bar = "waybar"): Promise<void> {
-  await $`bash ${scriptPath}`
-    .env({
-      ...process.env,
-      HOME: sandbox.root,
-      QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
-      QUICKDROP_LAUNCHER_FILE: launcherSource,
-      QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
-      QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
-      QUICKDROP_OMARCHY_PLUGIN_SOURCE: omarchyPluginSource,
-      QUICKDROP_BIN_DIR: sandbox.binDir,
-      QUICKDROP_SHARE_DIR: sandbox.shareDir,
-      QUICKDROP_CONFIG_DIR: sandbox.configDir,
-      QUICKDROP_WAYBAR_CONFIG: sandbox.configPath,
-      QUICKDROP_API_BASE_URL: apiBaseUrl,
-      QUICKDROP_BAR: bar,
-      QUICKDROP_BAR_NO_RESTART: "1",
-    })
-    .quiet();
+async function runInstaller(
+  sandbox: Sandbox,
+  bar = "waybar",
+  options: { apiBaseUrl?: string; integrationOnly?: boolean } = { apiBaseUrl },
+): Promise<void> {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    HOME: sandbox.root,
+    QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
+    QUICKDROP_LAUNCHER_FILE: launcherSource,
+    QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
+    QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
+    QUICKDROP_OMARCHY_PLUGIN_SOURCE: omarchyPluginSource,
+    QUICKDROP_BIN_DIR: sandbox.binDir,
+    QUICKDROP_SHARE_DIR: sandbox.shareDir,
+    QUICKDROP_CONFIG_DIR: sandbox.configDir,
+    QUICKDROP_WAYBAR_CONFIG: sandbox.configPath,
+    QUICKDROP_BAR: bar,
+    QUICKDROP_BAR_NO_RESTART: "1",
+  };
+  delete env.QUICKDROP_API_BASE_URL;
+  if (options.apiBaseUrl !== undefined) env.QUICKDROP_API_BASE_URL = options.apiBaseUrl;
+  if (options.integrationOnly) env.QUICKDROP_INTEGRATION_ONLY = "1";
+
+  await $`bash ${scriptPath}`.env(env).quiet();
 }
 
 async function isExecutable(path: string): Promise<boolean> {
@@ -135,5 +141,27 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     expect(await Bun.file(sandbox.binaryPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.launcherPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.configPath).exists()).toBe(false);
+  });
+
+  test("preserves an existing backend when a full reinstall has no explicit URL", async () => {
+    const sandbox = await createSandbox();
+    await mkdir(sandbox.configDir, { recursive: true });
+    const configPath = join(sandbox.configDir, "config.env");
+    await writeFile(configPath, "QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+
+    await runInstaller(sandbox, "none", {});
+
+    expect(await readFile(configPath, "utf8")).toBe("QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+  });
+
+  test("does not rewrite backend configuration during an integration-only install", async () => {
+    const sandbox = await createSandbox();
+    await mkdir(sandbox.configDir, { recursive: true });
+    const configPath = join(sandbox.configDir, "config.env");
+    await writeFile(configPath, "QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+
+    await runInstaller(sandbox, "none", { integrationOnly: true });
+
+    expect(await readFile(configPath, "utf8")).toBe("QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
   });
 });
