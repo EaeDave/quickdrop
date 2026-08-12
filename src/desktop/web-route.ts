@@ -8,6 +8,19 @@ export function textRoomPath(code: string): string {
   return `/t/${encodeURIComponent(normalizeRoomCode(code))}`;
 }
 
+export function roomCodeFromPathname(pathname: string): string | null {
+  const segment = pathname.split("/")[2] ?? "";
+  if (!segment) {
+    return null;
+  }
+
+  try {
+    return normalizeRoomCode(decodeURIComponent(segment)) || null;
+  } catch {
+    return normalizeRoomCode(segment) || null;
+  }
+}
+
 export function isTextRoute(): boolean {
   if (isTauri) {
     return false;
@@ -24,8 +37,7 @@ export function initialRoomCode(): string | null {
     return queryCode;
   }
 
-  const pathCode = normalizeRoomCode(url.pathname.split("/")[2] ?? "");
-  return pathCode || null;
+  return roomCodeFromPathname(url.pathname);
 }
 
 export function setRoomInUrl(code: string): void {
