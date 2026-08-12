@@ -45,27 +45,32 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         return;
       }
 
-      if ((await repository.countActiveTextRooms(now())) >= deps.maxSessions) {
-        reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
-        return;
-      }
-
       const pinHash = parsedPin.pin ? await hashRoomPin(parsedPin.pin) : null;
 
       for (let attempt = 0; attempt < CODE_GENERATION_ATTEMPTS; attempt += 1) {
         const createdAt = now();
         const code = generateSessionCode(deps.codeLength);
-        const room = await repository.createTextRoom({
-          code,
-          text: "",
-          version: 0,
-          pinHash,
+        const creation = await repository.createTextRoomWithinLimit(
+          {
+            code,
+            text: "",
+            version: 0,
+            pinHash,
+            createdAt,
+            updatedAt: createdAt,
+            expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+          },
+          deps.maxSessions,
           createdAt,
-          updatedAt: createdAt,
-          expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
-        });
+        );
 
-        if (room) {
+        if (creation.status === "limit") {
+          reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
+          return;
+        }
+
+        if (creation.status === "created") {
+          const room = creation.room;
           if (room.pin_hash) {
             reply.header(
               "set-cookie",
@@ -108,29 +113,34 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
       let room = await repository.findTextRoomByCode(code);
       if (room && isExpired(room, now(), deps.hub.clientCount(code))) {
-        await repository.markTextRoomDeleted(code, now());
+        await repository.markTextRoomDeleted(room.id, now());
         room = null;
       }
 
       if (!room) {
-        if ((await repository.countActiveTextRooms(now())) >= deps.maxSessions) {
+        const createdAt = now();
+        const pinHash = parsedPin.pin ? await hashRoomPin(parsedPin.pin) : null;
+        const creation = await repository.createTextRoomWithinLimit(
+          {
+            code,
+            text: "",
+            version: 0,
+            pinHash,
+            createdAt,
+            updatedAt: createdAt,
+            expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+          },
+          deps.maxSessions,
+          createdAt,
+        );
+
+        if (creation.status === "limit") {
           reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
           return;
         }
 
-        const createdAt = now();
-        const pinHash = parsedPin.pin ? await hashRoomPin(parsedPin.pin) : null;
-        room = await repository.createTextRoom({
-          code,
-          text: "",
-          version: 0,
-          pinHash,
-          createdAt,
-          updatedAt: createdAt,
-          expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
-        });
-
-        if (room) {
+        if (creation.status === "created") {
+          room = creation.room;
           if (room.pin_hash) {
             reply.header(
               "set-cookie",
@@ -604,7 +614,7 @@ async function sweepExpiredRooms(repository: TextRoomsRepository, currentTime: D
   const expiredRooms = await repository.findExpiredTextRooms(currentTime, EXPIRED_SWEEP_LIMIT);
 
   for (const room of expiredRooms) {
-    await repository.markTextRoomDeleted(room.code, currentTime);
+    await repository.markTextRoomDeleted(room.id, currentTime);
   }
 }
 

@@ -6,7 +6,7 @@ import { WebSocket as NodeWebSocket } from "ws";
 import { TextSessionHub } from "./text-session-hub";
 import { rearmTextRoomsAfterRestart, registerTextSessionRoutes, startTextSessionSweep } from "./text-session-service";
 import { hashRoomPin } from "./text-room-pin";
-import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
+import type { CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
   type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error";
@@ -38,29 +38,20 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
     return this.rooms.find((room) => room.code === code && room.deleted_at === null);
   }
 
-  async countActiveTextRooms(now: Date): Promise<number> {
-    let count = 0;
-
-    for (const room of this.rooms) {
-      if (room.deleted_at === null && (room.expires_at === null || room.expires_at > now)) {
-        count += 1;
-      }
+  async createTextRoomWithinLimit(
+    input: CreateTextRoomInput,
+    maxSessions: number,
+    now: Date,
+  ): Promise<TextRoomCreationResult> {
+    if (this.findActiveRoom(input.code)) {
+      return { status: "conflict" };
     }
 
-    return count;
-  }
-
-  async createTextRoom(input: {
-    code: string;
-    text: string;
-    version: number;
-    pinHash?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    expiresAt: Date;
-  }): Promise<TextRoomRow | null> {
-    if (this.findActiveRoom(input.code)) {
-      return null;
+    const activeCount = this.rooms.filter(
+      (room) => room.deleted_at === null && (room.expires_at === null || room.expires_at > now),
+    ).length;
+    if (activeCount >= maxSessions) {
+      return { status: "limit" };
     }
 
     const row: TextRoomRow = {
@@ -75,7 +66,7 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
       deleted_at: null,
     };
     this.rooms.push(row);
-    return copyRoom(row);
+    return { status: "created", room: copyRoom(row) };
   }
 
   async findTextRoomByCode(code: string): Promise<TextRoomRow | null> {
@@ -138,13 +129,35 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
     return rows;
   }
 
-  async markTextRoomDeleted(code: string, deletedAt: Date): Promise<void> {
-    const room = this.findActiveRoom(code);
+  async markTextRoomDeleted(id: string, deletedAt: Date): Promise<void> {
+    const room = this.rooms.find((candidate) => candidate.id === id && candidate.deleted_at === null);
     if (!room) {
       return;
     }
 
     room.deleted_at = new Date(deletedAt);
+  }
+}
+
+class BarrierTextRoomsRepository extends InMemoryTextRoomsRepository {
+  private arrivals = 0;
+  private releaseBarrier: (() => void) | null = null;
+  private readonly barrier = new Promise<void>((resolve) => {
+    this.releaseBarrier = resolve;
+  });
+
+  override async createTextRoomWithinLimit(
+    input: CreateTextRoomInput,
+    maxSessions: number,
+    now: Date,
+  ): Promise<TextRoomCreationResult> {
+    this.arrivals += 1;
+    if (this.arrivals === 2) {
+      this.releaseBarrier?.();
+    }
+    await this.barrier;
+
+    return super.createTextRoomWithinLimit(input, maxSessions, now);
   }
 }
 
@@ -162,7 +175,7 @@ function copyRoom(room: TextRoomRow): TextRoomRow {
   };
 }
 
-async function startTestServer(repository: TextRoomsRepository, clock: MutableClock) {
+async function startTestServer(repository: TextRoomsRepository, clock: MutableClock, maxSessions = 500) {
   const app = Fastify({ logger: false });
   const hub = new TextSessionHub({ maxClientsPerSession: 20 });
   const sockets = new Set<NodeWebSocket>();
@@ -178,7 +191,7 @@ async function startTestServer(repository: TextRoomsRepository, clock: MutableCl
       hub,
       repository,
       maxBytes: 1024,
-      maxSessions: 500,
+      maxSessions,
       codeLength: 6,
       ttlMs: 60 * 60 * 1000,
       now: () => new Date(clock.current),
@@ -314,7 +327,7 @@ describe("text session routes", () => {
 
   test("keeps one active room when the same clipboard is opened concurrently", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
-    const repository = new InMemoryTextRoomsRepository();
+    const repository = new BarrierTextRoomsRepository();
     const server = await startTestServer(repository, clock);
 
     try {
@@ -327,6 +340,24 @@ describe("text session routes", () => {
       expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
       expect(results.filter((result) => result.created === true)).toHaveLength(1);
       expect(results.filter((result) => result.created === false)).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("enforces the session limit across concurrent room creations", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new BarrierTextRoomsRepository();
+    const server = await startTestServer(repository, clock, 1);
+
+    try {
+      const responses = await Promise.all([
+        server.app.inject({ method: "POST", url: "/api/text/ONE/open" }),
+        server.app.inject({ method: "POST", url: "/api/text/TWO/open" }),
+      ]);
+
+      expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 503]);
+      expect(JSON.parse(responses.find((response) => response.statusCode === 503)!.body).error).toBe("session_limit");
     } finally {
       await server.close();
     }
@@ -583,18 +614,19 @@ describe("text session routes", () => {
   test("rearms previously active rooms after restart", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
     const repository = new InMemoryTextRoomsRepository();
-    const created = await repository.createTextRoom({
+    const creation = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
       text: "",
       version: 0,
       createdAt: clock.current,
       updatedAt: clock.current,
       expiresAt: new Date(clock.current.getTime() + 60 * 60 * 1000),
-    });
+    }, 500, clock.current);
 
-    if (!created) {
+    if (creation.status !== "created") {
       throw new Error("expected room to be created");
     }
+    const created = creation.room;
 
     await repository.markTextRoomActive(created.code, clock.current);
     const active = await repository.findTextRoomByCode(created.code);
@@ -610,18 +642,19 @@ describe("text session routes", () => {
   test("marks expired rooms as deleted during the database sweep", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
     const repository = new InMemoryTextRoomsRepository();
-    const created = await repository.createTextRoom({
+    const creation = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
       text: "expired",
       version: 0,
       createdAt: new Date("2026-06-23T18:00:00Z"),
       updatedAt: new Date("2026-06-23T18:00:00Z"),
       expiresAt: new Date("2026-06-23T19:00:00Z"),
-    });
+    }, 500, clock.current);
 
-    if (!created) {
+    if (creation.status !== "created") {
       throw new Error("expected room to be created");
     }
+    const created = creation.room;
 
     const timer = startTextSessionSweep(repository, 5, () => new Date(clock.current));
     await Bun.sleep(20);
@@ -629,17 +662,20 @@ describe("text session routes", () => {
 
     expect(await repository.findTextRoomByCode("ROOM01")).toBeNull();
 
-    const reused = await repository.createTextRoom({
+    const reused = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
       text: "new room",
       version: 0,
       createdAt: clock.current,
       updatedAt: clock.current,
       expiresAt: new Date(clock.current.getTime() + 60 * 60 * 1000),
-    });
+    }, 500, clock.current);
 
-    expect(reused).not.toBeNull();
-    expect(reused?.id).not.toBe(created.id);
+    expect(reused.status).toBe("created");
+    expect(reused.status === "created" ? reused.room.id : null).not.toBe(created.id);
+
+    // A delayed deletion from another request must target only the expired row.
+    await repository.markTextRoomDeleted(created.id, clock.current);
     expect((await repository.findTextRoomByCode("ROOM01"))?.text).toBe("new room");
   });
 });
