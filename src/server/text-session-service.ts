@@ -12,6 +12,7 @@ const liveSockets = new WeakSet<WebSocket>();
 const CODE_GENERATION_ATTEMPTS = 8;
 const EXPIRED_SWEEP_LIMIT = 100;
 const POINTER_COORD_PRECISION = 1000;
+const TEXT_ROOM_LIFECYCLE_RETRY_MS = 1000;
 
 export type TextSessionRouteDeps = {
   hub: TextSessionHub;
@@ -35,6 +36,54 @@ type ProtectedRoomAuthResult =
 export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessionRouteDeps): void {
   const repository = deps.repository ?? textRoomsRepository;
   const now = deps.now ?? (() => new Date());
+  const lifecycleTargets = new Map<string, { closedAt: Date; expiryMs: number } | null>();
+  const lifecycleReconciling = new Set<string>();
+  let lifecycleStopped = false;
+
+  app.addHook("onClose", async () => {
+    lifecycleStopped = true;
+    lifecycleTargets.clear();
+  });
+
+  const reconcileLifecycle = (code: string) => {
+    if (lifecycleStopped || lifecycleReconciling.has(code)) {
+      return;
+    }
+
+    lifecycleReconciling.add(code);
+    void (async () => {
+      try {
+        while (!lifecycleStopped) {
+          const target = lifecycleTargets.get(code);
+          if (target === undefined) {
+            return;
+          }
+
+          try {
+            if (target === null) {
+              await repository.markTextRoomActive(code, now());
+            } else {
+              await repository.scheduleTextRoomExpiry(
+                code,
+                new Date(target.closedAt.getTime() + target.expiryMs),
+                target.closedAt,
+              );
+            }
+          } catch {
+            app.log.error("Failed to persist text room lifecycle; retrying.");
+            await lifecycleRetryDelay(TEXT_ROOM_LIFECYCLE_RETRY_MS);
+            continue;
+          }
+
+          if (lifecycleTargets.get(code) === target) {
+            return;
+          }
+        }
+      } finally {
+        lifecycleReconciling.delete(code);
+      }
+    })();
+  };
 
   app.post(
     "/api/text",
@@ -366,6 +415,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       if (joined.clientCount === 1) {
+        lifecycleTargets.set(code, null);
         await repository.markTextRoomActive(code, now());
       }
 
@@ -418,19 +468,8 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
         if (remaining === 0) {
           const closedAt = now();
-          void (async () => {
-            await repository.scheduleTextRoomExpiry(
-              code,
-              new Date(closedAt.getTime() + roomExpiryMs(room, deps)),
-              closedAt,
-            );
-
-            // A reconnect can join while the expiry transaction is waiting.
-            // Reassert the active state after that delayed write completes.
-            if (deps.hub.clientCount(code) > 0) {
-              await repository.markTextRoomActive(code, now());
-            }
-          })();
+          lifecycleTargets.set(code, { closedAt, expiryMs: roomExpiryMs(room, deps) });
+          reconcileLifecycle(code);
         }
       };
 
@@ -438,6 +477,13 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       socket.on("error", onClose);
     },
   );
+}
+
+function lifecycleRetryDelay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    timer.unref?.();
+  });
 }
 
 async function handleRealtimeMessage(

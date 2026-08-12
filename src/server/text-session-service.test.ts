@@ -174,7 +174,9 @@ class DelayedExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
   private readonly started = Promise.withResolvers<void>();
   private readonly released = Promise.withResolvers<void>();
   private readonly finished = Promise.withResolvers<void>();
+  private readonly reactivated = Promise.withResolvers<void>();
   private delayNextExpiry = true;
+  private expiryFinished = false;
 
   waitUntilExpiryStarts(): Promise<void> {
     return this.started.promise;
@@ -188,6 +190,17 @@ class DelayedExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
     return this.finished.promise;
   }
 
+  waitUntilReactivated(): Promise<void> {
+    return this.reactivated.promise;
+  }
+
+  override async markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
+    await super.markTextRoomActive(code, updatedAt);
+    if (this.expiryFinished) {
+      this.reactivated.resolve();
+    }
+  }
+
   override async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
     if (!this.delayNextExpiry) {
       return super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
@@ -197,7 +210,27 @@ class DelayedExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
     this.started.resolve();
     await this.released.promise;
     await super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    this.expiryFinished = true;
     this.finished.resolve();
+  }
+}
+
+class FailOnceExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
+  private readonly persisted = Promise.withResolvers<void>();
+  attempts = 0;
+
+  waitUntilPersisted(): Promise<void> {
+    return this.persisted.promise;
+  }
+
+  override async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      throw new Error("temporary database failure");
+    }
+
+    await super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    this.persisted.resolve();
   }
 }
 
@@ -449,12 +482,36 @@ describe("text session routes", () => {
 
       repository.releaseExpiry();
       await repository.waitUntilExpiryFinishes();
+      await repository.waitUntilReactivated();
 
       const room = await repository.findTextRoomByCode("A");
       expect(room?.expires_at).toBeNull();
       expect(room?.updated_at.toISOString()).toBe("2026-06-23T20:06:00.000Z");
     } finally {
       repository.releaseExpiry();
+      await server.close();
+    }
+  });
+
+  test("retries expiry persistence after a transient repository failure", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new FailOnceExpiryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/A/open" });
+      const socket = server.connect("A");
+      await expectJoined(socket, 1);
+
+      clock.current = new Date("2026-06-23T20:05:00Z");
+      await closeSocket(socket);
+      await repository.waitUntilPersisted();
+
+      expect(repository.attempts).toBe(2);
+      expect((await repository.findTextRoomByCode("A"))?.expires_at?.toISOString()).toBe(
+        "2026-06-23T20:35:00.000Z",
+      );
+    } finally {
       await server.close();
     }
   });
