@@ -236,9 +236,14 @@ export default function TextSession() {
     field.style.position = "fixed";
     field.style.left = "-9999px";
     document.body.appendChild(field);
-    field.select();
-    document.execCommand("copy");
-    field.remove();
+    try {
+      field.select();
+      if (!document.execCommand("copy")) {
+        throw new Error("clipboard copy command failed");
+      }
+    } finally {
+      field.remove();
+    }
   }, []);
 
   const handleAccessError = useCallback((error: unknown) => {
