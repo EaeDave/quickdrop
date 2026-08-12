@@ -25,7 +25,13 @@ export function buildApp() {
   const config = loadConfig();
   const r2Client = createR2Client(config);
   const app = Fastify({
-    logger: true,
+    logger: {
+      serializers: {
+        req(request: { method?: string; url?: string }) {
+          return { method: request.method, url: redactTextCodeFromUrl(request.url ?? "") };
+        },
+      },
+    },
     bodyLimit: config.maxFileSizeBytes + 1024 * 1024,
   });
 
@@ -39,6 +45,19 @@ export function buildApp() {
   app.register(rateLimit, { global: false });
   app.register(websocket, {
     options: { maxPayload: config.textSessionMaxBytes + 1024 },
+  });
+
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (isSensitiveTextRoute(request.raw.url ?? "")) {
+      reply
+        .header("cache-control", "no-store, max-age=0")
+        .header("pragma", "no-cache")
+        .header("referrer-policy", "no-referrer")
+        .header("x-content-type-options", "nosniff")
+        .header("x-frame-options", "DENY")
+        .header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+    }
+    return payload;
   });
 
   const textHub = new TextSessionHub({
@@ -103,6 +122,7 @@ export function buildApp() {
       maxSessions: config.textSessionMaxSessions,
       codeLength: config.textSessionCodeLength,
       ttlMs: config.textSessionTtlHours * 60 * 60 * 1000,
+      customTtlMs: config.textCustomSessionTtlMinutes * 60 * 1000,
     });
   });
 
@@ -115,11 +135,25 @@ export function buildApp() {
 
 export async function startServer(): Promise<void> {
   const { app, config } = buildApp();
-  await rearmTextRoomsAfterRestart(config.textSessionTtlHours * 60 * 60 * 1000);
+  await rearmTextRoomsAfterRestart(
+    config.textSessionTtlHours * 60 * 60 * 1000,
+    config.textCustomSessionTtlMinutes * 60 * 1000,
+  );
   await app.listen({ host: "0.0.0.0", port: config.port });
   startCleanupJob();
   startTextSessionSweep();
   startTextSessionHeartbeat(app);
+}
+
+export function redactTextCodeFromUrl(rawUrl: string): string {
+  return rawUrl
+    .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
+    .replace(/^(\/t\/)[^/?]+/, "$1[code]")
+    .replace(/([?&]c=)[^&]*/gi, "$1[code]");
+}
+
+function isSensitiveTextRoute(rawUrl: string): boolean {
+  return rawUrl === "/t" || rawUrl.startsWith("/t?") || rawUrl.startsWith("/t/") || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
 }
 
 if (import.meta.main) {

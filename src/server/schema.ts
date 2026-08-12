@@ -49,6 +49,7 @@ export const textRooms = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     code: varchar("code", { length: 16 }).notNull(),
+    kind: varchar("kind", { length: 16 }).default("generated").notNull(),
     text: text("text").notNull().default(""),
     version: integer("version").default(0).notNull(),
     pinHash: text("pin_hash"),

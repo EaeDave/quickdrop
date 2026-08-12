@@ -12,6 +12,7 @@ const liveSockets = new WeakSet<WebSocket>();
 const CODE_GENERATION_ATTEMPTS = 8;
 const EXPIRED_SWEEP_LIMIT = 100;
 const POINTER_COORD_PRECISION = 1000;
+const TEXT_ROOM_LIFECYCLE_RETRY_MS = 1000;
 
 export type TextSessionRouteDeps = {
   hub: TextSessionHub;
@@ -20,6 +21,7 @@ export type TextSessionRouteDeps = {
   maxSessions: number;
   codeLength: number;
   ttlMs: number;
+  customTtlMs: number;
   now?: () => Date;
 };
 
@@ -34,6 +36,55 @@ type ProtectedRoomAuthResult =
 export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessionRouteDeps): void {
   const repository = deps.repository ?? textRoomsRepository;
   const now = deps.now ?? (() => new Date());
+  const lifecycleTargets = new Map<string, { closedAt: Date; expiryMs: number } | null>();
+  const lifecycleReconciling = new Set<string>();
+  let lifecycleStopped = false;
+
+  app.addHook("onClose", async () => {
+    lifecycleStopped = true;
+    lifecycleTargets.clear();
+  });
+
+  const reconcileLifecycle = (code: string) => {
+    if (lifecycleStopped || lifecycleReconciling.has(code)) {
+      return;
+    }
+
+    lifecycleReconciling.add(code);
+    void (async () => {
+      try {
+        while (!lifecycleStopped) {
+          const target = lifecycleTargets.get(code);
+          if (target === undefined) {
+            return;
+          }
+
+          try {
+            if (target === null) {
+              await repository.markTextRoomActive(code, now());
+            } else {
+              await repository.scheduleTextRoomExpiry(
+                code,
+                new Date(target.closedAt.getTime() + target.expiryMs),
+                target.closedAt,
+              );
+            }
+          } catch {
+            app.log.error("Failed to persist text room lifecycle; retrying.");
+            await lifecycleRetryDelay(TEXT_ROOM_LIFECYCLE_RETRY_MS);
+            continue;
+          }
+
+          if (lifecycleTargets.get(code) === target) {
+            lifecycleTargets.delete(code);
+            return;
+          }
+        }
+      } finally {
+        lifecycleReconciling.delete(code);
+      }
+    })();
+  };
 
   app.post(
     "/api/text",
@@ -53,6 +104,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         const creation = await repository.createTextRoomWithinLimit(
           {
             code,
+            kind: "generated",
             text: "",
             version: 0,
             pinHash,
@@ -84,7 +136,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             );
           }
 
-          return { code: room.code, protected: room.pin_hash !== null };
+          return roomAccessPayload(room, undefined, deps);
         }
       }
 
@@ -123,12 +175,13 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         const creation = await repository.createTextRoomWithinLimit(
           {
             code,
+            kind: "custom",
             text: "",
             version: 0,
             pinHash,
             createdAt,
             updatedAt: createdAt,
-            expiresAt: new Date(createdAt.getTime() + deps.ttlMs),
+            expiresAt: new Date(createdAt.getTime() + deps.customTtlMs),
           },
           deps.maxSessions,
           createdAt,
@@ -154,7 +207,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             );
           }
 
-          return { code, created: true, protected: room.pin_hash !== null };
+          return roomAccessPayload(room, true, deps);
         }
 
         // A concurrent request won the active-code uniqueness race.
@@ -166,7 +219,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       if (!room.pin_hash) {
-        return { code, created: false, protected: false };
+        return roomAccessPayload(room, false, deps);
       }
 
       const cookieAccess = requireProtectedRoomAccess(room, request, now());
@@ -182,9 +235,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
           }),
         );
         return {
-          code,
-          created: false,
-          protected: true,
+          ...roomAccessPayload(room, false, deps),
           accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
         };
       }
@@ -211,9 +262,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         }),
       );
       return {
-        code,
-        created: false,
-        protected: true,
+        ...roomAccessPayload(room, false, deps),
         accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
       };
     },
@@ -238,7 +287,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       if (!room.pin_hash) {
-        return { code, protected: false };
+        return roomAccessPayload(room, undefined, deps);
       }
 
       const cookieAccess = requireProtectedRoomAccess(room, request, now());
@@ -253,7 +302,10 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             secure: isSecureRequest(request),
           }),
         );
-        return { code, protected: true, accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null };
+        return {
+          ...roomAccessPayload(room, undefined, deps),
+          accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
+        };
       }
 
       if (!parsedPin.pin) {
@@ -278,37 +330,49 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         }),
       );
       return {
-        code,
-        protected: true,
+        ...roomAccessPayload(room, undefined, deps),
         accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
       };
     },
   );
 
-  app.get<{ Params: { code: string } }>("/api/text/:code", async (request, reply) => {
-    const code = normalizeSessionCode(request.params.code);
-    const room = await repository.findTextRoomByCode(code);
+  app.get<{ Params: { code: string } }>(
+    "/api/text/:code",
+    { preHandler: app.rateLimit({ max: 120, timeWindow: "15 minutes" }) },
+    async (request, reply) => {
+      const code = normalizeSessionCode(request.params.code);
+      const room = await repository.findTextRoomByCode(code);
 
-    if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
-      reply.code(404).send({ error: "not_found", message: "Sala não encontrada." });
-      return;
-    }
-
-    const access = requireProtectedRoomAccess(room, request, now());
-    if (!access.ok) {
-      if (room.pin_hash) {
-        reply.header("set-cookie", clearRoomAccessCookie(code, isSecureRequest(request)));
+      if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
+        reply.code(404).send({ error: "not_found", message: "Sala não encontrada." });
+        return;
       }
-      reply.code(access.statusCode).send({ error: access.error, message: access.message });
-      return;
-    }
 
-    return { text: room.text, version: room.version, protected: room.pin_hash !== null };
-  });
+      const access = requireProtectedRoomAccess(room, request, now());
+      if (!access.ok) {
+        if (room.pin_hash) {
+          reply.header("set-cookie", clearRoomAccessCookie(code, isSecureRequest(request)));
+        }
+        reply.code(access.statusCode).send({ error: access.error, message: access.message });
+        return;
+      }
+
+      return {
+        text: room.text,
+        version: room.version,
+        protected: room.pin_hash !== null,
+        kind: room.kind,
+        expiresAfterMinutes: roomExpiryMinutes(room, deps),
+      };
+    },
+  );
 
   app.get<{ Params: { code: string } }>(
     "/api/text/:code/ws",
-    { websocket: true },
+    {
+      websocket: true,
+      preHandler: app.rateLimit({ max: 120, timeWindow: "15 minutes" }),
+    },
     async (socket, request) => {
       const code = normalizeSessionCode(request.params.code);
       const room = await repository.findTextRoomByCode(code);
@@ -352,12 +416,20 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       if (joined.clientCount === 1) {
+        lifecycleTargets.set(code, null);
         await repository.markTextRoomActive(code, now());
       }
 
       liveSockets.add(socket);
       socket.on("pong", () => liveSockets.add(socket));
-      socket.send(JSON.stringify({ type: "snapshot", text: room.text, version: room.version, clientId }));
+      socket.send(JSON.stringify({
+        type: "snapshot",
+        text: room.text,
+        version: room.version,
+        clientId,
+        kind: room.kind,
+        expiresAfterMinutes: roomExpiryMinutes(room, deps),
+      }));
       deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
 
       let authExpiryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -397,11 +469,8 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
         if (remaining === 0) {
           const closedAt = now();
-          void repository.scheduleTextRoomExpiry(
-            code,
-            new Date(closedAt.getTime() + deps.ttlMs),
-            closedAt,
-          );
+          lifecycleTargets.set(code, { closedAt, expiryMs: roomExpiryMs(room, deps) });
+          reconcileLifecycle(code);
         }
       };
 
@@ -409,6 +478,13 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       socket.on("error", onClose);
     },
   );
+}
+
+function lifecycleRetryDelay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    timer.unref?.();
+  });
 }
 
 async function handleRealtimeMessage(
@@ -523,6 +599,24 @@ function clampNormalized(value: number): number {
   return Math.round(Math.min(1, Math.max(0, value)) * POINTER_COORD_PRECISION) / POINTER_COORD_PRECISION;
 }
 
+function roomExpiryMs(room: TextRoomRow, deps: TextSessionRouteDeps): number {
+  return room.kind === "custom" ? deps.customTtlMs : deps.ttlMs;
+}
+
+function roomExpiryMinutes(room: TextRoomRow, deps: TextSessionRouteDeps): number {
+  return Math.round(roomExpiryMs(room, deps) / (60 * 1000));
+}
+
+function roomAccessPayload(room: TextRoomRow, created: boolean | undefined, deps: TextSessionRouteDeps) {
+  return {
+    code: room.code,
+    protected: room.pin_hash !== null,
+    kind: room.kind,
+    expiresAfterMinutes: roomExpiryMinutes(room, deps),
+    ...(created === undefined ? {} : { created }),
+  };
+}
+
 function parsePinFromBody(body: unknown): PinParseResult {
   if (body === null || body === undefined) {
     return { ok: true, pin: null };
@@ -589,12 +683,17 @@ function isSecureRequest(request: FastifyRequest): boolean {
 }
 
 export async function rearmTextRoomsAfterRestart(
-  ttlMs: number,
+  generatedTtlMs: number,
+  customTtlMs: number,
   repository: TextRoomsRepository = textRoomsRepository,
   now: () => Date = () => new Date(),
 ): Promise<void> {
   const reopenedAt = now();
-  await repository.rearmOpenTextRooms(new Date(reopenedAt.getTime() + ttlMs), reopenedAt);
+  await repository.rearmOpenTextRooms(
+    new Date(reopenedAt.getTime() + customTtlMs),
+    new Date(reopenedAt.getTime() + generatedTtlMs),
+    reopenedAt,
+  );
 }
 
 export function startTextSessionSweep(

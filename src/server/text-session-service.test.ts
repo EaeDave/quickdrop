@@ -57,6 +57,7 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
     const row: TextRoomRow = {
       id: crypto.randomUUID(),
       code: input.code,
+      kind: input.kind,
       text: input.text,
       version: input.version,
       pin_hash: input.pinHash ?? null,
@@ -80,7 +81,11 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
+    if (
+      !room ||
+      room.updated_at > updatedAt ||
+      (room.expires_at !== null && room.expires_at <= updatedAt)
+    ) {
       return;
     }
 
@@ -102,7 +107,11 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
 
   async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
     const room = this.findActiveRoom(code);
-    if (!room || (room.expires_at !== null && room.expires_at <= updatedAt)) {
+    if (
+      !room ||
+      room.updated_at > updatedAt ||
+      (room.expires_at !== null && room.expires_at <= updatedAt)
+    ) {
       return;
     }
 
@@ -110,10 +119,10 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
     room.updated_at = new Date(updatedAt);
   }
 
-  async rearmOpenTextRooms(expiresAt: Date, updatedAt: Date): Promise<void> {
+  async rearmOpenTextRooms(customExpiresAt: Date, generatedExpiresAt: Date, updatedAt: Date): Promise<void> {
     for (const room of this.rooms) {
       if (room.deleted_at === null && room.expires_at === null) {
-        room.expires_at = new Date(expiresAt);
+        room.expires_at = new Date(room.kind === "custom" ? customExpiresAt : generatedExpiresAt);
         room.updated_at = new Date(updatedAt);
       }
     }
@@ -161,10 +170,75 @@ class BarrierTextRoomsRepository extends InMemoryTextRoomsRepository {
   }
 }
 
+class DelayedExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
+  private readonly started = Promise.withResolvers<void>();
+  private readonly released = Promise.withResolvers<void>();
+  private readonly finished = Promise.withResolvers<void>();
+  private readonly reactivated = Promise.withResolvers<void>();
+  private delayNextExpiry = true;
+  private expiryFinished = false;
+
+  waitUntilExpiryStarts(): Promise<void> {
+    return this.started.promise;
+  }
+
+  releaseExpiry(): void {
+    this.released.resolve();
+  }
+
+  waitUntilExpiryFinishes(): Promise<void> {
+    return this.finished.promise;
+  }
+
+  waitUntilReactivated(): Promise<void> {
+    return this.reactivated.promise;
+  }
+
+  override async markTextRoomActive(code: string, updatedAt: Date): Promise<void> {
+    await super.markTextRoomActive(code, updatedAt);
+    if (this.expiryFinished) {
+      this.reactivated.resolve();
+    }
+  }
+
+  override async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
+    if (!this.delayNextExpiry) {
+      return super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    }
+
+    this.delayNextExpiry = false;
+    this.started.resolve();
+    await this.released.promise;
+    await super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    this.expiryFinished = true;
+    this.finished.resolve();
+  }
+}
+
+class FailOnceExpiryTextRoomsRepository extends InMemoryTextRoomsRepository {
+  private readonly persisted = Promise.withResolvers<void>();
+  attempts = 0;
+
+  waitUntilPersisted(): Promise<void> {
+    return this.persisted.promise;
+  }
+
+  override async scheduleTextRoomExpiry(code: string, expiresAt: Date, updatedAt: Date): Promise<void> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      throw new Error("temporary database failure");
+    }
+
+    await super.scheduleTextRoomExpiry(code, expiresAt, updatedAt);
+    this.persisted.resolve();
+  }
+}
+
 function copyRoom(room: TextRoomRow): TextRoomRow {
   return {
     id: room.id,
     code: room.code,
+    kind: room.kind,
     text: room.text,
     version: room.version,
     pin_hash: room.pin_hash,
@@ -194,6 +268,7 @@ async function startTestServer(repository: TextRoomsRepository, clock: MutableCl
       maxSessions,
       codeLength: 6,
       ttlMs: 60 * 60 * 1000,
+      customTtlMs: 30 * 60 * 1000,
       now: () => new Date(clock.current),
     });
   });
@@ -297,8 +372,14 @@ describe("text session routes", () => {
 
       const snapshot = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number; protected: boolean } = JSON.parse(snapshot.body);
-      expect(payload).toEqual({ text: "", version: 0, protected: false });
+      const payload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(snapshot.body);
+      expect(payload).toEqual({
+        text: "",
+        version: 0,
+        protected: false,
+        kind: "generated",
+        expiresAfterMinutes: 60,
+      });
     } finally {
       await server.close();
     }
@@ -312,14 +393,27 @@ describe("text session routes", () => {
     try {
       const created = await server.app.inject({ method: "POST", url: "/api/text/a/open" });
       expect(created.statusCode).toBe(200);
-      expect(JSON.parse(created.body)).toEqual({ code: "A", created: true, protected: false });
+      expect(JSON.parse(created.body)).toEqual({
+        code: "A",
+        created: true,
+        protected: false,
+        kind: "custom",
+        expiresAfterMinutes: 30,
+      });
 
       const opened = await server.app.inject({ method: "POST", url: "/api/text/A/open" });
       expect(opened.statusCode).toBe(200);
-      expect(JSON.parse(opened.body)).toEqual({ code: "A", created: false, protected: false });
+      expect(JSON.parse(opened.body)).toEqual({
+        code: "A",
+        created: false,
+        protected: false,
+        kind: "custom",
+        expiresAfterMinutes: 30,
+      });
 
       const room = await repository.findTextRoomByCode("A");
-      expect(room).not.toBeNull();
+      expect(room?.kind).toBe("custom");
+      expect(room?.expires_at?.toISOString()).toBe("2026-06-23T20:30:00.000Z");
     } finally {
       await server.close();
     }
@@ -340,6 +434,83 @@ describe("text session routes", () => {
       expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
       expect(results.filter((result) => result.created === true)).toHaveLength(1);
       expect(results.filter((result) => result.created === false)).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("keeps custom clipboards alive while connected and starts a 30 minute TTL after disconnect", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/A/open" });
+      const socket = server.connect("A");
+      await expectJoined(socket, 1);
+      expect((await repository.findTextRoomByCode("A"))?.expires_at).toBeNull();
+
+      clock.current = new Date("2026-06-23T20:05:00Z");
+      await closeSocket(socket);
+      await Bun.sleep(5);
+
+      expect((await repository.findTextRoomByCode("A"))?.expires_at?.toISOString()).toBe(
+        "2026-06-23T20:35:00.000Z",
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("does not restore a stale expiry when a clipboard reconnects during the close write", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new DelayedExpiryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/A/open" });
+      const firstSocket = server.connect("A");
+      await expectJoined(firstSocket, 1);
+
+      clock.current = new Date("2026-06-23T20:05:00Z");
+      await closeSocket(firstSocket);
+      await repository.waitUntilExpiryStarts();
+
+      clock.current = new Date("2026-06-23T20:06:00Z");
+      const reconnectedSocket = server.connect("A");
+      await expectJoined(reconnectedSocket, 1);
+
+      repository.releaseExpiry();
+      await repository.waitUntilExpiryFinishes();
+      await repository.waitUntilReactivated();
+
+      const room = await repository.findTextRoomByCode("A");
+      expect(room?.expires_at).toBeNull();
+      expect(room?.updated_at.toISOString()).toBe("2026-06-23T20:06:00.000Z");
+    } finally {
+      repository.releaseExpiry();
+      await server.close();
+    }
+  });
+
+  test("retries expiry persistence after a transient repository failure", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new FailOnceExpiryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/A/open" });
+      const socket = server.connect("A");
+      await expectJoined(socket, 1);
+
+      clock.current = new Date("2026-06-23T20:05:00Z");
+      await closeSocket(socket);
+      await repository.waitUntilPersisted();
+
+      expect(repository.attempts).toBe(2);
+      expect((await repository.findTextRoomByCode("A"))?.expires_at?.toISOString()).toBe(
+        "2026-06-23T20:35:00.000Z",
+      );
     } finally {
       await server.close();
     }
@@ -375,7 +546,13 @@ describe("text session routes", () => {
         payload: { pin: "1234" },
       });
       expect(created.statusCode).toBe(200);
-      expect(JSON.parse(created.body)).toEqual({ code: "SECRET", created: true, protected: true });
+      expect(JSON.parse(created.body)).toEqual({
+        code: "SECRET",
+        created: true,
+        protected: true,
+        kind: "custom",
+        expiresAfterMinutes: 30,
+      });
 
       const denied = await server.app.inject({ method: "POST", url: "/api/text/SECRET/open" });
       expect(denied.statusCode).toBe(401);
@@ -439,8 +616,14 @@ describe("text session routes", () => {
       expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
-      const persistedPayload: { text: string; version: number; protected: boolean } = JSON.parse(persisted.body);
-      expect(persistedPayload).toEqual({ text: "select 1", version: 1, protected: false });
+      const persistedPayload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(persisted.body);
+      expect(persistedPayload).toEqual({
+        text: "select 1",
+        version: 1,
+        protected: false,
+        kind: "generated",
+        expiresAfterMinutes: 60,
+      });
     } finally {
       await server.close();
     }
@@ -566,8 +749,14 @@ describe("text session routes", () => {
         headers: { cookie: joinCookie },
       });
       expect(protectedRead.statusCode).toBe(200);
-      const protectedPayload: { text: string; version: number; protected: boolean } = JSON.parse(protectedRead.body);
-      expect(protectedPayload).toEqual({ text: "", version: 0, protected: true });
+      const protectedPayload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(protectedRead.body);
+      expect(protectedPayload).toEqual({
+        text: "",
+        version: 0,
+        protected: true,
+        kind: "generated",
+        expiresAfterMinutes: 60,
+      });
 
       const blockedSocket = server.connect(created.code);
       expect(await nextMessage(blockedSocket)).toEqual({
@@ -604,8 +793,14 @@ describe("text session routes", () => {
     try {
       const snapshot = await secondServer.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number; protected: boolean } = JSON.parse(snapshot.body);
-      expect(payload).toEqual({ text: "survives restart", version: 1, protected: false });
+      const payload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(snapshot.body);
+      expect(payload).toEqual({
+        text: "survives restart",
+        version: 1,
+        protected: false,
+        kind: "generated",
+        expiresAfterMinutes: 60,
+      });
     } finally {
       await secondServer.close();
     }
@@ -616,6 +811,7 @@ describe("text session routes", () => {
     const repository = new InMemoryTextRoomsRepository();
     const creation = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
+      kind: "generated",
       text: "",
       version: 0,
       createdAt: clock.current,
@@ -627,16 +823,36 @@ describe("text session routes", () => {
       throw new Error("expected room to be created");
     }
     const created = creation.room;
+    const customCreation = await repository.createTextRoomWithinLimit({
+      code: "CUSTOM",
+      kind: "custom",
+      text: "",
+      version: 0,
+      createdAt: clock.current,
+      updatedAt: clock.current,
+      expiresAt: new Date(clock.current.getTime() + 30 * 60 * 1000),
+    }, 500, clock.current);
+    if (customCreation.status !== "created") {
+      throw new Error("expected custom room to be created");
+    }
 
     await repository.markTextRoomActive(created.code, clock.current);
+    await repository.markTextRoomActive(customCreation.room.code, clock.current);
     const active = await repository.findTextRoomByCode(created.code);
     expect(active?.expires_at).toBeNull();
 
     clock.current = new Date("2026-06-23T20:05:00Z");
-    await rearmTextRoomsAfterRestart(60 * 60 * 1000, repository, () => new Date(clock.current));
+    await rearmTextRoomsAfterRestart(
+      60 * 60 * 1000,
+      30 * 60 * 1000,
+      repository,
+      () => new Date(clock.current),
+    );
 
     const rearmed = await repository.findTextRoomByCode(created.code);
     expect(rearmed?.expires_at?.toISOString()).toBe("2026-06-23T21:05:00.000Z");
+    const rearmedCustom = await repository.findTextRoomByCode(customCreation.room.code);
+    expect(rearmedCustom?.expires_at?.toISOString()).toBe("2026-06-23T20:35:00.000Z");
   });
 
   test("marks expired rooms as deleted during the database sweep", async () => {
@@ -644,6 +860,7 @@ describe("text session routes", () => {
     const repository = new InMemoryTextRoomsRepository();
     const creation = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
+      kind: "generated",
       text: "expired",
       version: 0,
       createdAt: new Date("2026-06-23T18:00:00Z"),
@@ -664,6 +881,7 @@ describe("text session routes", () => {
 
     const reused = await repository.createTextRoomWithinLimit({
       code: "ROOM01",
+      kind: "generated",
       text: "new room",
       version: 0,
       createdAt: clock.current,

@@ -85,12 +85,16 @@ describe("loadConfig", () => {
       "UPLOAD_RESERVATION_TTL_MINUTES",
     );
     expect(() => loadConfig({ ...requiredEnv, UPLOADS_ENABLED: "maybe" })).toThrow("UPLOADS_ENABLED");
+    expect(() => loadConfig({ ...requiredEnv, TEXT_CUSTOM_SESSION_TTL_MINUTES: "0" })).toThrow(
+      "TEXT_CUSTOM_SESSION_TTL_MINUTES",
+    );
   });
 
   test("applies text session defaults", () => {
     const config = loadConfig(requiredEnv);
 
     expect(config.textSessionTtlHours).toBe(12);
+    expect(config.textCustomSessionTtlMinutes).toBe(30);
     expect(config.textSessionMaxBytes).toBe(256 * 1024);
     expect(config.textSessionCodeLength).toBe(6);
     expect(config.textSessionMaxSessions).toBe(500);
@@ -101,6 +105,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       ...requiredEnv,
       TEXT_SESSION_TTL_HOURS: "3",
+      TEXT_CUSTOM_SESSION_TTL_MINUTES: "20",
       TEXT_SESSION_MAX_KB: "10",
       TEXT_SESSION_CODE_LENGTH: "4",
       TEXT_SESSION_MAX_SESSIONS: "7",
@@ -108,6 +113,7 @@ describe("loadConfig", () => {
     });
 
     expect(config.textSessionTtlHours).toBe(3);
+    expect(config.textCustomSessionTtlMinutes).toBe(20);
     expect(config.textSessionMaxBytes).toBe(10 * 1024);
     expect(config.textSessionCodeLength).toBe(4);
     expect(config.textSessionMaxSessions).toBe(7);
