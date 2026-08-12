@@ -11,14 +11,13 @@ async function executable(path: string, content: string) {
   await chmod(path, 0o755);
 }
 
-test("launcher parses only the backend key without executing config contents", async () => {
+test("launcher maps QuickDrop at its final position without initial focus", async () => {
   const root = await mkdtemp(join(tmpdir(), "quickdrop-launcher-"));
   const bin = join(root, "bin");
   const configDir = join(root, ".config", "quickdrop");
-  const dispatchLog = join(root, "dispatch.log");
-  const launchLog = join(root, "launch.log");
+  const eventLog = join(root, "events.log");
   const fakeQuickdrop = join(bin, "quickdrop");
-  const bunCalls = join(root, "bun-calls");
+  const clientCalls = join(root, "client-calls");
   const marker = join(root, "must-not-exist");
   await mkdir(bin, { recursive: true });
   await mkdir(configDir, { recursive: true });
@@ -29,19 +28,25 @@ test("launcher parses only the backend key without executing config contents", a
   );
   await executable(join(bin, "hyprctl"), `#!/bin/sh
 case "$1" in
-  cursorpos) exit 1 ;;
+  cursorpos) printf '%s\\n' '965, 0' ;;
+  monitors) printf '%s\\n' '[{"x":0,"y":0,"width":1920,"height":1080,"focused":true,"reserved":[0,26,0,0]}]' ;;
   clients) printf '%s\\n' '[]' ;;
-  dispatch) printf '%s\\n' "$*" >> "$DISPATCH_LOG" ;;
+  eval) printf 'eval:%s\\n' "$2" >> "$EVENT_LOG" ;;
+  dispatch) printf 'dispatch:%s\\n' "$2" >> "$EVENT_LOG" ;;
 esac
 `);
   await executable(fakeQuickdrop, `#!/bin/sh
-printf '%s\n' "$QUICKDROP_API_BASE_URL" > "$LAUNCH_LOG"
+printf 'launch:%s\\n' "$QUICKDROP_API_BASE_URL" >> "$EVENT_LOG"
 `);
   await executable(join(bin, "bun"), `#!/bin/sh
+if [ -n "\${MONITORS_JSON:-}" ]; then
+  printf '%s\\n' '749 26 749 26'
+  exit
+fi
 count=0
-[ ! -f "$BUN_CALLS" ] || count=$(cat "$BUN_CALLS")
+[ ! -f "$CLIENT_CALLS" ] || count=$(cat "$CLIENT_CALLS")
 count=$((count + 1))
-printf '%s' "$count" > "$BUN_CALLS"
+printf '%s' "$count" > "$CLIENT_CALLS"
 [ "$count" -lt 2 ] || printf '%s\\n' '0x1'
 `);
 
@@ -51,16 +56,17 @@ printf '%s' "$count" > "$BUN_CALLS"
       HOME: root,
       PATH: `${bin}:${process.env.PATH}`,
       XDG_RUNTIME_DIR: root,
-      DISPATCH_LOG: dispatchLog,
-      LAUNCH_LOG: launchLog,
+      EVENT_LOG: eventLog,
       QUICKDROP_BIN: fakeQuickdrop,
-      BUN_CALLS: bunCalls,
+      CLIENT_CALLS: clientCalls,
     })
     .quiet();
 
   expect(await Bun.file(marker).exists()).toBe(false);
-  expect(await readFile(launchLog, "utf8")).toBe("https://example.test\n");
-  const log = await readFile(dispatchLog, "utf8");
-  expect(log).toContain("hl.dsp.window.float");
-  expect(log).toContain("hl.dsp.focus");
+  const events = await readFile(eventLog, "utf8");
+  expect(events).toContain("no_initial_focus = true");
+  expect(events).toContain("no_anim = true");
+  expect(events).toContain("move = { 749, 26 }");
+  expect(events.indexOf("quickdrop-spawn")).toBeLessThan(events.indexOf("launch:https://example.test"));
+  expect(events).not.toContain("hl.dsp.focus");
 });

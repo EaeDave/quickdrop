@@ -3,7 +3,8 @@ set -euo pipefail
 
 lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-launcher.lock"
 exec 9>"$lock_path"
-flock 9
+# Drop duplicate clicks instead of queueing launchers behind the active one.
+flock -n 9 || exit 0
 
 quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
 config_path="${QUICKDROP_CONFIG:-$HOME/.config/quickdrop/config.env}"
@@ -31,7 +32,7 @@ if [[ -z "$cursor_position" || "$cursor_x" == "$cursor_position" || -z "$cursor_
 fi
 
 if (( has_cursor )); then
-  read -r window_x window_y < <(
+  read -r window_x window_y rule_x rule_y < <(
     MONITORS_JSON="$(hyprctl monitors -j)" \
     QUICKDROP_LAUNCHER_X="$cursor_x" \
     QUICKDROP_LAUNCHER_Y="$cursor_y" \
@@ -61,7 +62,7 @@ if (monitor) {
   y = Math.min(Math.max(y, minY), Math.max(maxY, minY));
 }
 
-console.log(`${x} ${y}`);
+console.log(`${x} ${y} ${x - (monitor?.x ?? 0)} ${y - (monitor?.y ?? 0)}`);
 '
   )
 fi
@@ -77,8 +78,19 @@ for (const client of clients) {
 '
 }
 
+disable_spawn_rule() {
+  hyprctl eval 'if _G.quickdrop_spawn_rule then _G.quickdrop_spawn_rule:set_enabled(false); _G.quickdrop_spawn_rule = nil end' >/dev/null 2>&1 || true
+}
+
+install_spawn_rule() {
+  (( has_cursor )) || return 1
+  disable_spawn_rule
+  hyprctl eval "_G.quickdrop_spawn_rule = hl.window_rule({ name = 'quickdrop-spawn', match = { class = '^quickdrop$' }, float = true, move = { $rule_x, $rule_y }, no_initial_focus = true, no_anim = true })" >/dev/null 2>&1
+}
+
 place_quickdrop_window() {
   local primary="$1"
+  local should_focus="${2:-0}"
   local selector="address:$primary"
 
   # Hyprland 0.56+ dispatchers use Lua expressions. Fall back to the legacy
@@ -87,14 +99,18 @@ place_quickdrop_window() {
     if (( has_cursor )); then
       hyprctl dispatch "hl.dsp.window.move({ x = $window_x, y = $window_y, window = '$selector' })" >/dev/null 2>&1 || true
     fi
-    hyprctl dispatch "hl.dsp.focus({ window = '$selector' })" >/dev/null 2>&1 || true
+    if (( should_focus )); then
+      hyprctl dispatch "hl.dsp.focus({ window = '$selector' })" >/dev/null 2>&1 || true
+    fi
     return
   fi
 
   if (( has_cursor )); then
     hyprctl dispatch movewindowpixel exact "$window_x" "$window_y,$selector" >/dev/null 2>&1 || true
   fi
-  hyprctl dispatch focuswindow "$selector" >/dev/null 2>&1 || true
+  if (( should_focus )); then
+    hyprctl dispatch focuswindow "$selector" >/dev/null 2>&1 || true
+  fi
 }
 
 close_quickdrop_window() {
@@ -108,7 +124,7 @@ mapfile -t quickdrop_windows < <(quickdrop_window_addresses)
 
 if (( ${#quickdrop_windows[@]} > 0 )); then
   primary="${quickdrop_windows[0]}"
-  place_quickdrop_window "$primary"
+  place_quickdrop_window "$primary" 1
 
   for extra in "${quickdrop_windows[@]:1}"; do
     close_quickdrop_window "$extra"
@@ -117,6 +133,17 @@ if (( ${#quickdrop_windows[@]} > 0 )); then
   exit 0
 fi
 
+spawn_rule_installed=0
+if install_spawn_rule; then
+  spawn_rule_installed=1
+fi
+cleanup_spawn_rule() {
+  if (( spawn_rule_installed )); then
+    disable_spawn_rule
+  fi
+}
+trap cleanup_spawn_rule EXIT
+
 launcher_env=(
   "WEBKIT_DISABLE_DMABUF_RENDERER=1"
   "QUICKDROP_API_BASE_URL=$api_base_url"
@@ -124,15 +151,18 @@ launcher_env=(
 if (( has_cursor )); then
   launcher_env+=("QUICKDROP_LAUNCHER_X=$cursor_x" "QUICKDROP_LAUNCHER_Y=$cursor_y")
 fi
-nohup env "${launcher_env[@]}" "$quickdrop_bin" >/dev/null 2>&1 &
+# Do not leak the launcher lock into the long-running Tauri process.
+nohup env "${launcher_env[@]}" "$quickdrop_bin" >/dev/null 2>&1 9>&- &
 
-for _ in {1..40}; do
+for _ in {1..100}; do
   sleep 0.05
   mapfile -t quickdrop_windows < <(quickdrop_window_addresses)
 
   if (( ${#quickdrop_windows[@]} > 0 )); then
     primary="${quickdrop_windows[0]}"
-    place_quickdrop_window "$primary"
+    disable_spawn_rule
+    spawn_rule_installed=0
+    place_quickdrop_window "$primary" 0
 
     for extra in "${quickdrop_windows[@]:1}"; do
       close_quickdrop_window "$extra"
