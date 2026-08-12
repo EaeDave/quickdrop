@@ -102,6 +102,7 @@ exit 0
     expect(callLog).toContain("omarchy-shell shell rescanPlugins");
     expect(callLog).toContain("omarchy plugin enable quickdrop.bar --section right");
     expect(callLog).toContain("omarchy bar set quickdrop.bar launcher");
+    expect(callLog).toContain("omarchy restart shell");
 
     const backups = (await readdir(join(root, "plugins"))).filter((name) => name.includes(".bak.quickdrop."));
     expect(backups).toHaveLength(0);

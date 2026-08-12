@@ -181,6 +181,16 @@ install_omarchy() {
   if ! omarchy bar set "$PLUGIN_ID" launcher "$launcher_path" >/dev/null 2>&1; then
     warn "Could not persist the launcher path. Run: omarchy bar set $PLUGIN_ID launcher $launcher_path"
   fi
+
+  # A rescan discovers changed files but may leave an already-mounted QML
+  # component cached. Restart only when managed plugin files actually changed.
+  if (( changed )) && [[ "${QUICKDROP_BAR_NO_RESTART:-0}" != "1" ]]; then
+    if omarchy restart shell >/dev/null 2>&1; then
+      info "Omarchy Shell restarted to load the updated QuickDrop widget."
+    else
+      warn "Plugin updated, but Omarchy Shell could not be restarted. Run: omarchy restart shell"
+    fi
+  fi
   info "Installed OmarchyBar plugin $PLUGIN_ID in $omarchy_plugin_dir"
 }
 
