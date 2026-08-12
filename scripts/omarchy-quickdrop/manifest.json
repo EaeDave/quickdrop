@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "quickdrop.bar",
+  "name": "QuickDrop",
+  "version": "1.0.0",
+  "author": "QuickDrop",
+  "license": "MIT",
+  "description": "Open QuickDrop from the Omarchy bar",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "QuickDrop",
+    "description": "Open the QuickDrop file uploader",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "launcher": "quickdrop-launcher"
+    },
+    "schema": [
+      {
+        "key": "launcher",
+        "type": "string",
+        "label": "Launcher command",
+        "defaultValue": "quickdrop-launcher"
+      }
+    ]
+  }
+}

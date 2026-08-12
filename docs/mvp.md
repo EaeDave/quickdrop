@@ -351,25 +351,15 @@ Falha no upload
 Tentar novamente
 ```
 
-# Waybar Integration
+# Status Bar Integration
 
-Módulo customizado.
-
-Clique:
+O instalador detecta OmarchyBar ou Waybar e conecta ambas ao launcher compartilhado:
 
 ```bash
-quickdrop
+~/.local/bin/quickdrop-launcher
 ```
 
-Exemplo:
-
-```json
-"custom/quickdrop": {
-  "format": "󰇚",
-  "tooltip": "QuickDrop",
-  "on-click": "quickdrop"
-}
-```
+Na OmarchyBar, `quickdrop.bar` é instalado como plugin `bar-widget` em `~/.config/omarchy/plugins/`. Na Waybar, o adapter mantém o módulo `custom/quickdrop` no JSONC. `QUICKDROP_BAR=omarchy|waybar|both|none` permite substituir a detecção automática.
 
 # Environment Variables
 

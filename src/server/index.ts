@@ -57,8 +57,24 @@ export function buildApp() {
 
   app.get("/install.ps1", async (_request, reply) => sendScriptFile(reply, "install-windows.ps1"));
   app.get("/install.sh", async (_request, reply) => sendScriptFile(reply, "install-linux.sh"));
+  app.get("/linux/quickdrop-launcher", async (_request, reply) =>
+    sendScriptFile(reply, "quickdrop-launcher"),
+  );
+  // Backward-compatible endpoint for existing Waybar-only installers.
   app.get("/linux/quickdrop-waybar", async (_request, reply) =>
-    sendScriptFile(reply, "quickdrop-waybar"),
+    sendScriptFile(reply, "quickdrop-launcher"),
+  );
+  app.get("/linux/install-bar-integration", async (_request, reply) =>
+    sendScriptFile(reply, "install-bar-integration.sh"),
+  );
+  app.get("/linux/install-waybar-module.py", async (_request, reply) =>
+    sendScriptFile(reply, "install-waybar-module.py"),
+  );
+  app.get("/linux/omarchy/manifest.json", async (_request, reply) =>
+    sendScriptFile(reply, "omarchy-quickdrop/manifest.json"),
+  );
+  app.get("/linux/omarchy/BarWidget.qml", async (_request, reply) =>
+    sendScriptFile(reply, "omarchy-quickdrop/BarWidget.qml"),
   );
 
   app.get("/windows/latest.exe", async (_request, reply) =>

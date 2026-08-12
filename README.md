@@ -3,8 +3,8 @@
 <!-- business-readme:business-rules:start -->
 ## Regras de negócio
 
-- QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela Waybar), cliente Windows com ícone residente na system tray e uma página web na raiz do servidor (`GET /`) com upload e comandos copiáveis de instalação para Windows (PowerShell) e Linux (Bash). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
-- No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher da Waybar injeta esse mesmo backend remoto por padrão. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs` e `scripts/quickdrop-waybar`.
+- QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela OmarchyBar ou Waybar), cliente Windows com ícone residente na system tray e uma página web na raiz do servidor (`GET /`) com upload e comandos copiáveis de instalação para Windows (PowerShell) e Linux (Bash). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, integrações em `scripts/install-bar-integration.sh`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
+- No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher genérico lê o mesmo backend remoto de `~/.config/quickdrop/config.env`, independentemente da barra utilizada. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs`, `scripts/quickdrop-launcher` e `scripts/install-linux.sh`.
 - Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
 - Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
 - O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop/web; o limite padrão de 100 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
@@ -14,9 +14,9 @@
 - Links públicos são acessíveis sem autenticação. `GET /f/:shortId` busca o registro, verifica expiração, incrementa `download_count` e redireciona para uma URL assinada temporária do R2. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
 - Arquivos expiram por padrão após 6 horas, configurável por `FILE_EXPIRATION_HOURS`. O job `cleanupExpiredUploads` roda a cada 5 minutos, libera reservas vencidas, remove uploads expirados do R2 e marca `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads`, `src/server/cleanup.ts` e Endpoint interno `GET /f/:shortId`.
 - Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
-- A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, a Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher Waybar `scripts/quickdrop-waybar`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
+- A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, o launcher compartilhado pela OmarchyBar e Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher `scripts/quickdrop-launcher`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
 - A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
-- A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 com Waybar (e avisa se faltar Hyprland ou dependências de runtime como webkit2gtk, gtk3, wl-clipboard e libnotify), baixa o binário pré-compilado pelo endpoint interno `GET /linux/latest` — que usa o mesmo token GitHub server-side para buscar o asset privado `quickdrop_*_x86_64-linux` da última release —, instala `~/.local/bin/quickdrop` e o launcher `~/.local/bin/quickdrop-waybar` (servido por `GET /linux/quickdrop-waybar`), e registra de forma idempotente o módulo `custom/quickdrop` na Waybar com backup do config. Fonte: `scripts/install-linux.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
+- A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 e escolhe automaticamente OmarchyBar ou Waybar, com override `QUICKDROP_BAR=auto|omarchy|waybar|both|none`. Ele baixa o binário pré-compilado por `GET /linux/latest`, instala `~/.local/bin/quickdrop`, o launcher genérico `~/.local/bin/quickdrop-launcher` e o alias compatível `quickdrop-waybar`. Para OmarchyBar instala o plugin `quickdrop.bar` em `~/.config/omarchy/plugins/`; para Waybar mantém o módulo idempotente `custom/quickdrop` com backup do JSONC. Fonte: `scripts/install-linux.sh`, `scripts/install-bar-integration.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
 - O QuickDrop tem um relay de texto em tempo real para colar/compartilhar texto entre máquinas sem clipboard compartilhado (ex.: máquinas Guacamole). Pela web, o usuário cria uma sala (botão "Criar nova sala") ou entra com um código curto de 6 caracteres; um textarea grande é sincronizado ao vivo entre todos na mesma sala via WebSocket, no modelo último-a-escrever-vence (last-writer-wins) com versão monotônica. Edições simultâneas não sobrescrevem em silêncio: quando chega uma alteração remota durante uma edição local pendente, a UI mostra um aviso não destrutivo com opção de carregar. As salas ficam persistidas no PostgreSQL, então sobrevivem a restart/deploy; continuam expirando por inatividade (padrão 12h sem clientes), limitam tamanho do texto (padrão 256 KB) e número de salas/clientes. Opcionalmente, a sala pode ser criada com PIN: o texto passa a exigir o código curto **e** o PIN para leitura/sincronização, usando um cookie HttpOnly por sala em vez de colocar segredo ou token de acesso na URL/WebSocket. A interface da sala também mostra presença em tempo real (`1 conectado`, `2 conectados`), indica quando outras pessoas estão digitando, exibe o mouse remoto de cada peer com cor/label distintos dentro da área do editor e permite exportar explicitamente o texto atual como arquivo `.txt` pelo mesmo fluxo público de upload do QuickDrop, retornando um link público copiável. A escrita persistida do texto foi ajustada para parecer mais imediata (janela de envio ~75 ms, com flush rápido em paste/blur), enquanto typing e mouse são efêmeros e não persistem no banco. A página é servida pelo mesmo backend (subdomínio `texto.*`, rota `/t` ou `?c=CÓDIGO` na raiz). Fontes: Endpoints internos `POST /api/text`, `POST /api/text/:code/access`, `GET /api/text/:code`, `WS /api/text/:code/ws` (sync + presence + typing + pointer) e `POST /api/upload`; redirects internos `GET /t` e `GET /t/:code`; repositório `src/server/text-rooms-repository.ts`, hub `src/server/text-session-hub.ts`, serviço `src/server/text-session-service.ts`, UI `src/desktop/TextSession.tsx`.
 <!-- business-readme:business-rules:end -->
 
@@ -68,7 +68,7 @@ QUICKDROP_GITHUB_TOKEN=
 QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop
 ```
 
-Preencha `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` e `PUBLIC_BASE_URL` antes de iniciar um backend real. Para uso diário na máquina local, o modo recomendado é deixar a Waybar apontando para o backend remoto `https://quickdrop.eaedave.xyz`; assim o QuickDrop continua funcionando após reiniciar o computador sem depender de um processo local.
+Preencha `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` e `PUBLIC_BASE_URL` antes de iniciar um backend real. Para uso diário na máquina local, o launcher compartilhado pelas barras aponta por padrão para `https://quickdrop.eaedave.xyz`; assim o QuickDrop continua funcionando após reiniciar o computador sem depender de um processo local.
 
 O backend aceita preflight CORS para o cliente desktop Tauri/WebView enviar arquivos em memória ao backend remoto, incluindo o header `x-quickdrop-file-size` usado para R2/Cloudflare receber `Content-Length` correto.
 
@@ -157,7 +157,7 @@ bun run local:server:up
 curl -sS http://127.0.0.1:3000/api/health
 ```
 
-Para instalar o desktop e trocar a Waybar para esse backend local em um comando:
+Para instalar o desktop e configurar a barra detectada para esse backend local em um comando:
 
 ```bash
 bun run quickdrop:install:local
@@ -166,7 +166,7 @@ bun run quickdrop:install:local
 Para voltar a usar o backend remoto depois:
 
 ```bash
-QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run waybar:install
+QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run quickdrop:install
 ```
 
 Logs/parada:
@@ -209,13 +209,13 @@ irm https://quickdrop.eaedave.xyz/install.ps1 | iex
 
 O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o instalador em `GET /windows/latest.exe` (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido); o backend usa `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` server-side para buscar o asset privado `QuickDrop_*_x64-setup.exe` do último GitHub Release, repassa o binário ao Windows, roda o NSIS em modo silencioso para o usuário atual, espera apenas o instalador terminar e então abre o `QuickDrop.exe` instalado sem `--tray-start` para mostrar a janela no canto direito.
 
-Instalação Linux via Bash (Hyprland + Waybar):
+Instalação Linux via Bash (Hyprland + OmarchyBar ou Waybar):
 
 ```bash
 curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 ```
 
-O endpoint `GET /install.sh` serve `scripts/install-linux.sh`. O script detecta o ambiente (Linux x86_64 com Waybar; avisa se faltar Hyprland ou as dependências de runtime webkit2gtk/gtk3/wl-clipboard/libnotify), baixa o binário em `GET /linux/latest` (ou `QUICKDROP_LINUX_INSTALLER_URL`), instala `~/.local/bin/quickdrop` e o launcher `~/.local/bin/quickdrop-waybar` (de `GET /linux/quickdrop-waybar`) e faz patch idempotente do módulo `custom/quickdrop` em `~/.config/waybar/config.jsonc`, com backup e restart da Waybar (`omarchy restart waybar` ou `SIGUSR2`). Variáveis úteis: `QUICKDROP_API_BASE_URL`, `QUICKDROP_BIN_DIR`, `QUICKDROP_WAYBAR_CONFIG`, `QUICKDROP_WAYBAR_NO_RESTART`. O backend reutiliza `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` para o asset privado, igual ao Windows.
+O endpoint `GET /install.sh` serve `scripts/install-linux.sh`. O script detecta Linux x86_64 e a barra realmente ativa: consulta o plugin `omarchy.bar` pelo IPC do `omarchy-shell` antes de procurar um processo Waybar, evitando escolher uma instalação Waybar obsoleta. O override `QUICKDROP_BAR` aceita `auto`, `omarchy`, `waybar`, `both` ou `none`. O binário vem de `GET /linux/latest`; o launcher genérico vem de `GET /linux/quickdrop-launcher` e lê o backend persistido em `~/.config/quickdrop/config.env`. O adapter Omarchy instala e habilita `quickdrop.bar` em `~/.config/omarchy/plugins/`; o adapter Waybar aplica `custom/quickdrop` de forma idempotente e cria backup do JSONC. Variáveis úteis: `QUICKDROP_API_BASE_URL`, `QUICKDROP_BAR`, `QUICKDROP_BIN_DIR`, `QUICKDROP_WAYBAR_CONFIG` e `QUICKDROP_BAR_NO_RESTART`. O endpoint e executável `quickdrop-waybar` continuam disponíveis por compatibilidade.
 
 Para gerar e publicar o binário Linux da release:
 
@@ -234,32 +234,23 @@ No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a jan
 
 O executável Windows gerado aponta para produção por padrão: se `QUICKDROP_API_BASE_URL` não estiver definido no ambiente do usuário, o app usa `https://quickdrop.eaedave.xyz`. Defina `QUICKDROP_API_BASE_URL` apenas para testar outro backend.
 
-Instalar binário e integrar com Waybar usando o backend remoto persistente:
+Instalar o binário e integrar automaticamente com a barra ativa usando o backend remoto persistente:
 
 ```bash
 bun run quickdrop:install
 test -x "$HOME/.local/bin/quickdrop"
-test -x "$HOME/.local/bin/quickdrop-waybar"
+test -x "$HOME/.local/bin/quickdrop-launcher"
 ```
 
-`quickdrop:install` instala dependências, compila o desktop, copia o binário, instala o launcher `quickdrop-waybar`, atualiza `~/.config/waybar/config.jsonc`, cria backup `config.jsonc.bak.quickdrop.*` e reinicia a Waybar quando `omarchy` está disponível. A janela aberta pela Waybar usa o tamanho compacto padrão de cerca de `432x272` no compositor; para testar outro tamanho de posicionamento, defina `QUICKDROP_WINDOW_WIDTH`/`QUICKDROP_WINDOW_HEIGHT` no ambiente do launcher. Por padrão, o módulo Waybar instalado usa `QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz`, então continua funcional após reboot enquanto o backend remoto estiver online. Para reaplicar o módulo e atualizar o launcher Waybar:
+`quickdrop:install` instala dependências, compila o desktop, copia o binário e instala o adapter escolhido. O launcher usa o tamanho compacto padrão de cerca de `432x272`; `QUICKDROP_WINDOW_WIDTH` e `QUICKDROP_WINDOW_HEIGHT` permitem testar outro tamanho. Para reaplicar apenas uma integração:
 
 ```bash
-bun run waybar:install
+bun run bar:install                 # detecção automática
+bun run omarchy-bar:install         # força OmarchyBar
+bun run waybar:install              # força Waybar
 ```
 
-Snippet manual equivalente:
-
-```json
-"custom/quickdrop": {
-  "format": "󰇚",
-  "tooltip": true,
-  "tooltip-format": "QuickDrop\nArraste arquivos para enviar",
-  "on-click": "env QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz /home/<user>/.local/bin/quickdrop-waybar"
-}
-```
-
-Inclua `"custom/quickdrop"` em `modules-right` ou no bloco da Waybar onde o ícone deve aparecer.
+O adapter Omarchy usa o contrato oficial de plugin `bar-widget`, valida o manifesto, solicita rescan e habilita o widget na seção direita. O adapter Waybar mantém o snippet `custom/quickdrop`; seu `on-click` chama somente `~/.local/bin/quickdrop-launcher`, pois o backend agora é configuração compartilhada e não pertence à barra. Instalações antigas continuam funcionando por meio de `~/.local/bin/quickdrop-waybar` e `GET /linux/quickdrop-waybar`.
 
 ### Verificação
 

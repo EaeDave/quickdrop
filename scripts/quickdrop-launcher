@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-waybar.lock"
+lock_path="${XDG_RUNTIME_DIR:-/tmp}/quickdrop-launcher.lock"
 exec 9>"$lock_path"
 flock 9
 
 quickdrop_bin="${QUICKDROP_BIN:-$HOME/.local/bin/quickdrop}"
-api_base_url="${QUICKDROP_API_BASE_URL:-https://quickdrop.eaedave.xyz}"
+config_path="${QUICKDROP_CONFIG:-$HOME/.config/quickdrop/config.env}"
+config_api_base_url=""
+if [[ -f "$config_path" ]]; then
+  config_api_base_url="$(
+    # config.env is user-owned and follows shell KEY=value syntax.
+    # shellcheck disable=SC1090
+    source "$config_path"
+    printf '%s' "${QUICKDROP_API_BASE_URL:-}"
+  )"
+fi
+api_base_url="${QUICKDROP_API_BASE_URL:-${config_api_base_url:-https://quickdrop.eaedave.xyz}}"
 window_width="${QUICKDROP_WINDOW_WIDTH:-432}"
 window_height="${QUICKDROP_WINDOW_HEIGHT:-272}"
 

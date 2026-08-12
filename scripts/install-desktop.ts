@@ -1,26 +1,27 @@
-import { chmod, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { installWaybarModule } from "./install-waybar-module.ts";
+import { resolve } from "node:path";
 
-const releaseBinary = "src-tauri/target/release/quickdrop";
-const home = process.env.HOME;
-
-if (!home) {
-  console.error("HOME is not set.");
-  process.exit(1);
-}
+const releaseBinary = resolve("src-tauri/target/release/quickdrop");
 
 if (!(await Bun.file(releaseBinary).exists())) {
   console.error("Run bun run desktop:build first.");
   process.exit(1);
 }
 
-const binDir = join(home, ".local", "bin");
-const target = join(binDir, "quickdrop");
-await mkdir(binDir, { recursive: true });
-await Bun.write(target, Bun.file(releaseBinary));
-await chmod(target, 0o755);
-await installWaybarModule({ launcherPath: join(binDir, "quickdrop-waybar") });
+const installer = Bun.spawn(["bash", resolve("scripts/install-linux.sh")], {
+  cwd: process.cwd(),
+  env: {
+    ...process.env,
+    QUICKDROP_LINUX_BINARY: releaseBinary,
+    QUICKDROP_LAUNCHER_FILE: resolve("scripts/quickdrop-launcher"),
+    QUICKDROP_BAR_INTEGRATION_FILE: resolve("scripts/install-bar-integration.sh"),
+    QUICKDROP_WAYBAR_PATCHER_FILE: resolve("scripts/install-waybar-module.py"),
+    QUICKDROP_OMARCHY_PLUGIN_SOURCE: resolve("scripts/omarchy-quickdrop"),
+  },
+  stdout: "inherit",
+  stderr: "inherit",
+});
 
-console.log("Installed quickdrop to ~/.local/bin/quickdrop");
-console.log("Installed quickdrop-waybar to ~/.local/bin/quickdrop-waybar");
+const exitCode = await installer.exited;
+if (exitCode !== 0) {
+  process.exit(exitCode);
+}

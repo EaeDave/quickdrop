@@ -3,13 +3,15 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
 import { describe, expect, test } from "bun:test";
-import { patchWaybarConfig } from "./install-waybar-module.ts";
 
 const scriptPath = resolve("scripts/install-linux.sh");
-const launcherSource = resolve("scripts/quickdrop-waybar");
+const launcherSource = resolve("scripts/quickdrop-launcher");
+const barInstallerSource = resolve("scripts/install-bar-integration.sh");
+const waybarPatcherSource = resolve("scripts/install-waybar-module.py");
+const omarchyPluginSource = resolve("scripts/omarchy-quickdrop");
 const apiBaseUrl = "https://quickdrop.eaedave.xyz";
 
-const hasToolchain = Boolean(Bun.which("bash") && Bun.which("waybar") && Bun.which("python3"));
+const hasToolchain = Boolean(Bun.which("bash") && Bun.which("python3"));
 
 const WAYBAR_CONFIG = `{
   "layer": "top",
@@ -28,9 +30,13 @@ const WAYBAR_CONFIG = `{
 `;
 
 type Sandbox = {
+  root: string;
   binDir: string;
+  shareDir: string;
+  configDir: string;
   binaryPath: string;
   launcherPath: string;
+  legacyLauncherPath: string;
   configPath: string;
   fakeBinary: string;
 };
@@ -47,25 +53,35 @@ async function createSandbox(options: { config?: string; configDir?: string } = 
   }
 
   return {
+    root,
     binDir,
+    shareDir: join(root, "share"),
+    configDir: join(root, "quickdrop-config"),
     binaryPath: join(binDir, "quickdrop"),
-    launcherPath: join(binDir, "quickdrop-waybar"),
+    launcherPath: join(binDir, "quickdrop-launcher"),
+    legacyLauncherPath: join(binDir, "quickdrop-waybar"),
     configPath,
     fakeBinary,
   };
 }
 
-async function runInstaller(sandbox: Sandbox): Promise<void> {
+async function runInstaller(sandbox: Sandbox, bar = "waybar"): Promise<void> {
   await $`bash ${scriptPath}`
     .env({
       ...process.env,
-      HOME: sandbox.binDir,
+      HOME: sandbox.root,
       QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
-      QUICKDROP_WAYBAR_LAUNCHER_FILE: launcherSource,
+      QUICKDROP_LAUNCHER_FILE: launcherSource,
+      QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
+      QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
+      QUICKDROP_OMARCHY_PLUGIN_SOURCE: omarchyPluginSource,
       QUICKDROP_BIN_DIR: sandbox.binDir,
+      QUICKDROP_SHARE_DIR: sandbox.shareDir,
+      QUICKDROP_CONFIG_DIR: sandbox.configDir,
       QUICKDROP_WAYBAR_CONFIG: sandbox.configPath,
       QUICKDROP_API_BASE_URL: apiBaseUrl,
-      QUICKDROP_WAYBAR_NO_RESTART: "1",
+      QUICKDROP_BAR: bar,
+      QUICKDROP_BAR_NO_RESTART: "1",
     })
     .quiet();
 }
@@ -76,27 +92,28 @@ async function isExecutable(path: string): Promise<boolean> {
 }
 
 describe.skipIf(!hasToolchain)("install-linux.sh", () => {
-  test("installs the binary, launcher, and Waybar module matching the TS patcher", async () => {
+  test("installs the binary, generic launcher, compatibility launcher, and Waybar module", async () => {
     const sandbox = await createSandbox({ config: WAYBAR_CONFIG });
 
     await runInstaller(sandbox);
 
     expect(await Bun.file(sandbox.binaryPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.launcherPath).exists()).toBe(true);
+    expect(await Bun.file(sandbox.legacyLauncherPath).exists()).toBe(true);
     expect(await isExecutable(sandbox.binaryPath)).toBe(true);
     expect(await isExecutable(sandbox.launcherPath)).toBe(true);
 
     const installedLauncher = await readFile(sandbox.launcherPath, "utf8");
     const repoLauncher = await readFile(launcherSource, "utf8");
     expect(installedLauncher).toBe(repoLauncher);
+    expect(await readFile(sandbox.legacyLauncherPath, "utf8")).toBe(repoLauncher);
 
     const patched = await readFile(sandbox.configPath, "utf8");
-    const expected = patchWaybarConfig(WAYBAR_CONFIG, sandbox.launcherPath, apiBaseUrl).text;
-    expect(patched).toBe(expected);
     expect(patched).toContain('"custom/quickdrop"');
-    expect(patched).toContain(
-      `"on-click": "env QUICKDROP_API_BASE_URL='${apiBaseUrl}' '${sandbox.launcherPath}'"`,
-    );
+    expect(patched).toContain(`"on-click": "'${sandbox.launcherPath}'"`);
+
+    const config = await readFile(join(sandbox.configDir, "config.env"), "utf8");
+    expect(config).toContain(`QUICKDROP_API_BASE_URL=${apiBaseUrl}`);
   });
 
   test("is idempotent across repeated runs", async () => {
@@ -110,10 +127,10 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     expect(afterSecond).toBe(afterFirst);
   });
 
-  test("installs without a Waybar config without failing", async () => {
+  test("installs without a supported bar without failing", async () => {
     const sandbox = await createSandbox({ configDir: "missing" });
 
-    await runInstaller(sandbox);
+    await runInstaller(sandbox, "none");
 
     expect(await Bun.file(sandbox.binaryPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.launcherPath).exists()).toBe(true);
