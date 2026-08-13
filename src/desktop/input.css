@@ -451,6 +451,13 @@ html.quickdrop-text-page a {
   background: rgb(30 41 59 / 0.94);
 }
 
+.quickdrop-text-button:disabled,
+.quickdrop-text-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
 .quickdrop-text-button--primary {
   border-color: rgb(56 189 248 / 0.34);
   background: rgb(14 116 144 / 0.88);
@@ -523,15 +530,6 @@ html.quickdrop-text-page a {
   letter-spacing: 0.04em;
 }
 
-.quickdrop-text-room-typing {
-  color: #fcd34d;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-}
-
-
-
 .quickdrop-text-badge {
   align-self: center;
   border: 1px solid rgb(148 163 184 / 0.18);
@@ -593,6 +591,12 @@ html.quickdrop-text-page a {
   text-underline-offset: 3px;
 }
 
+.quickdrop-text-note--remote {
+  border-color: rgb(56 189 248 / 0.3);
+  background: rgb(8 47 73 / 0.46);
+  color: #e0f2fe;
+}
+
 
 .quickdrop-text-banner {
   display: flex;
@@ -617,41 +621,31 @@ html.quickdrop-text-page a {
   display: flex;
 }
 
-.quickdrop-text-pointer-layer {
+.quickdrop-text-editor::after {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  overflow: hidden;
+  border: 1px solid transparent;
   border-radius: 24px;
+  content: "";
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.quickdrop-user-cursor {
-  position: absolute;
-  left: 0;
-  top: 0;
-  will-change: transform;
+.quickdrop-text-editor--remote::after {
+  border-color: rgb(56 189 248 / 0.58);
+  box-shadow:
+    inset 0 0 0 1px rgb(56 189 248 / 0.16),
+    0 0 32px rgb(56 189 248 / 0.12);
 }
 
-.quickdrop-user-cursor svg {
-  display: block;
-  filter: drop-shadow(0 2px 6px rgb(2 6 23 / 0.45));
-}
-
-.quickdrop-user-cursor-pill {
-  position: absolute;
-  left: 14px;
-  top: 19px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  color: #0f172a;
+.quickdrop-text-shortcuts {
+  color: #64748b;
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  box-shadow: 0 4px 14px rgb(2 6 23 / 0.4);
-  will-change: transform;
+  font-weight: 600;
+  text-align: right;
 }
-
 
 .quickdrop-text-textarea {
   flex: 1;
@@ -698,6 +692,18 @@ html.quickdrop-text-page a {
   .quickdrop-text-textarea {
     padding: 18px;
     font-size: 16px;
+  }
+
+  .quickdrop-text-shortcuts {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickdrop-text-button,
+  .quickdrop-text-icon-button,
+  .quickdrop-text-editor::after {
+    transition: none;
   }
 }
 .quickdrop-web {
