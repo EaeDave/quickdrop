@@ -151,9 +151,8 @@ export async function startServer(): Promise<void> {
   startCleanupJob();
   startTextSessionSweep();
   startTextSessionHeartbeat(app);
-  if (config.textMetricsEnabled) {
-    startTextFunnelMetricsCleanup(config.textMetricsRetentionDays);
-  }
+  // Retention also applies to historical aggregates after collection is disabled.
+  startTextFunnelMetricsCleanup(config.textMetricsRetentionDays);
 }
 
 export function redactTextCodeFromUrl(rawUrl: string): string {

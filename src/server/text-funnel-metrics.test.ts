@@ -3,6 +3,7 @@ import {
   createTextFunnelMetrics,
   metricDateUtc,
   retentionCutoffDate,
+  startTextFunnelMetricsCleanup,
   type TextFunnelMetricsRepository,
   type TextMetricAggregate,
   type TextMetricIncrement,
@@ -10,6 +11,7 @@ import {
 
 class InMemoryMetricsRepository implements TextFunnelMetricsRepository {
   increments: Array<{ metric: TextMetricIncrement; recordedAt: Date }> = [];
+  prunedBefore: string[] = [];
   fail = false;
 
   async increment(metric: TextMetricIncrement, recordedAt: Date): Promise<void> {
@@ -19,7 +21,9 @@ class InMemoryMetricsRepository implements TextFunnelMetricsRepository {
     this.increments.push({ metric, recordedAt });
   }
 
-  async pruneBefore(): Promise<void> {}
+  async pruneBefore(metricDate: string): Promise<void> {
+    this.prunedBefore.push(metricDate);
+  }
   async summarySince(): Promise<TextMetricAggregate[]> {
     return [];
   }
@@ -75,5 +79,19 @@ describe("text funnel metrics", () => {
 
   test("computes the aggregate retention cutoff", () => {
     expect(retentionCutoffDate(new Date("2026-08-13T12:00:00Z"), 90)).toBe("2026-05-15");
+  });
+
+  test("prunes historical aggregates even when no new metrics are recorded", async () => {
+    const repository = new InMemoryMetricsRepository();
+    const timer = startTextFunnelMetricsCleanup(
+      90,
+      repository,
+      () => new Date("2026-08-13T12:00:00Z"),
+    );
+
+    await Bun.sleep(0);
+    clearInterval(timer);
+    expect(repository.prunedBefore).toEqual(["2026-05-15"]);
+    expect(repository.increments).toEqual([]);
   });
 });
