@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { bigint, check, date, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const uploads = pgTable(
   "uploads",
@@ -65,3 +65,24 @@ export const textRooms = pgTable(
 );
 
 export type TextRoomRecord = typeof textRooms.$inferSelect;
+
+export const textFunnelMetrics = pgTable(
+  "text_funnel_metrics",
+  {
+    metricDate: date("metric_date").notNull(),
+    event: varchar("event", { length: 32 }).notNull(),
+    roomKind: varchar("room_kind", { length: 16 }).default("none").notNull(),
+    outcome: varchar("outcome", { length: 32 }).default("none").notNull(),
+    errorCategory: varchar("error_category", { length: 32 }).default("none").notNull(),
+    count: bigint("count", { mode: "bigint" }).default(0n).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "text_funnel_metrics_pk",
+      columns: [table.metricDate, table.event, table.roomKind, table.outcome, table.errorCategory],
+    }),
+    check("text_funnel_metrics_count_check", sql`${table.count} >= 0`),
+  ],
+);
+
+export type TextFunnelMetricRecord = typeof textFunnelMetrics.$inferSelect;

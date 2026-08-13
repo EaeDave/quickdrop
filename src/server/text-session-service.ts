@@ -4,6 +4,7 @@ import type { RawData, WebSocket } from "ws";
 import { generateSessionCode, isValidCustomSessionCode, normalizeSessionCode } from "./ids";
 import { clearRoomAccessCookie, createRoomAccessCookie, type RoomAccessCheck, verifyRoomAccessCookie } from "./text-room-access";
 import type { TextSessionHub } from "./text-session-hub";
+import type { TextFunnelMetrics } from "./text-funnel-metrics";
 import { ROOM_PIN_MAX_LENGTH, ROOM_PIN_MIN_LENGTH, hashRoomPin, normalizeRoomPin, verifyRoomPin } from "./text-room-pin";
 import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 import { textRoomsRepository } from "./text-rooms-repository";
@@ -22,6 +23,7 @@ export type TextSessionRouteDeps = {
   codeLength: number;
   ttlMs: number;
   customTtlMs: number;
+  metrics?: TextFunnelMetrics;
   now?: () => Date;
 };
 
@@ -35,6 +37,7 @@ type ProtectedRoomAuthResult =
 
 export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessionRouteDeps): void {
   const repository = deps.repository ?? textRoomsRepository;
+  const metrics = deps.metrics ?? { record: async () => {} };
   const now = deps.now ?? (() => new Date());
   const lifecycleTargets = new Map<string, { closedAt: Date; expiryMs: number } | null>();
   const lifecycleReconciling = new Set<string>();
@@ -136,6 +139,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             );
           }
 
+          void metrics.record({ event: "open_or_create", roomKind: "generated", outcome: "created" });
           return roomAccessPayload(room, undefined, deps);
         }
       }
@@ -207,6 +211,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             );
           }
 
+          void metrics.record({ event: "open_or_create", roomKind: "custom", outcome: "created" });
           return roomAccessPayload(room, true, deps);
         }
 
@@ -219,6 +224,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       }
 
       if (!room.pin_hash) {
+        void metrics.record({ event: "open_or_create", roomKind: room.kind, outcome: "opened" });
         return roomAccessPayload(room, false, deps);
       }
 
@@ -234,6 +240,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
             secure: isSecureRequest(request),
           }),
         );
+        void metrics.record({ event: "open_or_create", roomKind: room.kind, outcome: "opened" });
         return {
           ...roomAccessPayload(room, false, deps),
           accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
@@ -261,6 +268,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
           secure: isSecureRequest(request),
         }),
       );
+      void metrics.record({ event: "open_or_create", roomKind: room.kind, outcome: "opened" });
       return {
         ...roomAccessPayload(room, false, deps),
         accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
@@ -419,6 +427,9 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         lifecycleTargets.set(code, null);
         await repository.markTextRoomActive(code, now());
       }
+      if (joined.clientCount === 2) {
+        void metrics.record({ event: "second_device", roomKind: room.kind, outcome: "success" });
+      }
 
       liveSockets.add(socket);
       socket.on("pong", () => liveSockets.add(socket));
@@ -535,6 +546,14 @@ async function handleRealtimeMessage(
   if (!updated || isExpired(updated, now(), deps.hub.clientCount(code))) {
     socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
     return;
+  }
+
+  if (updated.version === 1 && updated.text.length > 0) {
+    void deps.metrics?.record({
+      event: "first_publish",
+      roomKind: updated.kind,
+      outcome: "success",
+    });
   }
 
   deps.hub.broadcast(

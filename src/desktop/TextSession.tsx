@@ -1,5 +1,5 @@
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
-import { connectRoom, createRoom, openRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomKind } from "./text-client";
+import { connectRoom, createRoom, openRoom, recordTextMetric, RoomAccessError, type ClientTextMetricErrorCategory, type RoomController, type RoomErrorCode, type RoomKind } from "./text-client";
 import { uploadFiles } from "./tauri";
 import { isCopyTextShortcut, remoteContentNotice } from "./text-session-shortcuts";
 import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
@@ -13,6 +13,26 @@ type ExportState =
   | { status: "error"; message: string };
 
 const WRITE_DELAY_MS = 75;
+
+function metricErrorCategory(error: unknown): ClientTextMetricErrorCategory {
+  if (!(error instanceof RoomAccessError)) {
+    return "network";
+  }
+
+  switch (error.code) {
+    case "pin_required":
+    case "pin_invalid":
+    case "invalid_token":
+    case "not_found":
+    case "room_full":
+    case "too_large":
+    case "invalid_code":
+    case "session_limit":
+      return error.code;
+    default:
+      return "unknown";
+  }
+}
 
 export default function TextSession() {
   const initialCode = initialRoomCode();
@@ -38,6 +58,7 @@ export default function TextSession() {
 
   const controllerRef = useRef<RoomController | null>(null);
   const roomCodeRef = useRef<string | null>(null);
+  const roomKindRef = useRef<RoomKind | null>(null);
   const connectionPhaseRef = useRef<ConnectionPhase>("closed");
   const hasOpenedRef = useRef(false);
   const hasReceivedSnapshotRef = useRef(false);
@@ -98,6 +119,7 @@ export default function TextSession() {
     setExportState({ status: "idle" });
     setRoomNotice(null);
     setRoomKind(null);
+    roomKindRef.current = null;
     setExpiresAfterMinutes(null);
     setClearPending(false);
     setText("");
@@ -157,6 +179,7 @@ export default function TextSession() {
   }, []);
 
   const handleAccessError = useCallback((error: unknown) => {
+    void recordTextMetric({ event: "client_error", errorCategory: metricErrorCategory(error) });
     if (error instanceof RoomAccessError) {
       if (
         error.code === "pin_required" ||
@@ -179,6 +202,7 @@ export default function TextSession() {
         const opened = await openRoom(code, pin);
         activateRoom(code);
         setRoomKind(opened.kind);
+        roomKindRef.current = opened.kind;
         setExpiresAfterMinutes(opened.expiresAfterMinutes);
         setRoomNotice(opened.created ? "Clipboard criado. Abra este mesmo endereço na outra máquina." : "Clipboard aberto.");
       } catch (error) {
@@ -204,6 +228,7 @@ export default function TextSession() {
       const created = await createRoom(joinPin);
       activateRoom(created.code);
       setRoomKind(created.kind);
+      roomKindRef.current = created.kind;
       setExpiresAfterMinutes(created.expiresAfterMinutes);
       setRoomNotice("Código aleatório criado. Compartilhe o endereço com a outra máquina.");
     } catch (error) {
@@ -279,13 +304,22 @@ export default function TextSession() {
 
     try {
       await copyText(text);
+      void recordTextMetric({
+        event: "text_copied",
+        ...(roomKind ? { roomKind } : {}),
+      });
       dismissRemoteNotice();
       setRoomNotice("Texto copiado.");
       setErrorMessage(null);
     } catch {
+      void recordTextMetric({
+        event: "client_error",
+        ...(roomKind ? { roomKind } : {}),
+        errorCategory: "clipboard",
+      });
       setErrorMessage("Não foi possível copiar o texto agora.");
     }
-  }, [copyText, dismissRemoteNotice, text]);
+  }, [copyText, dismissRemoteNotice, roomKind, text]);
 
   const handleCopyRoomLink = useCallback(async () => {
     if (!roomCode) {
@@ -422,6 +456,7 @@ export default function TextSession() {
 
   useEffect(() => {
     document.documentElement.classList.add("quickdrop-text-page");
+    void recordTextMetric({ event: "screen_opened" });
     return () => document.documentElement.classList.remove("quickdrop-text-page");
   }, []);
 
@@ -462,6 +497,7 @@ export default function TextSession() {
         setText(shouldRetryClear ? "" : payload.text);
         setVersion(payload.version);
         setRoomKind(payload.kind);
+        roomKindRef.current = payload.kind;
         setExpiresAfterMinutes(payload.expiresAfterMinutes);
         setPendingRemote(null);
         setErrorMessage(null);
@@ -531,6 +567,11 @@ export default function TextSession() {
         flushPendingWrite();
       },
       onError(payload) {
+        void recordTextMetric({
+          event: "client_error",
+          ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
+          errorCategory: metricErrorCategory(new RoomAccessError(payload.message, payload.code)),
+        });
         if (
           payload.code === "pin_required" ||
           payload.code === "pin_invalid" ||

@@ -88,6 +88,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...requiredEnv, TEXT_CUSTOM_SESSION_TTL_MINUTES: "0" })).toThrow(
       "TEXT_CUSTOM_SESSION_TTL_MINUTES",
     );
+    expect(() => loadConfig({ ...requiredEnv, TEXT_METRICS_ENABLED: "sometimes" })).toThrow(
+      "TEXT_METRICS_ENABLED",
+    );
+    expect(() => loadConfig({ ...requiredEnv, TEXT_METRICS_RETENTION_DAYS: "0" })).toThrow(
+      "TEXT_METRICS_RETENTION_DAYS",
+    );
   });
 
   test("applies text session defaults", () => {
@@ -99,6 +105,8 @@ describe("loadConfig", () => {
     expect(config.textSessionCodeLength).toBe(6);
     expect(config.textSessionMaxSessions).toBe(500);
     expect(config.textSessionMaxClientsPerSession).toBe(20);
+    expect(config.textMetricsEnabled).toBe(false);
+    expect(config.textMetricsRetentionDays).toBe(90);
   });
 
   test("reads text session overrides", () => {
@@ -110,6 +118,8 @@ describe("loadConfig", () => {
       TEXT_SESSION_CODE_LENGTH: "4",
       TEXT_SESSION_MAX_SESSIONS: "7",
       TEXT_SESSION_MAX_CLIENTS: "2",
+      TEXT_METRICS_ENABLED: "true",
+      TEXT_METRICS_RETENTION_DAYS: "45",
     });
 
     expect(config.textSessionTtlHours).toBe(3);
@@ -118,5 +128,7 @@ describe("loadConfig", () => {
     expect(config.textSessionCodeLength).toBe(4);
     expect(config.textSessionMaxSessions).toBe(7);
     expect(config.textSessionMaxClientsPerSession).toBe(2);
+    expect(config.textMetricsEnabled).toBe(true);
+    expect(config.textMetricsRetentionDays).toBe(45);
   });
 });

@@ -1,6 +1,17 @@
 export type RoomStatus = "connecting" | "open" | "closed";
 export type RoomKind = "custom" | "generated";
-export type RoomErrorCode = "pin_required" | "pin_invalid" | "invalid_token" | "not_found" | "too_large" | "room_full" | null;
+export type RoomErrorCode =
+  | "pin_required"
+  | "pin_invalid"
+  | "invalid_token"
+  | "not_found"
+  | "too_large"
+  | "room_full"
+  | "invalid_code"
+  | "session_limit"
+  | "code_exhausted"
+  | "create_failed"
+  | null;
 
 export type RoomPointer = { visible: boolean; x?: number; y?: number };
 
@@ -33,6 +44,28 @@ export type RoomAccess = {
 
 export type OpenRoomResult = RoomAccess & { created: boolean };
 
+export type ClientTextMetricErrorCategory =
+  | "invalid_code"
+  | "pin_required"
+  | "pin_invalid"
+  | "invalid_token"
+  | "not_found"
+  | "session_limit"
+  | "room_full"
+  | "too_large"
+  | "clipboard"
+  | "network"
+  | "unknown";
+
+export type ClientTextMetric =
+  | { event: "screen_opened" }
+  | { event: "text_copied"; roomKind?: RoomKind }
+  | {
+      event: "client_error";
+      roomKind?: RoomKind;
+      errorCategory: ClientTextMetricErrorCategory;
+    };
+
 export class RoomAccessError extends Error {
   code: RoomErrorCode;
   status: number;
@@ -42,6 +75,20 @@ export class RoomAccessError extends Error {
     this.name = "RoomAccessError";
     this.code = code;
     this.status = status;
+  }
+}
+
+export async function recordTextMetric(metric: ClientTextMetric): Promise<void> {
+  try {
+    await fetch("/api/text/metrics", {
+      method: "POST",
+      credentials: "same-origin",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(metric),
+    });
+  } catch {
+    // Aggregate metrics are best-effort and never affect clipboard behavior.
   }
 }
 

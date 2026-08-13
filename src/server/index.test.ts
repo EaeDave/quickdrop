@@ -20,6 +20,8 @@ const envKeys = [
   "FILE_EXPIRATION_HOURS",
   "R2_STORAGE_HARD_LIMIT_GB",
   "UPLOAD_RESERVATION_TTL_MINUTES",
+  "TEXT_METRICS_ENABLED",
+  "TEXT_METRICS_RETENTION_DAYS",
 ];
 const originalFetch = globalThis.fetch;
 let previousEnv: Record<string, string | undefined> = {};
@@ -160,6 +162,29 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(400);
       expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
       expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("accepts only privacy-safe client funnel metrics", async () => {
+    const { app } = buildApp();
+
+    try {
+      const accepted = await app.inject({
+        method: "POST",
+        url: "/api/text/metrics",
+        payload: { event: "text_copied", roomKind: "custom" },
+      });
+      expect(accepted.statusCode).toBe(204);
+      expect(accepted.headers["cache-control"]).toBe("no-store, max-age=0");
+
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/text/metrics",
+        payload: { event: "text_copied", code: "SECRET", text: "private" },
+      });
+      expect(rejected.statusCode).toBe(400);
     } finally {
       await app.close();
     }

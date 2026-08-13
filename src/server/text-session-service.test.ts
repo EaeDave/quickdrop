@@ -6,6 +6,7 @@ import { WebSocket as NodeWebSocket } from "ws";
 import { TextSessionHub } from "./text-session-hub";
 import { rearmTextRoomsAfterRestart, registerTextSessionRoutes, startTextSessionSweep } from "./text-session-service";
 import { hashRoomPin } from "./text-room-pin";
+import type { TextFunnelMetrics, TextMetricIncrement } from "./text-funnel-metrics";
 import type { CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
@@ -148,6 +149,14 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
   }
 }
 
+class CollectingTextFunnelMetrics implements TextFunnelMetrics {
+  readonly metrics: TextMetricIncrement[] = [];
+
+  async record(metric: TextMetricIncrement): Promise<void> {
+    this.metrics.push(metric);
+  }
+}
+
 class BarrierTextRoomsRepository extends InMemoryTextRoomsRepository {
   private arrivals = 0;
   private releaseBarrier: (() => void) | null = null;
@@ -249,7 +258,12 @@ function copyRoom(room: TextRoomRow): TextRoomRow {
   };
 }
 
-async function startTestServer(repository: TextRoomsRepository, clock: MutableClock, maxSessions = 500) {
+async function startTestServer(
+  repository: TextRoomsRepository,
+  clock: MutableClock,
+  maxSessions = 500,
+  metrics?: TextFunnelMetrics,
+) {
   const app = Fastify({ logger: false });
   const hub = new TextSessionHub({ maxClientsPerSession: 20 });
   const sockets = new Set<NodeWebSocket>();
@@ -269,6 +283,7 @@ async function startTestServer(repository: TextRoomsRepository, clock: MutableCl
       codeLength: 6,
       ttlMs: 60 * 60 * 1000,
       customTtlMs: 30 * 60 * 1000,
+      metrics,
       now: () => new Date(clock.current),
     });
   });
@@ -434,6 +449,34 @@ describe("text session routes", () => {
       expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
       expect(results.filter((result) => result.created === true)).toHaveLength(1);
       expect(results.filter((result) => result.created === false)).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("records aggregate funnel milestones without room codes or content", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const metrics = new CollectingTextFunnelMetrics();
+    const server = await startTestServer(repository, clock, 500, metrics);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/PRIVATE-CODE/open" });
+      const first = server.connect("PRIVATE-CODE");
+      const firstSnapshot = await expectJoined(first, 1);
+      first.send(JSON.stringify({ type: "write", text: "sensitive content", baseVersion: firstSnapshot.version }));
+      expect((await nextMessage(first)).type).toBe("ack");
+
+      const second = server.connect("PRIVATE-CODE");
+      await expectJoined(second, 2);
+
+      expect(metrics.metrics).toEqual([
+        { event: "open_or_create", roomKind: "custom", outcome: "created" },
+        { event: "first_publish", roomKind: "custom", outcome: "success" },
+        { event: "second_device", roomKind: "custom", outcome: "success" },
+      ]);
+      expect(JSON.stringify(metrics.metrics)).not.toContain("PRIVATE-CODE");
+      expect(JSON.stringify(metrics.metrics)).not.toContain("sensitive content");
     } finally {
       await server.close();
     }
