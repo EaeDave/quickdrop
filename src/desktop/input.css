@@ -672,6 +672,54 @@ html.quickdrop-text-page a {
   justify-content: space-between;
   gap: 12px;
 }
+.quickdrop-drop-card-labels {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.quickdrop-drop-origin {
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.quickdrop-drop-origin--self {
+  border-color: rgb(74 222 128 / 0.34);
+  color: #86efac;
+}
+
+.quickdrop-drop-origin--remote {
+  border-color: rgb(56 189 248 / 0.42);
+  color: #7dd3fc;
+}
+
+.quickdrop-drop-origin--new {
+  border-color: rgb(251 191 36 / 0.38);
+  color: #fcd34d;
+}
+
+.quickdrop-drop-card--new {
+  animation: quickdrop-drop-arrival 0.42s ease-out both;
+}
+
+@keyframes quickdrop-drop-arrival {
+  from {
+    opacity: 0.4;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 .quickdrop-drop-composer-footer p {
   color: #64748b;
@@ -857,14 +905,11 @@ html.quickdrop-text-page a {
   box-shadow:
     0 22px 72px rgb(2 6 23 / 0.48),
     0 0 0 4px rgb(56 189 248 / 0.14);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }
 
 @media (max-width: 760px) {
-  .quickdrop-text-shell,
-  .quickdrop-text-shell--room {
-    padding: 16px;
-  }
-
   .quickdrop-text-card {
     padding: 22px;
   }
@@ -908,6 +953,12 @@ html.quickdrop-text-page a {
 
   .quickdrop-drop-card {
     transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickdrop-drop-card--new {
+    animation: none;
   }
 }
 .quickdrop-web {

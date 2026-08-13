@@ -119,19 +119,24 @@ Install it from the repository:
 ```bash
 mise exec rust@stable -- cargo install --path cli
 ```
-Run `qd` in an interactive terminal to open the Ratatui interface:
+Run `qd` in an interactive terminal to open the room chooser:
 
 ```bash
 qd
 ```
 
-The TUI opens or creates a clipboard by code. `Ctrl+P` starts a PIN-protected create even with an empty code field: choose the name next, then Enter asks for the PIN. It also prompts for the PIN when opening an existing protected clipboard. The header shows the installed version, connection state, and number of connected people. The timeline uses local time and marks drops received during the current session as `NEW`. It reconnects automatically and provides a multiline composer, editing, copying, resending, deletion, and self-update support.
-
-Open a code directly in the TUI:
+The canonical room commands are:
 
 ```bash
-qd --tui MYCODE
+qd ROOM                         # open the TUI; create a public room if needed
+qd ROOM PIN                     # open the TUI; create a PIN-protected room if needed
+qd ROOM --msg "text to publish" # publish without opening the TUI
+qd ROOM PIN --msg "secret text" # publish with a positional PIN
+qd ROOM --msg - < message.txt   # read the message from stdin and publish it
+qd ROOM --copy                  # print and copy the newest drop
 ```
+
+`qd ROOM` and `qd ROOM PIN` open the TUI directly. A PIN supplied for an existing public room is an error: remove the PIN and use `qd ROOM --msg <text>` or `qd ROOM --copy` as appropriate. It is never ignored. `--msg` and `--copy` are mutually exclusive, duplicate options and extra positionals are errors. Interactive commands require a terminal; otherwise `qd` explains: `interactive mode requires a terminal; use --msg <text> or --copy instead.`
 
 Keyboard shortcuts:
 
@@ -154,9 +159,11 @@ Keyboard shortcuts:
 
 Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hovering highlights clickable controls, timeline rows, and the composer; completed mouse actions report concise feedback in the footer. Hold `Shift` while dragging to use the terminal's native text selection.
 
+Room entry feedback distinguishes an opened room from a newly created room and reports whether it is public or PIN-protected from the authoritative server response. Presence is explicit in the header and connection status. Each drop's origin is `Unknown` for snapshot-only data, `Self` when `by` matches this client, or `Remote` for another client; the newest `Remote` drop stays cyan until it is superseded, deleted, or cleared, while `NEW` is a separate temporary marker.
+
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
-Non-interactive commands remain suitable for pipes and scripts. Diagnostics go to stderr; received content alone goes to stdout.
+Non-interactive commands remain suitable for pipes and scripts: requested content alone goes to stdout, while diagnostics and feedback go to stderr.
 
 Update the installed `qd` binary from the latest public release:
 
@@ -170,43 +177,42 @@ The TUI header shows the canonical room URL. Hovering highlights it as an intera
 The TUI checks for a newer release on launch. If one is available, press `Ctrl+U` from any screen to download it, verify the published SHA-256 checksum, replace the running binary, and restart the TUI.
 
 
-Publish a message directly or through stdin:
+Publish without opening the TUI:
 
 ```bash
-qd "text from SSH" MYCODE
-echo "text from SSH" | qd MYCODE
+qd MYCODE --msg "text from SSH"
+qd MYCODE 1234 --msg "secret text"
+printf '%s\n' "text from stdin" | qd MYCODE --msg -
+printf '%s\n' "secret from stdin" | qd MYCODE 1234 --msg -
 ```
 
-For a PIN-protected clipboard, pass the PIN as the third positional argument (or after the room when piping):
+`--msg -` reads the message from stdin. Publishing creates a missing room (publicly, or PIN-protected when a PIN is supplied). A PIN supplied for an existing public room fails instead of being ignored.
+
+Print and copy the newest drop:
 
 ```bash
-qd "secret text" MYCODE 1234
-echo "secret text" | qd MYCODE 1234
+qd MYCODE --copy
+qd MYCODE 1234 --copy
 ```
 
-Print the newest drop and copy it to the local clipboard:
+`--copy` never creates a missing room. For an empty room it prints `qd: No messages found.` to stderr and does not change the local clipboard. For non-empty rooms, the newest content is the only stdout output; operational feedback (including `Copied the latest message.`) always goes to stderr.
+
+Show help or the installed version:
 
 ```bash
-qd MYCODE
-```
-
-If the clipboard has no messages, `qd` prints `qd: No messages found.` to stderr and leaves the current local clipboard unchanged.
-
-Show the installed version:
-
-```bash
+qd --help
 qd --version
 ```
 
-Use another QuickDrop backend in interactive or non-interactive mode:
+Use another QuickDrop backend:
 
 ```bash
-qd --tui MYCODE --server http://127.0.0.1:3000
+qd --server http://127.0.0.1:3000
 qd MYCODE --server http://127.0.0.1:3000
-QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 qd
+qd MYCODE --msg "local test" --server http://127.0.0.1:3000
 ```
 
-On Linux, received content is copied with `wl-copy`, `xclip`, or `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive publishing accepts a positional PIN.
+On Linux, copied content uses `wl-copy`, `xclip`, or `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive commands take the PIN positionally.
 
 Build release binaries:
 
