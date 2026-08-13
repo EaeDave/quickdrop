@@ -22,6 +22,8 @@ export type AppConfig = {
   textSessionCodeLength: number;
   textSessionMaxSessions: number;
   textSessionMaxClientsPerSession: number;
+  textDropTtlHours: number;
+  textDropMaxItems: number;
   textMetricsEnabled: boolean;
   textMetricsRetentionDays: number;
 };
@@ -40,6 +42,8 @@ const DEFAULT_TEXT_SESSION_MAX_KB = 256;
 const DEFAULT_TEXT_SESSION_CODE_LENGTH = 6;
 const DEFAULT_TEXT_SESSION_MAX_SESSIONS = 500;
 const DEFAULT_TEXT_SESSION_MAX_CLIENTS = 20;
+const DEFAULT_TEXT_DROP_TTL_HOURS = 12;
+const DEFAULT_TEXT_DROP_MAX_ITEMS = 10;
 const DEFAULT_TEXT_METRICS_RETENTION_DAYS = 90;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -100,6 +104,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     "TEXT_SESSION_MAX_CLIENTS",
     DEFAULT_TEXT_SESSION_MAX_CLIENTS,
   );
+  const textDropTtlHours = readPositiveInteger(
+    env,
+    "TEXT_DROP_TTL_HOURS",
+    DEFAULT_TEXT_DROP_TTL_HOURS,
+  );
+  const textDropMaxItems = readPositiveInteger(
+    env,
+    "TEXT_DROP_MAX_ITEMS",
+    DEFAULT_TEXT_DROP_MAX_ITEMS,
+  );
   const textMetricsEnabled = readBoolean(env, "TEXT_METRICS_ENABLED", false);
   const textMetricsRetentionDays = readPositiveInteger(
     env,
@@ -133,6 +147,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     textSessionCodeLength,
     textSessionMaxSessions,
     textSessionMaxClientsPerSession,
+    textDropTtlHours,
+    textDropMaxItems,
     textMetricsEnabled,
     textMetricsRetentionDays,
   };

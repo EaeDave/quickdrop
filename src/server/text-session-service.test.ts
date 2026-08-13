@@ -4,17 +4,26 @@ import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import { WebSocket as NodeWebSocket } from "ws";
 import { TextSessionHub } from "./text-session-hub";
-import { rearmTextRoomsAfterRestart, registerTextSessionRoutes, startTextSessionSweep } from "./text-session-service";
+import { rearmTextRoomsAfterRestart, registerTextSessionRoutes, startTextDropSweep, startTextSessionSweep } from "./text-session-service";
 import { hashRoomPin } from "./text-room-pin";
 import type { TextFunnelMetrics, TextMetricIncrement } from "./text-funnel-metrics";
+import type {
+  ClearTextDropsResult,
+  CreateTextDropInput,
+  CreateTextDropResult,
+  DeleteTextDropResult,
+  TextDropRow,
+  TextDropsRepository,
+} from "./text-drops-repository";
 import type { CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
-  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error";
+  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error" | "drop_added" | "drops_removed" | "drop_deleted" | "drops_cleared";
   text?: string;
   version?: number;
   clientId?: string;
   by?: string;
+  origin?: "drop_sync";
   count?: number;
   active?: boolean;
   visible?: boolean;
@@ -22,9 +31,23 @@ type ServerMessage = {
   y?: number;
   error?: string;
   message?: string;
+  drop?: { id: string; content: string; contentType: string; createdAt: string; expiresAt: string };
+  drops?: Array<{ id: string; content: string; contentType: string; createdAt: string; expiresAt: string }>;
+  dropId?: string;
+  dropIds?: string[];
 };
 
 type MutableClock = { current: Date };
+type SnapshotResponse = {
+  text: string;
+  version: number;
+  protected: boolean;
+  kind: string;
+  expiresAfterMinutes: number;
+  dropExpiresAfterMinutes: number;
+  maxDrops: number;
+  drops: ServerMessage["drops"];
+};
 
 const queuedMessages = new WeakMap<NodeWebSocket, ServerMessage[]>();
 const pendingReceivers = new WeakMap<
@@ -66,6 +89,7 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
       updated_at: new Date(input.updatedAt),
       expires_at: new Date(input.expiresAt),
       deleted_at: null,
+      drops_started_at: null,
     };
     this.rooms.push(row);
     return { status: "created", room: copyRoom(row) };
@@ -146,6 +170,126 @@ class InMemoryTextRoomsRepository implements TextRoomsRepository {
     }
 
     room.deleted_at = new Date(deletedAt);
+  }
+
+  updateLegacyById(id: string, text: string, updatedAt: Date): { text: string; version: number } | null {
+    const room = this.rooms.find((candidate) => candidate.id === id && candidate.deleted_at === null);
+    if (!room) {
+      return null;
+    }
+    room.text = text;
+    room.version += 1;
+    room.updated_at = new Date(updatedAt);
+    return { text: room.text, version: room.version };
+  }
+
+  readLegacyById(id: string): { text: string; version: number } | null {
+    const room = this.rooms.find((candidate) => candidate.id === id && candidate.deleted_at === null);
+    return room ? { text: room.text, version: room.version } : null;
+  }
+
+  markDropsStarted(id: string, startedAt: Date): boolean | null {
+    const room = this.rooms.find((candidate) => candidate.id === id && candidate.deleted_at === null);
+    if (!room) {
+      return null;
+    }
+    const firstDrop = room.drops_started_at === null;
+    room.drops_started_at ??= new Date(startedAt);
+    return firstDrop;
+  }
+}
+
+class InMemoryTextDropsRepository implements TextDropsRepository {
+  private drops: TextDropRow[] = [];
+
+  constructor(private readonly rooms: InMemoryTextRoomsRepository) {}
+
+  async listActiveDrops(roomId: string, now: Date, limit: number): Promise<TextDropRow[]> {
+    return this.active(roomId, now).slice(0, limit).map(copyDrop);
+  }
+
+  async createDrop(input: CreateTextDropInput, maxItems: number): Promise<CreateTextDropResult | null> {
+    this.drops = this.drops.filter((drop) => drop.room_id !== input.roomId || drop.expires_at > input.createdAt);
+    const firstDrop = this.rooms.markDropsStarted(input.roomId, input.createdAt);
+    if (firstDrop === null) {
+      return null;
+    }
+    const drop: TextDropRow = {
+      id: crypto.randomUUID(),
+      room_id: input.roomId,
+      content: input.content,
+      content_type: input.contentType,
+      created_at: new Date(input.createdAt),
+      expires_at: new Date(input.expiresAt),
+    };
+    this.drops.push(drop);
+    const active = this.active(input.roomId, input.createdAt);
+    const evictedIds = active.slice(maxItems).map((entry) => entry.id);
+    this.drops = this.drops.filter((entry) => !evictedIds.includes(entry.id));
+    const legacy = this.rooms.updateLegacyById(input.roomId, input.content, input.createdAt);
+    return legacy ? {
+      drop: copyDrop(drop),
+      evictedIds,
+      firstDrop,
+      legacyText: legacy.text,
+      legacyVersion: legacy.version,
+    } : null;
+  }
+
+  async deleteDrop(roomId: string, dropId: string, deletedAt: Date): Promise<DeleteTextDropResult | null> {
+    const drop = this.drops.find((entry) => entry.room_id === roomId && entry.id === dropId);
+    if (!drop) {
+      const legacy = this.rooms.readLegacyById(roomId);
+      return legacy ? { deleted: false, legacyText: legacy.text, legacyVersion: legacy.version } : null;
+    }
+    this.drops = this.drops.filter((entry) => entry !== drop);
+    const latest = this.active(roomId, deletedAt)[0]?.content ?? "";
+    const legacy = this.rooms.updateLegacyById(roomId, latest, deletedAt);
+    return legacy ? { deleted: true, legacyText: legacy.text, legacyVersion: legacy.version } : null;
+  }
+
+  async clearDrops(roomId: string, deletedAt: Date): Promise<ClearTextDropsResult | null> {
+    const deletedIds = this.drops.filter((drop) => drop.room_id === roomId).map((drop) => drop.id);
+    this.drops = this.drops.filter((drop) => drop.room_id !== roomId);
+    const legacy = this.rooms.updateLegacyById(roomId, "", deletedAt);
+    return legacy ? { deletedIds, legacyText: legacy.text, legacyVersion: legacy.version } : null;
+  }
+
+  async findExpiredDrops(now: Date, limit = 200): Promise<TextDropRow[]> {
+    return this.drops.filter((drop) => drop.expires_at <= now).slice(0, limit).map(copyDrop);
+  }
+
+  async markDropsDeleted(ids: string[], deletedAt: Date): Promise<void> {
+    const roomIds = [...new Set(this.drops.filter((drop) => ids.includes(drop.id)).map((drop) => drop.room_id))];
+    this.drops = this.drops.filter((drop) => !ids.includes(drop.id));
+    for (const roomId of roomIds) {
+      this.rooms.updateLegacyById(roomId, this.active(roomId, deletedAt)[0]?.content ?? "", deletedAt);
+    }
+  }
+
+  private active(roomId: string, now: Date): TextDropRow[] {
+    return this.drops
+      .filter((drop) => drop.room_id === roomId && drop.expires_at > now)
+      .sort((left, right) => right.created_at.getTime() - left.created_at.getTime() || right.id.localeCompare(left.id));
+  }
+}
+
+class DelayedListTextDropsRepository extends InMemoryTextDropsRepository {
+  private readonly started = Promise.withResolvers<void>();
+  private readonly released = Promise.withResolvers<void>();
+
+  waitUntilListStarts(): Promise<void> {
+    return this.started.promise;
+  }
+
+  releaseList(): void {
+    this.released.resolve();
+  }
+
+  override async listActiveDrops(roomId: string, now: Date, limit: number): Promise<TextDropRow[]> {
+    this.started.resolve();
+    await this.released.promise;
+    return super.listActiveDrops(roomId, now, limit);
   }
 }
 
@@ -255,14 +399,28 @@ function copyRoom(room: TextRoomRow): TextRoomRow {
     updated_at: new Date(room.updated_at),
     expires_at: room.expires_at ? new Date(room.expires_at) : null,
     deleted_at: room.deleted_at ? new Date(room.deleted_at) : null,
+    drops_started_at: room.drops_started_at ? new Date(room.drops_started_at) : null,
+  };
+}
+
+function copyDrop(drop: TextDropRow): TextDropRow {
+  return {
+    id: drop.id,
+    room_id: drop.room_id,
+    content: drop.content,
+    content_type: drop.content_type,
+    created_at: new Date(drop.created_at),
+    expires_at: new Date(drop.expires_at),
   };
 }
 
 async function startTestServer(
-  repository: TextRoomsRepository,
+  repository: InMemoryTextRoomsRepository,
   clock: MutableClock,
   maxSessions = 500,
   metrics?: TextFunnelMetrics,
+  maxDrops = 10,
+  dropsRepository: InMemoryTextDropsRepository = new InMemoryTextDropsRepository(repository),
 ) {
   const app = Fastify({ logger: false });
   const hub = new TextSessionHub({ maxClientsPerSession: 20 });
@@ -283,6 +441,9 @@ async function startTestServer(
       codeLength: 6,
       ttlMs: 60 * 60 * 1000,
       customTtlMs: 30 * 60 * 1000,
+      dropTtlMs: 12 * 60 * 60 * 1000,
+      maxDrops,
+      dropsRepository,
       metrics,
       now: () => new Date(clock.current),
     });
@@ -294,6 +455,7 @@ async function startTestServer(
   return {
     app,
     hub,
+    dropsRepository,
     async close() {
       await Promise.all([...sockets].map(closeSocket));
       app.server.closeAllConnections?.();
@@ -364,6 +526,16 @@ function nextMessage(socket: NodeWebSocket): Promise<ServerMessage> {
   return promise;
 }
 
+async function nextMessageOfType(socket: NodeWebSocket, type: ServerMessage["type"]): Promise<ServerMessage> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const message = await nextMessage(socket);
+    if (message.type === type) {
+      return message;
+    }
+  }
+  throw new Error(`did not receive ${type}`);
+}
+
 async function expectJoined(socket: NodeWebSocket, expectedCount: number) {
   const snapshot = await nextMessage(socket);
   expect(snapshot.type).toBe("snapshot");
@@ -387,15 +559,42 @@ describe("text session routes", () => {
 
       const snapshot = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(snapshot.body);
+      const payload: SnapshotResponse = JSON.parse(snapshot.body);
       expect(payload).toEqual({
         text: "",
         version: 0,
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        dropExpiresAfterMinutes: 720,
+        maxDrops: 10,
+        drops: [],
       });
     } finally {
+      await server.close();
+    }
+  });
+
+  test("removes a socket that disconnects while its snapshot drops are loading", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const dropsRepository = new DelayedListTextDropsRepository(repository);
+    const server = await startTestServer(repository, clock, 500, undefined, 10, dropsRepository);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/EARLY-CLOSE/open" });
+      const socket = server.connect("EARLY-CLOSE");
+      await dropsRepository.waitUntilListStarts();
+      if (socket.readyState === NodeWebSocket.CONNECTING) {
+        await new Promise<void>((resolve) => socket.once("open", () => resolve()));
+      }
+      await closeSocket(socket);
+      dropsRepository.releaseList();
+      await Bun.sleep(5);
+
+      expect(server.hub.clientCount("EARLY-CLOSE")).toBe(0);
+    } finally {
+      dropsRepository.releaseList();
       await server.close();
     }
   });
@@ -477,6 +676,59 @@ describe("text session routes", () => {
       ]);
       expect(JSON.stringify(metrics.metrics)).not.toContain("PRIVATE-CODE");
       expect(JSON.stringify(metrics.metrics)).not.toContain("sensitive content");
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("creates immutable drops, syncs the timeline, evicts the oldest, deletes, and clears", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const server = await startTestServer(repository, clock, 500, undefined, 2);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/DROPS/open" });
+      const author = server.connect("DROPS");
+      await expectJoined(author, 1);
+      const viewer = server.connect("DROPS");
+      await expectJoined(viewer, 2);
+      await nextMessageOfType(author, "presence");
+
+      author.send(JSON.stringify({ type: "drop_add", content: "https://example.com/docs" }));
+      const firstAuthor = await nextMessageOfType(author, "drop_added");
+      const firstViewer = await nextMessageOfType(viewer, "drop_added");
+      expect(firstAuthor.drop?.contentType).toBe("url");
+      expect(firstViewer.drop?.id).toBe(firstAuthor.drop?.id);
+      expect((await nextMessageOfType(viewer, "update")).origin).toBe("drop_sync");
+
+      clock.current = new Date("2026-06-23T20:01:00Z");
+      author.send(JSON.stringify({ type: "drop_add", content: '{"ok":true}' }));
+      const second = await nextMessageOfType(author, "drop_added");
+      expect(second.drop?.contentType).toBe("json");
+
+      clock.current = new Date("2026-06-23T20:02:00Z");
+      author.send(JSON.stringify({ type: "drop_add", content: "sudo systemctl restart quickdrop" }));
+      const third = await nextMessageOfType(author, "drop_added");
+      expect(third.drop?.contentType).toBe("command");
+      const eviction = await nextMessageOfType(author, "drops_removed");
+      expect(eviction.dropIds).toEqual([firstAuthor.drop!.id]);
+
+      const snapshot = await server.app.inject({ method: "GET", url: "/api/text/DROPS" });
+      const snapshotPayload = JSON.parse(snapshot.body);
+      expect(snapshotPayload.drops.map((drop: { content: string }) => drop.content)).toEqual([
+        "sudo systemctl restart quickdrop",
+        '{"ok":true}',
+      ]);
+
+      const secondId = second.drop!.id;
+      viewer.send(JSON.stringify({ type: "drop_delete", dropId: secondId }));
+      expect((await nextMessageOfType(author, "drop_deleted")).dropId).toBe(secondId);
+
+      author.send(JSON.stringify({ type: "drops_clear" }));
+      expect((await nextMessageOfType(author, "drops_cleared")).type).toBe("drops_cleared");
+      const cleared = await server.app.inject({ method: "GET", url: "/api/text/DROPS" });
+      expect(JSON.parse(cleared.body).drops).toEqual([]);
+      expect((await repository.findTextRoomByCode("DROPS"))?.text).toBe("");
     } finally {
       await server.close();
     }
@@ -659,13 +911,16 @@ describe("text session routes", () => {
       expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
-      const persistedPayload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(persisted.body);
+      const persistedPayload: SnapshotResponse = JSON.parse(persisted.body);
       expect(persistedPayload).toEqual({
         text: "select 1",
         version: 1,
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        dropExpiresAfterMinutes: 720,
+        maxDrops: 10,
+        drops: [],
       });
     } finally {
       await server.close();
@@ -792,13 +1047,16 @@ describe("text session routes", () => {
         headers: { cookie: joinCookie },
       });
       expect(protectedRead.statusCode).toBe(200);
-      const protectedPayload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(protectedRead.body);
+      const protectedPayload: SnapshotResponse = JSON.parse(protectedRead.body);
       expect(protectedPayload).toEqual({
         text: "",
         version: 0,
         protected: true,
         kind: "generated",
         expiresAfterMinutes: 60,
+        dropExpiresAfterMinutes: 720,
+        maxDrops: 10,
+        drops: [],
       });
 
       const blockedSocket = server.connect(created.code);
@@ -836,13 +1094,16 @@ describe("text session routes", () => {
     try {
       const snapshot = await secondServer.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       expect(snapshot.statusCode).toBe(200);
-      const payload: { text: string; version: number; protected: boolean; kind: string; expiresAfterMinutes: number } = JSON.parse(snapshot.body);
+      const payload: SnapshotResponse = JSON.parse(snapshot.body);
       expect(payload).toEqual({
         text: "survives restart",
         version: 1,
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        dropExpiresAfterMinutes: 720,
+        maxDrops: 10,
+        drops: [],
       });
     } finally {
       await secondServer.close();
@@ -938,5 +1199,41 @@ describe("text session routes", () => {
     // A delayed deletion from another request must target only the expired row.
     await repository.markTextRoomDeleted(created.id, clock.current);
     expect((await repository.findTextRoomByCode("ROOM01"))?.text).toBe("new room");
+  });
+
+  test("drains the expired-drop backlog and clears the legacy document during one sweep", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const creation = await repository.createTextRoomWithinLimit({
+      code: "DROP01",
+      kind: "custom",
+      text: "",
+      version: 0,
+      createdAt: clock.current,
+      updatedAt: clock.current,
+      expiresAt: new Date(clock.current.getTime() + 60 * 60 * 1000),
+    }, 500, clock.current);
+    if (creation.status !== "created") {
+      throw new Error("expected room to be created");
+    }
+    const dropsRepository = new InMemoryTextDropsRepository(repository);
+    for (let index = 0; index < 205; index += 1) {
+      await dropsRepository.createDrop({
+        roomId: creation.room.id,
+        content: `temporary ${index}`,
+        contentType: "text",
+        createdAt: new Date(clock.current.getTime() + index),
+        expiresAt: new Date(clock.current.getTime() + 30 * 1000),
+      }, 300);
+    }
+
+    clock.current = new Date("2026-06-23T20:01:00Z");
+    const timer = startTextDropSweep(dropsRepository, 5, () => new Date(clock.current));
+    await Bun.sleep(20);
+    clearInterval(timer);
+
+    expect(await dropsRepository.listActiveDrops(creation.room.id, clock.current, 10)).toEqual([]);
+    expect(await dropsRepository.findExpiredDrops(clock.current, 300)).toEqual([]);
+    expect((await repository.findTextRoomByCode("DROP01"))?.text).toBe("");
   });
 });

@@ -5,6 +5,9 @@ import { generateSessionCode, isValidCustomSessionCode, normalizeSessionCode } f
 import { clearRoomAccessCookie, createRoomAccessCookie, type RoomAccessCheck, verifyRoomAccessCookie } from "./text-room-access";
 import type { TextSessionHub } from "./text-session-hub";
 import type { TextFunnelMetrics } from "./text-funnel-metrics";
+import { classifyTextDrop } from "./text-drop-content";
+import type { TextDropRow, TextDropsRepository } from "./text-drops-repository";
+import { textDropsRepository } from "./text-drops-repository";
 import { ROOM_PIN_MAX_LENGTH, ROOM_PIN_MIN_LENGTH, hashRoomPin, normalizeRoomPin, verifyRoomPin } from "./text-room-pin";
 import type { TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 import { textRoomsRepository } from "./text-rooms-repository";
@@ -14,6 +17,7 @@ const CODE_GENERATION_ATTEMPTS = 8;
 const EXPIRED_SWEEP_LIMIT = 100;
 const POINTER_COORD_PRECISION = 1000;
 const TEXT_ROOM_LIFECYCLE_RETRY_MS = 1000;
+const EXPIRED_DROP_SWEEP_LIMIT = 200;
 
 export type TextSessionRouteDeps = {
   hub: TextSessionHub;
@@ -23,6 +27,9 @@ export type TextSessionRouteDeps = {
   codeLength: number;
   ttlMs: number;
   customTtlMs: number;
+  dropTtlMs: number;
+  maxDrops: number;
+  dropsRepository?: TextDropsRepository;
   metrics?: TextFunnelMetrics;
   now?: () => Date;
 };
@@ -37,6 +44,7 @@ type ProtectedRoomAuthResult =
 
 export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessionRouteDeps): void {
   const repository = deps.repository ?? textRoomsRepository;
+  const dropsRepository = deps.dropsRepository ?? textDropsRepository;
   const metrics = deps.metrics ?? { record: async () => {} };
   const now = deps.now ?? (() => new Date());
   const lifecycleTargets = new Map<string, { closedAt: Date; expiryMs: number } | null>();
@@ -368,9 +376,12 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       return {
         text: room.text,
         version: room.version,
+        drops: (await dropsRepository.listActiveDrops(room.id, now(), deps.maxDrops)).map(dropPayload),
         protected: room.pin_hash !== null,
         kind: room.kind,
         expiresAfterMinutes: roomExpiryMinutes(room, deps),
+        dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
+        maxDrops: deps.maxDrops,
       };
     },
   );
@@ -423,46 +434,8 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         return;
       }
 
-      if (joined.clientCount === 1) {
-        lifecycleTargets.set(code, null);
-        await repository.markTextRoomActive(code, now());
-      }
-      if (joined.clientCount === 2) {
-        void metrics.record({ event: "second_device", roomKind: room.kind, outcome: "success" });
-      }
-
-      liveSockets.add(socket);
-      socket.on("pong", () => liveSockets.add(socket));
-      socket.send(JSON.stringify({
-        type: "snapshot",
-        text: room.text,
-        version: room.version,
-        clientId,
-        kind: room.kind,
-        expiresAfterMinutes: roomExpiryMinutes(room, deps),
-      }));
-      deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
-
-      let authExpiryTimer: ReturnType<typeof setTimeout> | null = null;
-      if (access.expiresAt) {
-        const delayMs = access.expiresAt.getTime() - now().getTime();
-        if (delayMs <= 0) {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
-          socket.close(1008, "invalid_token");
-          return;
-        }
-
-        authExpiryTimer = setTimeout(() => {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
-          socket.close(1008, "invalid_token");
-        }, delayMs);
-      }
-
-      socket.on("message", (raw: RawData) => {
-        void handleRealtimeMessage(raw, code, clientId, socket, deps, repository, now);
-      });
-
       let closed = false;
+      let authExpiryTimer: ReturnType<typeof setTimeout> | null = null;
       const onClose = () => {
         if (closed) {
           return;
@@ -487,6 +460,61 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
       socket.on("close", onClose);
       socket.on("error", onClose);
+      liveSockets.add(socket);
+      socket.on("pong", () => liveSockets.add(socket));
+
+      if (joined.clientCount === 1) {
+        lifecycleTargets.set(code, null);
+        await repository.markTextRoomActive(code, now());
+        if (closed) {
+          return;
+        }
+      }
+      if (joined.clientCount === 2) {
+        void metrics.record({ event: "second_device", roomKind: room.kind, outcome: "success" });
+      }
+
+      const drops = await dropsRepository.listActiveDrops(room.id, now(), deps.maxDrops);
+      if (closed) {
+        return;
+      }
+      socket.send(JSON.stringify({
+        type: "snapshot",
+        text: room.text,
+        version: room.version,
+        drops: drops.map(dropPayload),
+        clientId,
+        kind: room.kind,
+        expiresAfterMinutes: roomExpiryMinutes(room, deps),
+        dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
+        maxDrops: deps.maxDrops,
+      }));
+      deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
+
+      if (access.expiresAt) {
+        const delayMs = access.expiresAt.getTime() - now().getTime();
+        if (delayMs <= 0) {
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.close(1008, "invalid_token");
+          return;
+        }
+
+        authExpiryTimer = setTimeout(() => {
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.close(1008, "invalid_token");
+        }, delayMs);
+      }
+
+      socket.on("message", (raw: RawData) => {
+        void handleRealtimeMessage(raw, room, clientId, socket, deps, repository, dropsRepository, now).catch(() => {
+          app.log.error("Failed to process a text room realtime operation.");
+          try {
+            socket.send(JSON.stringify({ type: "error", error: "operation_failed", message: "Não foi possível concluir a operação." }));
+          } catch {
+            // The socket may have closed while the operation was running.
+          }
+        });
+      });
     },
   );
 }
@@ -500,14 +528,16 @@ function lifecycleRetryDelay(delayMs: number): Promise<void> {
 
 async function handleRealtimeMessage(
   raw: RawData,
-  code: string,
+  room: TextRoomRow,
   clientId: string,
   socket: WebSocket,
   deps: TextSessionRouteDeps,
   repository: TextRoomsRepository,
+  dropsRepository: TextDropsRepository,
   now: () => Date,
 ): Promise<void> {
   const message = parseRealtimeMessage(raw);
+  const code = room.code;
 
   if (!message) {
     return;
@@ -531,6 +561,84 @@ async function handleRealtimeMessage(
         visible: message.visible,
         ...(message.visible ? { x: message.x, y: message.y } : {}),
       }),
+      clientId,
+    );
+    return;
+  }
+
+  if (message.type === "drop_add") {
+    if (Buffer.byteLength(message.content, "utf8") > deps.maxBytes) {
+      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Texto excede o limite por item." }));
+      return;
+    }
+
+    if (message.content.trim().length === 0) {
+      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "Digite ou cole um texto antes de enviar." }));
+      return;
+    }
+
+    const createdAt = now();
+    const result = await dropsRepository.createDrop(
+      {
+        roomId: room.id,
+        content: message.content,
+        contentType: classifyTextDrop(message.content),
+        createdAt,
+        expiresAt: new Date(createdAt.getTime() + deps.dropTtlMs),
+      },
+      deps.maxDrops,
+    );
+    if (!result) {
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      return;
+    }
+
+    deps.hub.broadcast(code, JSON.stringify({ type: "drop_added", drop: dropPayload(result.drop), by: clientId }));
+    if (result.evictedIds.length > 0) {
+      deps.hub.broadcast(code, JSON.stringify({ type: "drops_removed", dropIds: result.evictedIds }));
+    }
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
+      clientId,
+    );
+    if (result.firstDrop) {
+      void deps.metrics?.record({ event: "first_publish", roomKind: room.kind, outcome: "success" });
+    }
+    return;
+  }
+
+  if (message.type === "drop_delete") {
+    const result = await dropsRepository.deleteDrop(room.id, message.dropId, now());
+    if (!result) {
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      return;
+    }
+    if (!result.deleted) {
+      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item não encontrado." }));
+      return;
+    }
+
+    deps.hub.broadcast(code, JSON.stringify({ type: "drop_deleted", dropId: message.dropId }));
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
+      clientId,
+    );
+    return;
+  }
+
+  if (message.type === "drops_clear") {
+    const result = await dropsRepository.clearDrops(room.id, now());
+    if (!result) {
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      return;
+    }
+
+    deps.hub.broadcast(code, JSON.stringify({ type: "drops_cleared" }));
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
       clientId,
     );
     return;
@@ -566,6 +674,9 @@ async function handleRealtimeMessage(
 
 function parseRealtimeMessage(raw: RawData):
   | { type: "write"; text: string }
+  | { type: "drop_add"; content: string }
+  | { type: "drop_delete"; dropId: string }
+  | { type: "drops_clear" }
   | { type: "typing"; active: boolean }
   | { type: "pointer"; visible: boolean; x?: number; y?: number }
   | null {
@@ -583,6 +694,23 @@ function parseRealtimeMessage(raw: RawData):
 
   if (parsed.type === "write" && "text" in parsed && typeof parsed.text === "string") {
     return { type: "write", text: parsed.text };
+  }
+
+  if (parsed.type === "drop_add" && "content" in parsed && typeof parsed.content === "string") {
+    return { type: "drop_add", content: parsed.content };
+  }
+
+  if (
+    parsed.type === "drop_delete" &&
+    "dropId" in parsed &&
+    typeof parsed.dropId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.dropId)
+  ) {
+    return { type: "drop_delete", dropId: parsed.dropId };
+  }
+
+  if (parsed.type === "drops_clear") {
+    return { type: "drops_clear" };
   }
 
   if (parsed.type === "typing" && "active" in parsed && typeof parsed.active === "boolean") {
@@ -633,6 +761,16 @@ function roomAccessPayload(room: TextRoomRow, created: boolean | undefined, deps
     kind: room.kind,
     expiresAfterMinutes: roomExpiryMinutes(room, deps),
     ...(created === undefined ? {} : { created }),
+  };
+}
+
+function dropPayload(drop: TextDropRow) {
+  return {
+    id: drop.id,
+    content: drop.content,
+    contentType: drop.content_type === "text" ? classifyTextDrop(drop.content) : drop.content_type,
+    createdAt: drop.created_at.toISOString(),
+    expiresAt: drop.expires_at.toISOString(),
   };
 }
 
@@ -728,11 +866,36 @@ export function startTextSessionSweep(
   return timer;
 }
 
+export function startTextDropSweep(
+  repository: TextDropsRepository = textDropsRepository,
+  intervalMs = 60 * 1000,
+  now: () => Date = () => new Date(),
+): NodeJS.Timeout {
+  const timer = setInterval(() => {
+    void sweepExpiredDrops(repository, now()).catch(() => {
+      console.error("Failed to sweep expired text drops.");
+    });
+  }, intervalMs);
+
+  timer.unref();
+  return timer;
+}
+
 async function sweepExpiredRooms(repository: TextRoomsRepository, currentTime: Date): Promise<void> {
   const expiredRooms = await repository.findExpiredTextRooms(currentTime, EXPIRED_SWEEP_LIMIT);
 
   for (const room of expiredRooms) {
     await repository.markTextRoomDeleted(room.id, currentTime);
+  }
+}
+
+async function sweepExpiredDrops(repository: TextDropsRepository, currentTime: Date): Promise<void> {
+  while (true) {
+    const expiredDrops = await repository.findExpiredDrops(currentTime, EXPIRED_DROP_SWEEP_LIMIT);
+    await repository.markDropsDeleted(expiredDrops.map((drop) => drop.id), currentTime);
+    if (expiredDrops.length < EXPIRED_DROP_SWEEP_LIMIT) {
+      return;
+    }
   }
 }
 

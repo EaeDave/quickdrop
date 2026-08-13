@@ -11,13 +11,37 @@ export type RoomErrorCode =
   | "session_limit"
   | "code_exhausted"
   | "create_failed"
+  | "empty_drop"
+  | "drop_not_found"
+  | "operation_failed"
   | null;
 
 export type RoomPointer = { visible: boolean; x?: number; y?: number };
+export type TextDropContentType = "text" | "url" | "command" | "json";
+export type TextDrop = {
+  id: string;
+  content: string;
+  contentType: TextDropContentType;
+  createdAt: string;
+  expiresAt: string;
+};
 
 export type RoomHandlers = {
-  onSnapshot(payload: { text: string; version: number; clientId: string; kind: RoomKind; expiresAfterMinutes: number }): void;
-  onUpdate(payload: { text: string; version: number; by: string }): void;
+  onSnapshot(payload: {
+    text: string;
+    version: number;
+    drops: TextDrop[];
+    clientId: string;
+    kind: RoomKind;
+    expiresAfterMinutes: number;
+    dropExpiresAfterMinutes: number;
+    maxDrops: number;
+  }): void;
+  onUpdate(payload: { text: string; version: number; by: string; origin?: "drop_sync" }): void;
+  onDropAdded(payload: { drop: TextDrop; by: string }): void;
+  onDropsRemoved(payload: { dropIds: string[] }): void;
+  onDropDeleted(payload: { dropId: string }): void;
+  onDropsCleared(): void;
   onPresence(payload: { count: number }): void;
   onTyping(payload: { by: string; active: boolean }): void;
   onPointer(payload: { by: string; pointer: RoomPointer }): void;
@@ -31,6 +55,9 @@ export type RoomController = {
   sendWrite(text: string, baseVersion: number): void;
   sendTyping(active: boolean): void;
   sendPointer(pointer: RoomPointer): void;
+  addDrop(content: string): void;
+  deleteDrop(dropId: string): void;
+  clearDrops(): void;
   close(): void;
 };
 
@@ -145,6 +172,29 @@ function parseBoolean(value: unknown): boolean | null {
 
 function parseRoomKind(value: unknown): RoomKind | null {
   return value === "custom" || value === "generated" ? value : null;
+}
+
+function parseTextDrop(value: unknown): TextDrop | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const id = "id" in value ? parseString(value.id) : null;
+  const content = "content" in value ? parseString(value.content) : null;
+  const contentType = "contentType" in value ? value.contentType : null;
+  const createdAt = "createdAt" in value ? parseString(value.createdAt) : null;
+  const expiresAt = "expiresAt" in value ? parseString(value.expiresAt) : null;
+  if (
+    !id ||
+    content === null ||
+    (contentType !== "text" && contentType !== "url" && contentType !== "command" && contentType !== "json") ||
+    !createdAt ||
+    !expiresAt
+  ) {
+    return null;
+  }
+
+  return { id, content, contentType, createdAt, expiresAt };
 }
 
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
@@ -332,6 +382,18 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
     }
   };
 
+  const sendRealtimeAction = (payload: Record<string, unknown>) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !readyForWrites || closedByUser || fatalClose) {
+      return;
+    }
+
+    try {
+      socket.send(JSON.stringify(payload));
+    } catch {
+      scheduleReconnect();
+    }
+  };
+
   const openSocket = () => {
     if (closedByUser || fatalClose) {
       return;
@@ -376,14 +438,32 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const clientId = "clientId" in payload ? parseString(payload.clientId) : null;
         const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
         const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
+        const dropExpiresAfterMinutes = "dropExpiresAfterMinutes" in payload ? parseNumber(payload.dropExpiresAfterMinutes) : expiresAfterMinutes;
+        const maxDrops = "maxDrops" in payload ? parseNumber(payload.maxDrops) : 10;
+        const rawDrops = "drops" in payload && Array.isArray(payload.drops) ? payload.drops : [];
+        const drops = rawDrops
+          .map(parseTextDrop)
+          .filter((drop): drop is TextDrop => drop !== null);
         if (text === null || version === null || clientId === null || kind === null || expiresAfterMinutes === null) {
+          return;
+        }
+        if (dropExpiresAfterMinutes === null || maxDrops === null) {
           return;
         }
 
         readyForWrites = true;
         writeInFlight = false;
         queuedWrite = null;
-        handlers.onSnapshot({ text, version, clientId, kind, expiresAfterMinutes });
+        handlers.onSnapshot({
+          text,
+          version,
+          drops,
+          clientId,
+          kind,
+          expiresAfterMinutes,
+          dropExpiresAfterMinutes,
+          maxDrops,
+        });
         flushQueuedWrite();
         return;
       }
@@ -392,11 +472,47 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const text = "text" in payload ? parseString(payload.text) : null;
         const version = "version" in payload ? parseNumber(payload.version) : null;
         const by = "by" in payload ? parseString(payload.by) : null;
+        const origin = "origin" in payload && payload.origin === "drop_sync" ? payload.origin : undefined;
         if (text === null || version === null || by === null) {
           return;
         }
 
-        handlers.onUpdate({ text, version, by });
+        handlers.onUpdate({ text, version, by, ...(origin ? { origin } : {}) });
+        return;
+      }
+
+      if (payload.type === "drop_added") {
+        const drop = "drop" in payload ? parseTextDrop(payload.drop) : null;
+        const by = "by" in payload ? parseString(payload.by) : null;
+        if (!drop || !by) {
+          return;
+        }
+        handlers.onDropAdded({ drop, by });
+        return;
+      }
+
+      if (payload.type === "drops_removed") {
+        const dropIds = "dropIds" in payload && Array.isArray(payload.dropIds)
+          ? payload.dropIds.filter((id): id is string => typeof id === "string")
+          : null;
+        if (!dropIds) {
+          return;
+        }
+        handlers.onDropsRemoved({ dropIds });
+        return;
+      }
+
+      if (payload.type === "drop_deleted") {
+        const dropId = "dropId" in payload ? parseString(payload.dropId) : null;
+        if (!dropId) {
+          return;
+        }
+        handlers.onDropDeleted({ dropId });
+        return;
+      }
+
+      if (payload.type === "drops_cleared") {
+        handlers.onDropsCleared();
         return;
       }
 
@@ -546,6 +662,15 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
       } catch {
         scheduleReconnect();
       }
+    },
+    addDrop(content: string) {
+      sendRealtimeAction({ type: "drop_add", content });
+    },
+    deleteDrop(dropId: string) {
+      sendRealtimeAction({ type: "drop_delete", dropId });
+    },
+    clearDrops() {
+      sendRealtimeAction({ type: "drops_clear" });
     },
     close() {
       if (closedByUser) {

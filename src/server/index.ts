@@ -18,6 +18,7 @@ import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-f
 import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
 import {
   rearmTextRoomsAfterRestart,
+  startTextDropSweep,
   registerTextSessionRoutes,
   startTextSessionHeartbeat,
   startTextSessionSweep,
@@ -129,6 +130,8 @@ export function buildApp() {
       codeLength: config.textSessionCodeLength,
       ttlMs: config.textSessionTtlHours * 60 * 60 * 1000,
       customTtlMs: config.textCustomSessionTtlMinutes * 60 * 1000,
+      dropTtlMs: config.textDropTtlHours * 60 * 60 * 1000,
+      maxDrops: config.textDropMaxItems,
       metrics: textMetrics,
     });
     registerTextFunnelMetricsRoute(app, textMetrics);
@@ -150,6 +153,7 @@ export async function startServer(): Promise<void> {
   await app.listen({ host: "0.0.0.0", port: config.port });
   startCleanupJob();
   startTextSessionSweep();
+  startTextDropSweep();
   startTextSessionHeartbeat(app);
   // Retention also applies to historical aggregates after collection is disabled.
   startTextFunnelMetricsCleanup(config.textMetricsRetentionDays);
