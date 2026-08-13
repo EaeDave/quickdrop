@@ -274,6 +274,25 @@ class InMemoryTextDropsRepository implements TextDropsRepository {
   }
 }
 
+class DelayedListTextDropsRepository extends InMemoryTextDropsRepository {
+  private readonly started = Promise.withResolvers<void>();
+  private readonly released = Promise.withResolvers<void>();
+
+  waitUntilListStarts(): Promise<void> {
+    return this.started.promise;
+  }
+
+  releaseList(): void {
+    this.released.resolve();
+  }
+
+  override async listActiveDrops(roomId: string, now: Date, limit: number): Promise<TextDropRow[]> {
+    this.started.resolve();
+    await this.released.promise;
+    return super.listActiveDrops(roomId, now, limit);
+  }
+}
+
 class CollectingTextFunnelMetrics implements TextFunnelMetrics {
   readonly metrics: TextMetricIncrement[] = [];
 
@@ -401,10 +420,10 @@ async function startTestServer(
   maxSessions = 500,
   metrics?: TextFunnelMetrics,
   maxDrops = 10,
+  dropsRepository: InMemoryTextDropsRepository = new InMemoryTextDropsRepository(repository),
 ) {
   const app = Fastify({ logger: false });
   const hub = new TextSessionHub({ maxClientsPerSession: 20 });
-  const dropsRepository = new InMemoryTextDropsRepository(repository);
   const sockets = new Set<NodeWebSocket>();
 
   app.register(rateLimit, { global: false });
@@ -552,6 +571,30 @@ describe("text session routes", () => {
         drops: [],
       });
     } finally {
+      await server.close();
+    }
+  });
+
+  test("removes a socket that disconnects while its snapshot drops are loading", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const dropsRepository = new DelayedListTextDropsRepository(repository);
+    const server = await startTestServer(repository, clock, 500, undefined, 10, dropsRepository);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/EARLY-CLOSE/open" });
+      const socket = server.connect("EARLY-CLOSE");
+      await dropsRepository.waitUntilListStarts();
+      if (socket.readyState === NodeWebSocket.CONNECTING) {
+        await new Promise<void>((resolve) => socket.once("open", () => resolve()));
+      }
+      await closeSocket(socket);
+      dropsRepository.releaseList();
+      await Bun.sleep(5);
+
+      expect(server.hub.clientCount("EARLY-CLOSE")).toBe(0);
+    } finally {
+      dropsRepository.releaseList();
       await server.close();
     }
   });

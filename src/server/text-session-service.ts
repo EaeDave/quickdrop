@@ -434,57 +434,8 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         return;
       }
 
-      if (joined.clientCount === 1) {
-        lifecycleTargets.set(code, null);
-        await repository.markTextRoomActive(code, now());
-      }
-      if (joined.clientCount === 2) {
-        void metrics.record({ event: "second_device", roomKind: room.kind, outcome: "success" });
-      }
-
-      liveSockets.add(socket);
-      socket.on("pong", () => liveSockets.add(socket));
-      const drops = await dropsRepository.listActiveDrops(room.id, now(), deps.maxDrops);
-      socket.send(JSON.stringify({
-        type: "snapshot",
-        text: room.text,
-        version: room.version,
-        drops: drops.map(dropPayload),
-        clientId,
-        kind: room.kind,
-        expiresAfterMinutes: roomExpiryMinutes(room, deps),
-        dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
-        maxDrops: deps.maxDrops,
-      }));
-      deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
-
-      let authExpiryTimer: ReturnType<typeof setTimeout> | null = null;
-      if (access.expiresAt) {
-        const delayMs = access.expiresAt.getTime() - now().getTime();
-        if (delayMs <= 0) {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
-          socket.close(1008, "invalid_token");
-          return;
-        }
-
-        authExpiryTimer = setTimeout(() => {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
-          socket.close(1008, "invalid_token");
-        }, delayMs);
-      }
-
-      socket.on("message", (raw: RawData) => {
-        void handleRealtimeMessage(raw, room, clientId, socket, deps, repository, dropsRepository, now).catch(() => {
-          app.log.error("Failed to process a text room realtime operation.");
-          try {
-            socket.send(JSON.stringify({ type: "error", error: "operation_failed", message: "Não foi possível concluir a operação." }));
-          } catch {
-            // The socket may have closed while the operation was running.
-          }
-        });
-      });
-
       let closed = false;
+      let authExpiryTimer: ReturnType<typeof setTimeout> | null = null;
       const onClose = () => {
         if (closed) {
           return;
@@ -509,6 +460,61 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
       socket.on("close", onClose);
       socket.on("error", onClose);
+      liveSockets.add(socket);
+      socket.on("pong", () => liveSockets.add(socket));
+
+      if (joined.clientCount === 1) {
+        lifecycleTargets.set(code, null);
+        await repository.markTextRoomActive(code, now());
+        if (closed) {
+          return;
+        }
+      }
+      if (joined.clientCount === 2) {
+        void metrics.record({ event: "second_device", roomKind: room.kind, outcome: "success" });
+      }
+
+      const drops = await dropsRepository.listActiveDrops(room.id, now(), deps.maxDrops);
+      if (closed) {
+        return;
+      }
+      socket.send(JSON.stringify({
+        type: "snapshot",
+        text: room.text,
+        version: room.version,
+        drops: drops.map(dropPayload),
+        clientId,
+        kind: room.kind,
+        expiresAfterMinutes: roomExpiryMinutes(room, deps),
+        dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
+        maxDrops: deps.maxDrops,
+      }));
+      deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
+
+      if (access.expiresAt) {
+        const delayMs = access.expiresAt.getTime() - now().getTime();
+        if (delayMs <= 0) {
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.close(1008, "invalid_token");
+          return;
+        }
+
+        authExpiryTimer = setTimeout(() => {
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.close(1008, "invalid_token");
+        }, delayMs);
+      }
+
+      socket.on("message", (raw: RawData) => {
+        void handleRealtimeMessage(raw, room, clientId, socket, deps, repository, dropsRepository, now).catch(() => {
+          app.log.error("Failed to process a text room realtime operation.");
+          try {
+            socket.send(JSON.stringify({ type: "error", error: "operation_failed", message: "Não foi possível concluir a operação." }));
+          } catch {
+            // The socket may have closed while the operation was running.
+          }
+        });
+      });
     },
   );
 }

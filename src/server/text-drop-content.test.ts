@@ -15,6 +15,7 @@ describe("classifyTextDrop", () => {
 
   test("recognizes common shell and PowerShell commands conservatively", () => {
     expect(classifyTextDrop("$ echo hello")).toBe("command");
+    expect(classifyTextDrop("$ 100")).toBe("text");
     expect(classifyTextDrop("sudo systemctl restart app")).toBe("command");
     expect(classifyTextDrop("pwsh -File install.ps1")).toBe("command");
     expect(classifyTextDrop("go test ./...")).toBe("command");
