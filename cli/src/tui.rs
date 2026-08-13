@@ -1070,32 +1070,38 @@ fn truncate(content: &str, width: usize) -> String {
 
 struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    keyboard_enhancement_enabled: bool,
 }
 impl TerminalGuard {
     fn enter() -> Result<Self, QdError> {
         enable_raw_mode().map_err(terminal_error)?;
         let mut stdout = io::stdout();
-        if let Err(error) = execute!(
-            stdout,
-            EnterAlternateScreen,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
-        ) {
-            let _ = execute!(
-                io::stdout(),
-                PopKeyboardEnhancementFlags,
-                LeaveAlternateScreen
-            );
+        if let Err(error) = execute!(stdout, EnterAlternateScreen) {
             let _ = disable_raw_mode();
             return Err(terminal_error(error));
         }
-        match Terminal::new(CrosstermBackend::new(stdout)) {
-            Ok(terminal) => Ok(Self { terminal }),
+        let keyboard_enhancement_enabled = match execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        ) {
+            Ok(()) => true,
+            Err(error) if keyboard_enhancement_is_optional(&error) => false,
             Err(error) => {
-                let _ = execute!(
-                    io::stdout(),
-                    PopKeyboardEnhancementFlags,
-                    LeaveAlternateScreen
-                );
+                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+                let _ = disable_raw_mode();
+                return Err(terminal_error(error));
+            }
+        };
+        match Terminal::new(CrosstermBackend::new(stdout)) {
+            Ok(terminal) => Ok(Self {
+                terminal,
+                keyboard_enhancement_enabled,
+            }),
+            Err(error) => {
+                if keyboard_enhancement_enabled {
+                    let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+                }
+                let _ = execute!(io::stdout(), LeaveAlternateScreen);
                 let _ = disable_raw_mode();
                 Err(terminal_error(error))
             }
@@ -1110,14 +1116,17 @@ impl TerminalGuard {
 }
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = execute!(
-            self.terminal.backend_mut(),
-            PopKeyboardEnhancementFlags,
-            LeaveAlternateScreen
-        );
+        if self.keyboard_enhancement_enabled {
+            let _ = execute!(self.terminal.backend_mut(), PopKeyboardEnhancementFlags);
+        }
+        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = disable_raw_mode();
         let _ = self.terminal.show_cursor();
     }
+}
+
+fn keyboard_enhancement_is_optional(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::Unsupported
 }
 fn terminal_error(error: io::Error) -> QdError {
     QdError::Runtime(format!("terminal error: {error}"))
@@ -1153,6 +1162,7 @@ mod tests {
     #[test]
     fn keeps_newest_drops_first_and_selection_valid() {
         let server = Url::parse("https://quickdrop.example").unwrap();
+
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.replace_drops(vec![
             drop("old", "old", "2026-01-01T10:00:00Z"),
@@ -1162,6 +1172,13 @@ mod tests {
         app.selected = 1;
         app.remove_drop("old");
         assert_eq!(app.selected, 0);
+    }
+    #[test]
+    fn unsupported_keyboard_enhancement_keeps_terminal_available() {
+        let unsupported = io::Error::new(io::ErrorKind::Unsupported, "not supported");
+        let denied = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+        assert!(keyboard_enhancement_is_optional(&unsupported));
+        assert!(!keyboard_enhancement_is_optional(&denied));
     }
     #[test]
     fn parses_realtime_drop_events() {
