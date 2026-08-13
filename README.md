@@ -187,6 +187,8 @@ printf '%s\n' "secret from stdin" | qd MYCODE 1234 --msg -
 ```
 
 `--msg -` reads the message from stdin. Publishing creates a missing room (publicly, or PIN-protected when a PIN is supplied). A PIN supplied for an existing public room fails instead of being ignored.
+A positional PIN can appear in process listings and shell history. On shared machines, prefer the interactive TUI prompt for PIN-protected rooms.
+
 
 Print and copy the newest drop:
 

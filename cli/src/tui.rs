@@ -494,10 +494,6 @@ impl<'a> App<'a> {
         if local {
             self.drop_origins
                 .insert(added_id.clone(), DropOrigin::Self_);
-            if self.latest_remote_id.as_deref() == Some(&added_id) {
-                self.latest_remote_id = None;
-                self.ensure_latest_remote();
-            }
             if self
                 .new_remote_marker
                 .as_ref()
@@ -514,7 +510,6 @@ impl<'a> App<'a> {
         } else {
             self.drop_origins
                 .insert(added_id.clone(), DropOrigin::Remote);
-            self.latest_remote_id = Some(added_id.clone());
             self.new_remote_marker = Some((added_id, Instant::now() + NEW_MARKER_DURATION));
             self.status = Some("New drop received".to_owned());
             if let Some(selected_id) = selected_id {
@@ -640,10 +635,6 @@ impl<'a> App<'a> {
             sort_drops(&mut self.drops);
             if local {
                 self.drop_origins.insert(drop_id.clone(), DropOrigin::Self_);
-                if self.latest_remote_id.as_deref() == Some(&drop_id) {
-                    self.latest_remote_id = None;
-                    self.ensure_latest_remote();
-                }
                 if self
                     .new_remote_marker
                     .as_ref()
@@ -654,7 +645,6 @@ impl<'a> App<'a> {
             } else {
                 self.drop_origins
                     .insert(drop_id.clone(), DropOrigin::Remote);
-                self.latest_remote_id = Some(drop_id.clone());
                 self.new_remote_marker = Some((drop_id, Instant::now() + NEW_MARKER_DURATION));
             }
             self.ensure_latest_remote();

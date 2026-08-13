@@ -542,22 +542,12 @@ export default function TextSession() {
         const nextDrops = dropsRef.current.filter((drop) => !removed.has(drop.id));
         const origins = Object.fromEntries(Object.entries(dropOriginsRef.current).filter(([id]) => !removed.has(id)));
         classifyDrops(nextDrops, origins);
-        if (latestRemoteDropIdRef.current && removed.has(latestRemoteDropIdRef.current)) {
-          const fallback = nextDrops.find((drop) => origins[drop.id] === "remote")?.id ?? null;
-          latestRemoteDropIdRef.current = fallback;
-          setLatestRemoteDropId(fallback);
-        }
       },
       onDropDeleted(payload) {
         const nextDrops = dropsRef.current.filter((drop) => drop.id !== payload.dropId);
         const origins = { ...dropOriginsRef.current };
         delete origins[payload.dropId];
         classifyDrops(nextDrops, origins);
-        if (latestRemoteDropIdRef.current === payload.dropId) {
-          const fallback = nextDrops.find((drop) => origins[drop.id] === "remote")?.id ?? null;
-          latestRemoteDropIdRef.current = fallback;
-          setLatestRemoteDropId(fallback);
-        }
         setRoomNotice("Item excluído.");
       },
       onDropsCleared() {
@@ -599,7 +589,12 @@ export default function TextSession() {
 
         const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
         const nextDrops = sortDrops([virtual, ...withoutLegacy]);
-        const origins = { ...dropOriginsRef.current, [virtual.id]: "remote" as DropOrigin };
+        const origins = {
+          ...Object.fromEntries(
+            Object.entries(dropOriginsRef.current).filter(([id]) => !id.startsWith(virtualPrefix)),
+          ),
+          [virtual.id]: "remote" as DropOrigin,
+        };
         classifyDrops(nextDrops, origins);
         markNewDrop(virtual.id);
         setRoomNotice("Texto recebido de um cliente anterior.");

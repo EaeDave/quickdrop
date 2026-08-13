@@ -180,7 +180,10 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
             let Some(content) = prepare_received_content(content, copy_to_system_clipboard)? else {
                 return Err(QdError::Runtime("No messages found.".to_owned()));
             };
-            print!("{content}");
+            let mut stdout = io::stdout();
+            if !write_received_content(&mut stdout, &content)? {
+                return Ok(());
+            }
             eprintln!("Copied the latest message.");
             Ok(())
         }
@@ -213,6 +216,19 @@ fn validate_message_content(content: &str) -> Result<(), QdError> {
         Err(QdError::Usage("enter a message before sending.".to_owned()))
     } else {
         Ok(())
+    }
+}
+
+fn write_received_content<W: Write>(writer: &mut W, content: &str) -> Result<bool, QdError> {
+    match writer
+        .write_all(content.as_bytes())
+        .and_then(|()| writer.flush())
+    {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(false),
+        Err(error) => Err(QdError::Runtime(format!(
+            "could not write the message: {error}"
+        ))),
     }
 }
 
@@ -288,17 +304,6 @@ fn parse_command(args: Vec<String>) -> Result<QdCommand, QdError> {
                 let content = arguments
                     .next()
                     .ok_or_else(|| QdError::Usage("--msg requires text.".to_owned()))?;
-                if content == "--copy" {
-                    return Err(QdError::Usage(
-                        "--msg and --copy cannot be combined.".to_owned(),
-                    ));
-                }
-                if content == "--msg" {
-                    return Err(QdError::Usage("provide --msg only once.".to_owned()));
-                }
-                if content == "--server" {
-                    return Err(QdError::Usage("--msg requires text.".to_owned()));
-                }
                 message = Some(if content == "-" {
                     MessageSource::Stdin
                 } else {
@@ -345,9 +350,9 @@ fn parse_command(args: Vec<String>) -> Result<QdCommand, QdError> {
     let pin = positional
         .get(1)
         .map(|pin| {
-            let pin = pin.trim();
-            if pin.is_empty() {
-                Err(QdError::Usage("PIN cannot be empty.".to_owned()))
+            let length = pin.chars().count();
+            if !(4..=64).contains(&length) {
+                Err(QdError::Usage("use a PIN with 4–64 characters.".to_owned()))
             } else {
                 Ok(pin.to_owned())
             }
@@ -832,7 +837,15 @@ mod tests {
                 ..
             } if content == "-literal"
         ));
-        for option_like_text in ["--help", "-h", "--version", "-V"] {
+        for option_like_text in [
+            "--help",
+            "-h",
+            "--version",
+            "-V",
+            "--copy",
+            "--msg",
+            "--server",
+        ] {
             let parsed = parse_command(vec![
                 "dev".to_owned(),
                 "--msg".to_owned(),
@@ -865,7 +878,7 @@ mod tests {
             }
         );
 
-        let tui = parse_command(vec!["hello".to_owned(), "dev".to_owned()]).unwrap();
+        let tui = parse_command(vec!["hello".to_owned(), "1234".to_owned()]).unwrap();
         assert!(matches!(tui.operation, Operation::Tui { .. }));
     }
 
@@ -1048,5 +1061,35 @@ mod tests {
         .unwrap();
         assert!(result.is_none());
         assert!(!copied);
+    }
+    #[test]
+    fn closed_stdout_is_a_successful_pipe_termination() {
+        struct BrokenPipe;
+        impl Write for BrokenPipe {
+            fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        assert!(!write_received_content(&mut BrokenPipe, "message").unwrap());
+        let mut output = Vec::new();
+        assert!(write_received_content(&mut output, "message").unwrap());
+        assert_eq!(output, b"message");
+    }
+
+    #[test]
+    fn positional_pin_uses_the_server_length_contract() {
+        for pin in ["123", &"x".repeat(65)] {
+            let error = parse_command(vec!["DEV".to_owned(), pin.to_owned(), "--copy".to_owned()])
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                QdError::Usage(message) if message == "use a PIN with 4–64 characters."
+            ));
+        }
     }
 }

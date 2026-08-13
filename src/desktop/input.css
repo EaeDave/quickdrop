@@ -707,7 +707,7 @@ html.quickdrop-text-page a {
 }
 
 .quickdrop-drop-card--new {
-  animation: quickdrop-drop-arrival 0.42s ease-out both;
+  animation: quickdrop-drop-arrival 0.42s ease-out;
 }
 
 @keyframes quickdrop-drop-arrival {
