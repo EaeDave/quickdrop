@@ -16,6 +16,10 @@ describe("classifyTextDrop", () => {
   test("recognizes common shell and PowerShell commands conservatively", () => {
     expect(classifyTextDrop("$ echo hello")).toBe("command");
     expect(classifyTextDrop("$ 100")).toBe("text");
+    expect(classifyTextDrop("$ find . -name '*.ts'")).toBe("command");
+    expect(classifyTextDrop("find a better solution")).toBe("text");
+    expect(classifyTextDrop("cat pictures are nice")).toBe("text");
+    expect(classifyTextDrop("touch the screen")).toBe("text");
     expect(classifyTextDrop("sudo systemctl restart app")).toBe("command");
     expect(classifyTextDrop("pwsh -File install.ps1")).toBe("command");
     expect(classifyTextDrop("go test ./...")).toBe("command");
