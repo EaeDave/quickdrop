@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     env, io,
     time::Duration,
 };
@@ -40,8 +40,8 @@ use tokio_tungstenite::{
 use tui_textarea::TextArea;
 
 use crate::{
-    copy_to_system_clipboard, endpoint, http_client, open_in_browser, open_room, update, QdCommand,
-    QdError, TextDrop,
+    copy_to_system_clipboard, endpoint, http_client, open_in_browser, open_room, update, QdError,
+    TextDrop,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +68,16 @@ enum ConnectionState {
     Connected,
     Reconnecting,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DropOrigin {
+    Unknown,
+    Self_,
+    Remote,
+}
+
+const NEW_MARKER_DURATION: Duration = Duration::from_secs(8);
+const STATUS_FEEDBACK_DURATION: Duration = Duration::from_secs(4);
 #[derive(Debug)]
 enum Action {
     Publish(String),
@@ -146,10 +156,14 @@ struct UiRegions {
     timeline_items: Vec<TimelineItemRegion>,
     actions: Vec<ActionRegion>,
 }
-pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, QdError> {
+pub async fn run_tui(
+    server: Url,
+    initial_code: Option<String>,
+    initial_pin: Option<String>,
+) -> Result<bool, QdError> {
     let mut terminal = TerminalGuard::enter()?;
     let mut events = EventStream::new();
-    let mut app = App::new(server, initial_code);
+    let mut app = App::new(server, initial_code, initial_pin);
     let mut connection = None;
     let (update_tx, mut update_rx) = mpsc::channel(2);
     let mut expiry_tick = interval(Duration::from_secs(1));
@@ -165,6 +179,8 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
     });
 
     loop {
+        app.expire_new_marker(Instant::now());
+        app.expire_status_feedback(Instant::now());
         terminal
             .draw(|frame| render(frame, &mut app))
             .map_err(terminal_error)?;
@@ -191,15 +207,9 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
         }
 
         if app.screen == Screen::Timeline && connection.is_none() {
-            let command = QdCommand {
-                code: app.code.clone(),
-                content: None,
-                pin: None,
-                server: app.server.clone(),
-            };
             let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
             let room = match http_client() {
-                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
+                Ok(client) => open_room(&client, &app.server, &app.code, pin.as_deref()).await,
                 Err(error) => Err(error),
             };
             let room = match room {
@@ -211,9 +221,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
                     || code == "pin_invalid"
                     || code == "invalid_token" =>
                 {
-                    if code == "pin_required" || code == "invalid_token" {
-                        app.pin_purpose = PinPurpose::Unlock;
-                    }
+                    app.pin_purpose = PinPurpose::Unlock;
                     app.screen = Screen::Pin;
                     app.pin_input.clear();
                     app.status = Some(message);
@@ -228,15 +236,16 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
                     continue;
                 }
             };
-            let creating_protected = app.pin_purpose == PinPurpose::Create;
-            if creating_protected && !room.protected {
+            if app.pin_purpose == PinPurpose::Create && !room.protected {
                 app.screen = Screen::Code;
                 app.code_input = app.code.clone();
-                app.status = Some("This clipboard already exists without a PIN".to_owned());
+                app.status = Some("This room already exists without a PIN".to_owned());
                 app.code.clear();
                 app.pin_input.clear();
                 continue;
             }
+            app.status = Some(open_feedback(room.created, room.protected).to_owned());
+            app.status_expires_at = Some(Instant::now() + STATUS_FEEDBACK_DURATION);
             app.pin_purpose = PinPurpose::Unlock;
             app.pin_input.clear();
             app.code = room.code;
@@ -308,7 +317,9 @@ struct App<'a> {
     pin_purpose: PinPurpose,
     code: String,
     drops: Vec<TextDrop>,
-    unread_drop_ids: HashSet<String>,
+    drop_origins: HashMap<String, DropOrigin>,
+    latest_remote_id: Option<String>,
+    new_remote_marker: Option<(String, Instant)>,
     selected: usize,
     composer: TextArea<'a>,
     composer_draft_before_edit: Option<String>,
@@ -316,6 +327,7 @@ struct App<'a> {
     edit_saving: bool,
     connection: ConnectionState,
     status: Option<String>,
+    status_expires_at: Option<Instant>,
     idle_ttl_minutes: Option<u64>,
     room_expires_at: Option<String>,
     presence: u64,
@@ -334,10 +346,11 @@ struct App<'a> {
 }
 
 impl<'a> App<'a> {
-    fn new(server: Url, code: Option<String>) -> Self {
+    fn new(server: Url, code: Option<String>, pin: Option<String>) -> Self {
         let mut composer = TextArea::default();
         composer.set_placeholder_text("Write or paste a new drop…");
         composer.set_cursor_line_style(Style::default());
+        let direct_pin = pin.is_some();
         Self {
             screen: if code.is_some() {
                 Screen::Timeline
@@ -346,11 +359,17 @@ impl<'a> App<'a> {
             },
             focus: Focus::Timeline,
             code_input: String::new(),
-            pin_input: String::new(),
-            pin_purpose: PinPurpose::Unlock,
+            pin_input: pin.unwrap_or_default(),
+            pin_purpose: if direct_pin {
+                PinPurpose::Create
+            } else {
+                PinPurpose::Unlock
+            },
             code: code.unwrap_or_default(),
             drops: Vec::new(),
-            unread_drop_ids: HashSet::new(),
+            drop_origins: HashMap::new(),
+            latest_remote_id: None,
+            new_remote_marker: None,
             selected: 0,
             composer,
             connection: ConnectionState::Connecting,
@@ -358,6 +377,7 @@ impl<'a> App<'a> {
             editing_drop_id: None,
             edit_saving: false,
             status: None,
+            status_expires_at: None,
             idle_ttl_minutes: None,
             room_expires_at: None,
             presence: 0,
@@ -410,7 +430,9 @@ impl<'a> App<'a> {
         self.pin_purpose = PinPurpose::Unlock;
         self.code.clear();
         self.drops.clear();
-        self.unread_drop_ids.clear();
+        self.drop_origins.clear();
+        self.latest_remote_id = None;
+        self.new_remote_marker = None;
         self.selected = 0;
         self.clear_composer();
         self.composer_draft_before_edit = None;
@@ -418,6 +440,7 @@ impl<'a> App<'a> {
         self.edit_saving = false;
         self.connection = ConnectionState::Connecting;
         self.status = None;
+        self.status_expires_at = None;
         self.idle_ttl_minutes = None;
         self.room_expires_at = None;
         self.presence = 0;
@@ -443,8 +466,21 @@ impl<'a> App<'a> {
         let fallback = self.selected;
         sort_drops(&mut drops);
         self.drops = drops;
-        self.unread_drop_ids
-            .retain(|id| self.drops.iter().any(|drop| drop.id == *id));
+        self.drop_origins
+            .retain(|id, _| self.drops.iter().any(|drop| drop.id == *id));
+        for drop in &self.drops {
+            self.drop_origins
+                .entry(drop.id.clone())
+                .or_insert(DropOrigin::Unknown);
+        }
+        if self
+            .new_remote_marker
+            .as_ref()
+            .is_some_and(|(id, _)| !self.drop_origins.contains_key(id))
+        {
+            self.new_remote_marker = None;
+        }
+        self.ensure_latest_remote();
         self.selected = selected_id
             .and_then(|id| self.drops.iter().position(|drop| drop.id == id))
             .unwrap_or_else(|| fallback.min(self.drops.len().saturating_sub(1)));
@@ -456,7 +492,15 @@ impl<'a> App<'a> {
         self.drops.push(drop);
         sort_drops(&mut self.drops);
         if local {
-            self.unread_drop_ids.remove(&added_id);
+            self.drop_origins
+                .insert(added_id.clone(), DropOrigin::Self_);
+            if self
+                .new_remote_marker
+                .as_ref()
+                .is_some_and(|(id, _)| id == &added_id)
+            {
+                self.new_remote_marker = None;
+            }
             self.selected = self
                 .drops
                 .iter()
@@ -464,7 +508,9 @@ impl<'a> App<'a> {
                 .unwrap_or_default();
             self.status = Some("Sent".to_owned());
         } else {
-            self.unread_drop_ids.insert(added_id);
+            self.drop_origins
+                .insert(added_id.clone(), DropOrigin::Remote);
+            self.new_remote_marker = Some((added_id, Instant::now() + NEW_MARKER_DURATION));
             self.status = Some("New drop received".to_owned());
             if let Some(selected_id) = selected_id {
                 self.selected = self
@@ -474,11 +520,72 @@ impl<'a> App<'a> {
                     .unwrap_or_else(|| self.selected.min(self.drops.len().saturating_sub(1)));
             }
         }
+        self.ensure_latest_remote();
     }
     fn remove_drop(&mut self, id: &str) {
         self.drops.retain(|drop| drop.id != id);
-        self.unread_drop_ids.remove(id);
+        self.drop_origins.remove(id);
+        if self.latest_remote_id.as_deref() == Some(id) {
+            self.latest_remote_id = None;
+            self.ensure_latest_remote();
+        }
+        if self
+            .new_remote_marker
+            .as_ref()
+            .is_some_and(|(marker_id, _)| marker_id == id)
+        {
+            self.new_remote_marker = None;
+        }
         self.selected = self.selected.min(self.drops.len().saturating_sub(1));
+    }
+    fn ensure_latest_remote(&mut self) {
+        self.latest_remote_id = self
+            .drops
+            .iter()
+            .find(|drop| self.drop_origins.get(&drop.id) == Some(&DropOrigin::Remote))
+            .map(|drop| drop.id.clone());
+    }
+    fn expire_new_marker(&mut self, now: Instant) {
+        if self
+            .new_remote_marker
+            .as_ref()
+            .is_some_and(|(_, expires_at)| now >= *expires_at)
+        {
+            self.new_remote_marker = None;
+        }
+    }
+    fn expire_status_feedback(&mut self, now: Instant) {
+        if self
+            .status_expires_at
+            .is_some_and(|expires_at| now >= expires_at)
+        {
+            if self.status.as_deref().is_some_and(is_open_feedback_message) {
+                self.status = None;
+            }
+            self.status_expires_at = None;
+        }
+    }
+    fn origin_label_at(&self, id: &str, now: Instant) -> &'static str {
+        match self
+            .drop_origins
+            .get(id)
+            .copied()
+            .unwrap_or(DropOrigin::Unknown)
+        {
+            DropOrigin::Unknown => "",
+            DropOrigin::Self_ => "YOU",
+            DropOrigin::Remote
+                if self
+                    .new_remote_marker
+                    .as_ref()
+                    .is_some_and(|(marker_id, expires_at)| {
+                        marker_id == id && now < *expires_at
+                    }) =>
+            {
+                "REMOTE NEW"
+            }
+            DropOrigin::Remote => "REMOTE",
+        }
     }
     fn composer_content(&self) -> String {
         self.composer.lines().join("\n")
@@ -522,9 +629,25 @@ impl<'a> App<'a> {
     }
     fn update_drop(&mut self, drop: TextDrop, local: bool) {
         let selected_id = self.selected_drop().map(|item| item.id.clone());
+        let drop_id = drop.id.clone();
         if let Some(existing) = self.drops.iter_mut().find(|item| item.id == drop.id) {
             *existing = drop;
             sort_drops(&mut self.drops);
+            if local {
+                self.drop_origins.insert(drop_id.clone(), DropOrigin::Self_);
+                if self
+                    .new_remote_marker
+                    .as_ref()
+                    .is_some_and(|(marker_id, _)| marker_id == &drop_id)
+                {
+                    self.new_remote_marker = None;
+                }
+            } else {
+                self.drop_origins
+                    .insert(drop_id.clone(), DropOrigin::Remote);
+                self.new_remote_marker = Some((drop_id, Instant::now() + NEW_MARKER_DURATION));
+            }
+            self.ensure_latest_remote();
             if let Some(selected_id) = selected_id {
                 self.selected = self
                     .drops
@@ -977,7 +1100,9 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
         }
         NetEvent::Cleared => {
             app.drops.clear();
-            app.unread_drop_ids.clear();
+            app.drop_origins.clear();
+            app.latest_remote_id = None;
+            app.new_remote_marker = None;
             app.selected = 0;
             app.status = Some("Cleared".to_owned());
         }
@@ -1260,13 +1385,17 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
                 .map(NetEvent::Snapshot)
         }
         "drop_added" => {
-            let local = client_id.as_deref() == payload.get("by").and_then(Value::as_str);
+            let local = client_id.as_deref().is_some_and(|client_id| {
+                payload.get("by").and_then(Value::as_str) == Some(client_id)
+            });
             serde_json::from_value(payload.get("drop")?.clone())
                 .ok()
                 .map(|drop| NetEvent::Added(drop, local))
         }
         "drop_updated" => {
-            let local = client_id.as_deref() == payload.get("by").and_then(Value::as_str);
+            let local = client_id.as_deref().is_some_and(|client_id| {
+                payload.get("by").and_then(Value::as_str) == Some(client_id)
+            });
             serde_json::from_value(payload.get("drop")?.clone())
                 .ok()
                 .map(|drop| NetEvent::Updated(drop, local))
@@ -1451,6 +1580,24 @@ fn sort_drops(drops: &mut [TextDrop]) {
             .then_with(|| right.id.cmp(&left.id))
     });
 }
+fn open_feedback(created: bool, protected: bool) -> &'static str {
+    match (created, protected) {
+        (true, false) => "Created a new room.",
+        (true, true) => "Created a new PIN-protected room.",
+        (false, false) => "Entered an existing room.",
+        (false, true) => "Entered an existing PIN-protected room.",
+    }
+}
+fn is_open_feedback_message(message: &str) -> bool {
+    [
+        open_feedback(true, false),
+        open_feedback(true, true),
+        open_feedback(false, false),
+        open_feedback(false, true),
+    ]
+    .contains(&message)
+}
+
 fn normalize_code(code: &str) -> Result<String, String> {
     if code.is_empty() || code.len() > 16 || !code.chars().all(valid_code_char) {
         Err("Use 1–16 letters, numbers, hyphens, or underscores".to_owned())
@@ -1653,13 +1800,25 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         ),
         action: MouseAction::OpenRoom,
     });
+    let now = Instant::now();
     let items: Vec<ListItem<'_>> = app
         .drops
         .iter()
         .enumerate()
         .map(|(index, drop)| {
             let mut lines = Vec::with_capacity(timeline_item_height(drop, compact));
-            let unread = app.unread_drop_ids.contains(&drop.id);
+            let origin_label = app.origin_label_at(&drop.id, now);
+            let item_color = if app.latest_remote_id.as_deref() == Some(&drop.id) {
+                app.color(Color::Cyan)
+            } else {
+                Color::Reset
+            };
+            let origin_color = match origin_label {
+                "YOU" => app.color(Color::Magenta),
+                label if label.contains("NEW") => app.color(Color::Green),
+                "REMOTE" => app.color(Color::Cyan),
+                _ => Color::Reset,
+            };
             lines.push(Line::from(vec![
                 Span::styled(
                     format!(
@@ -1667,25 +1826,36 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                         content_kind(&drop.content),
                         short_time(&drop.created_at)
                     ),
-                    Style::default().add_modifier(Modifier::BOLD),
+                    Style::default().fg(item_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    if unread { "  NEW" } else { "" },
+                    if origin_label.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {origin_label}")
+                    },
                     Style::default()
-                        .fg(app.color(Color::Green))
+                        .fg(origin_color)
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
             if compact {
-                lines.push(Line::raw(truncate(
-                    &drop.content.replace('\n', " "),
-                    rows[1].width.saturating_sub(8) as usize,
-                )));
+                lines.push(Line::styled(
+                    truncate(
+                        &drop.content.replace('\n', " "),
+                        rows[1].width.saturating_sub(8) as usize,
+                    ),
+                    Style::default().fg(item_color),
+                ));
             } else {
-                lines.extend(drop.content.split('\n').map(Line::raw));
+                lines.extend(
+                    drop.content
+                        .split('\n')
+                        .map(|line| Line::styled(line, Style::default().fg(item_color))),
+                );
             }
             lines.push(Line::raw(""));
-            ListItem::new(Text::from(lines)).style(Style::default().add_modifier(
+            ListItem::new(Text::from(lines)).style(Style::default().fg(item_color).add_modifier(
                 if app.hover == Some(HoverTarget::TimelineItem(index)) {
                     Modifier::REVERSED
                 } else {
@@ -2092,10 +2262,51 @@ mod tests {
         assert!(normalize_code("abcdefghijklmnopq").is_err());
     }
     #[test]
+    fn direct_entry_seeds_pin_and_authoritative_feedback() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let app = App::new(
+            server,
+            Some("SECRET".to_owned()),
+            Some("correct horse".to_owned()),
+        );
+
+        assert_eq!(app.screen, Screen::Timeline);
+        assert_eq!(app.pin_input, "correct horse");
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+        assert_eq!(open_feedback(true, false), "Created a new room.");
+        assert_eq!(
+            open_feedback(true, true),
+            "Created a new PIN-protected room."
+        );
+        assert_eq!(open_feedback(false, false), "Entered an existing room.");
+        assert_eq!(
+            open_feedback(false, true),
+            "Entered an existing PIN-protected room."
+        );
+    }
+    #[test]
+    fn entry_feedback_expires_without_clearing_newer_status() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let now = Instant::now();
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
+        app.status = Some(open_feedback(true, false).to_owned());
+        app.status_expires_at = Some(now + STATUS_FEEDBACK_DURATION);
+
+        app.expire_status_feedback(now + STATUS_FEEDBACK_DURATION);
+        assert!(app.status.is_none());
+
+        app.status = Some("New drop received".to_owned());
+        app.status_expires_at = Some(now + STATUS_FEEDBACK_DURATION);
+        app.expire_status_feedback(now + STATUS_FEEDBACK_DURATION);
+        assert_eq!(app.status.as_deref(), Some("New drop received"));
+        assert!(app.status_expires_at.is_none());
+    }
+
+    #[test]
     fn keeps_newest_drops_first_and_selection_valid() {
         let server = Url::parse("https://quickdrop.example").unwrap();
 
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.replace_drops(vec![
             drop("old", "old", "2026-01-01T10:00:00Z"),
             drop("new", "new", "2026-01-01T11:00:00Z"),
@@ -2133,12 +2344,22 @@ mod tests {
             panic!("expected local updated event")
         };
         assert_eq!(drop.content, "edited");
+        let mut unknown_client_id = None;
+        let event = parse_server_event(
+            r#"{"type":"drop_added","drop":{"id":"2","content":"remote","createdAt":"2026-01-01T12:00:00Z"}}"#,
+            &mut unknown_client_id,
+        )
+        .unwrap();
+        assert!(
+            matches!(event, NetEvent::Added(_, false)),
+            "missing identities must not classify a drop as self-authored"
+        );
     }
 
     #[test]
     fn expired_access_returns_to_pin_and_reconnect_releases_the_editor() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("SECRET".to_owned()));
+        let mut app = App::new(server, Some("SECRET".to_owned()), None);
         app.screen = Screen::Timeline;
         app.editing_drop_id = Some("drop-1".to_owned());
         app.edit_saving = true;
@@ -2162,40 +2383,179 @@ mod tests {
     }
 
     #[test]
-    fn remote_additions_preserve_selection_and_clear_events_empty_the_timeline() {
+    fn origin_expiry_snapshot_preservation_and_remote_fallback_are_independent() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.replace_drops(vec![
             drop("selected", "selected", "2026-01-01T10:00:00Z"),
             drop("older", "older", "2026-01-01T09:00:00Z"),
         ]);
+        assert_eq!(app.drop_origins.get("selected"), Some(&DropOrigin::Unknown));
+        assert_eq!(app.origin_label_at("selected", Instant::now()), "");
+
         app.selected = 0;
-        app.add_drop(drop("remote", "remote", "2026-01-01T11:00:00Z"), false);
+        app.add_drop(
+            drop("remote-1", "remote one", "2026-01-01T11:00:00Z"),
+            false,
+        );
         assert_eq!(
             app.selected_drop().map(|drop| drop.id.as_str()),
             Some("selected")
         );
-        assert_eq!(app.status.as_deref(), Some("New drop received"));
-        assert!(app.unread_drop_ids.contains("remote"));
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-1"));
+        let remote_expiry = app
+            .new_remote_marker
+            .as_ref()
+            .map(|(_, expires_at)| *expires_at)
+            .unwrap();
+        assert_eq!(
+            app.origin_label_at("remote-1", remote_expiry - Duration::from_millis(1)),
+            "REMOTE NEW"
+        );
+
+        app.expire_new_marker(remote_expiry);
+        assert_eq!(app.origin_label_at("remote-1", remote_expiry), "REMOTE");
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-1"));
+
+        app.add_drop(drop("self", "mine", "2026-01-01T12:00:00Z"), true);
+        assert_eq!(app.origin_label_at("self", remote_expiry), "YOU");
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-1"));
+
         app.replace_drops(vec![
-            drop("newest", "newest", "2026-01-01T12:00:00Z"),
-            drop("selected", "selected", "2026-01-01T10:00:00Z"),
-            drop("older", "older", "2026-01-01T09:00:00Z"),
+            drop("snapshot-new", "historical", "2026-01-01T13:00:00Z"),
+            drop("self", "mine", "2026-01-01T12:00:00Z"),
+            drop("remote-1", "remote one", "2026-01-01T11:00:00Z"),
         ]);
         assert_eq!(
-            app.selected_drop().map(|drop| drop.id.as_str()),
-            Some("selected")
+            app.drop_origins.get("snapshot-new"),
+            Some(&DropOrigin::Unknown)
         );
+        assert_eq!(app.drop_origins.get("self"), Some(&DropOrigin::Self_));
+        assert_eq!(app.drop_origins.get("remote-1"), Some(&DropOrigin::Remote));
+
+        app.add_drop(
+            drop("remote-2", "remote two", "2026-01-01T14:00:00Z"),
+            false,
+        );
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-2"));
+        app.update_drop(
+            drop("remote-1", "remote one edited", "2026-01-01T11:00:00Z"),
+            false,
+        );
+        assert_eq!(
+            app.latest_remote_id.as_deref(),
+            Some("remote-2"),
+            "updating an older remote must not steal the newest-remote highlight"
+        );
+        let update_expiry = app
+            .new_remote_marker
+            .as_ref()
+            .map(|(_, expires_at)| *expires_at)
+            .unwrap();
+        assert_eq!(
+            app.origin_label_at("remote-1", update_expiry - Duration::from_millis(1)),
+            "REMOTE NEW"
+        );
+        app.expire_new_marker(update_expiry);
+        assert_eq!(app.origin_label_at("remote-1", update_expiry), "REMOTE");
+
+        app.remove_drop("remote-2");
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-1"));
 
         apply_network_event(&mut app, NetEvent::Cleared);
         assert!(app.drops.is_empty());
-        assert!(app.unread_drop_ids.is_empty());
-        assert_eq!(app.selected, 0);
+        assert!(app.drop_origins.is_empty());
+        assert!(app.latest_remote_id.is_none());
+        assert!(app.new_remote_marker.is_none());
     }
+    #[test]
+    fn timeline_renders_origin_labels_and_persistent_remote_highlight() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
+        app.no_color = false;
+        app.replace_drops(vec![drop("snapshot", "historical", "2026-01-01T09:00:00Z")]);
+        app.add_drop(
+            drop("remote-1", "remote one", "2026-01-01T10:00:00Z"),
+            false,
+        );
+        let marker_expiry = app
+            .new_remote_marker
+            .as_ref()
+            .map(|(_, expires_at)| *expires_at)
+            .unwrap();
+        app.add_drop(drop("self", "mine", "2026-01-01T11:00:00Z"), true);
+
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let rendered = (0..30)
+            .map(|y| {
+                (0..100)
+                    .filter_map(|x| {
+                        terminal
+                            .backend()
+                            .buffer()
+                            .cell((x, y))
+                            .map(|cell| cell.symbol())
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("YOU"));
+        assert!(rendered.contains("REMOTE NEW"));
+
+        app.expire_new_marker(marker_expiry);
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let rendered = (0..30)
+            .map(|y| {
+                (0..100)
+                    .filter_map(|x| {
+                        terminal
+                            .backend()
+                            .buffer()
+                            .cell((x, y))
+                            .map(|cell| cell.symbol())
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("REMOTE"));
+        assert!(!rendered.contains("NEW"));
+        assert_eq!(app.latest_remote_id.as_deref(), Some("remote-1"));
+
+        let remote_is_cyan = (0..30).any(|y| {
+            let row = (0..100)
+                .filter_map(|x| {
+                    terminal
+                        .backend()
+                        .buffer()
+                        .cell((x, y))
+                        .map(|cell| cell.symbol())
+                })
+                .collect::<String>();
+            row.find("remote one").is_some_and(|byte_start| {
+                let start = row[..byte_start].chars().count();
+                (start..start + "remote one".len()).all(|x| {
+                    terminal
+                        .backend()
+                        .buffer()
+                        .cell((x as u16, y))
+                        .is_some_and(|cell| cell.fg == Color::Cyan)
+                })
+            })
+        });
+        assert!(
+            remote_is_cyan,
+            "latest remote content should remain cyan after NEW expires"
+        );
+    }
+
     #[tokio::test]
     async fn enter_publishes_and_clears_the_composer() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.focus = Focus::Composer;
         app.connection = ConnectionState::Connected;
@@ -2222,7 +2582,7 @@ mod tests {
     async fn ctrl_or_shift_enter_inserts_a_newline_without_publishing() {
         for modifiers in [KeyModifiers::CONTROL, KeyModifiers::SHIFT] {
             let server = Url::parse("https://quickdrop.example").unwrap();
-            let mut app = App::new(server, Some("DEV".to_owned()));
+            let mut app = App::new(server, Some("DEV".to_owned()), None);
             app.screen = Screen::Timeline;
             app.focus = Focus::Composer;
             app.connection = ConnectionState::Connected;
@@ -2247,7 +2607,7 @@ mod tests {
     #[tokio::test]
     async fn e_edits_the_selected_drop_and_restores_the_composer_draft() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.connection = ConnectionState::Connected;
 
@@ -2296,7 +2656,7 @@ mod tests {
     #[tokio::test]
     async fn ctrl_p_with_empty_code_enters_protected_create_then_asks_for_pin() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, None);
+        let mut app = App::new(server, None, None);
 
         handle_key(
             &mut app,
@@ -2336,7 +2696,7 @@ mod tests {
     #[tokio::test]
     async fn ctrl_p_requests_a_pin_before_creating_a_protected_room() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, None);
+        let mut app = App::new(server, None, None);
         for character in "secure".chars() {
             handle_key(
                 &mut app,
@@ -2394,7 +2754,7 @@ mod tests {
     #[tokio::test]
     async fn uppercase_shortcuts_work_without_changing_typed_text() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.replace_drops(vec![
             drop("new", "new", "2026-01-01T11:00:00Z"),
@@ -2468,7 +2828,7 @@ mod tests {
     #[tokio::test]
     async fn mouse_selects_drops_focuses_composer_and_runs_visible_actions() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.replace_drops(vec![
             drop("new", "new\nsecond line", "2026-01-01T11:00:00Z"),
@@ -2553,7 +2913,7 @@ mod tests {
     #[tokio::test]
     async fn mouse_hover_visually_tracks_every_interactive_region() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.replace_drops(vec![drop("new", "hover me", "2026-01-01T11:00:00Z")]);
         let backend = TestBackend::new(120, 30);
@@ -2653,7 +3013,7 @@ mod tests {
     #[tokio::test]
     async fn overlays_do_not_hover_inactive_timeline_regions() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.replace_drops(vec![drop("new", "background", "2026-01-01T11:00:00Z")]);
         let backend = TestBackend::new(120, 30);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -2676,7 +3036,7 @@ mod tests {
     #[tokio::test]
     async fn mouse_clear_and_cancel_report_immediate_feedback() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Timeline;
         app.focus = Focus::Composer;
         app.composer.insert_str("draft");
@@ -2697,7 +3057,7 @@ mod tests {
     #[tokio::test]
     async fn pin_prompt_accepts_a_valid_pin_and_returns_to_the_code_screen() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("SECRET".to_owned()));
+        let mut app = App::new(server, Some("SECRET".to_owned()), None);
         app.screen = Screen::Pin;
         for character in "1234".chars() {
             handle_key(
@@ -2734,7 +3094,7 @@ mod tests {
     #[tokio::test]
     async fn ctrl_u_requests_an_available_update_from_every_screen() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, None);
+        let mut app = App::new(server, None, None);
         apply_update_event(
             &mut app,
             Some(UpdateEvent::Check(Ok(Some(update::AvailableUpdate {
@@ -2772,7 +3132,7 @@ mod tests {
     #[test]
     fn successful_update_requests_a_clean_restart() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         apply_update_event(&mut app, Some(UpdateEvent::Applied(Ok("9.9.9".to_owned()))));
         assert!(app.quit);
         assert!(app.restart_after_update);
@@ -2781,7 +3141,7 @@ mod tests {
     #[tokio::test]
     async fn ctrl_o_leaves_the_current_room_without_quitting() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("OLD".to_owned()));
+        let mut app = App::new(server, Some("OLD".to_owned()), None);
         app.screen = Screen::Timeline;
         app.focus = Focus::Composer;
         app.connection = ConnectionState::Connected;
@@ -2811,7 +3171,7 @@ mod tests {
     #[test]
     fn room_link_uses_the_canonical_url_and_runs_both_click_actions() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DAVID".to_owned()));
+        let mut app = App::new(server, Some("DAVID".to_owned()), None);
         let mut copied = None;
         let mut opened = None;
 
@@ -2835,7 +3195,7 @@ mod tests {
     #[tokio::test]
     async fn q_quits_from_help_and_failed_publish_restores_the_composer() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
+        let mut app = App::new(server, Some("DEV".to_owned()), None);
         app.screen = Screen::Help;
         handle_key(
             &mut app,
@@ -2864,7 +3224,7 @@ mod tests {
             let backend = TestBackend::new(width, height);
             let mut terminal = Terminal::new(backend).unwrap();
             let server = Url::parse("https://quickdrop.example").unwrap();
-            let mut app = App::new(server, Some("DEV".to_owned()));
+            let mut app = App::new(server, Some("DEV".to_owned()), None);
             app.connection = ConnectionState::Connected;
             app.replace_drops(vec![drop(
                 "1",

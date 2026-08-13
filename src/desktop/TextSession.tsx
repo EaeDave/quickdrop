@@ -16,11 +16,25 @@ import { uploadFiles } from "./tauri";
 import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
 
 type ConnectionPhase = "connecting" | "open" | "closed";
+type DropOrigin = "unknown" | "self" | "remote";
 type ExportState =
   | { status: "idle" }
   | { status: "uploading" }
   | { status: "success"; url: string; copied: boolean }
   | { status: "error"; message: string };
+
+const NEW_DROP_DURATION_MS = 8000;
+
+function dropOriginLabel(origin: DropOrigin): string {
+  switch (origin) {
+    case "self":
+      return "Enviado por você";
+    case "remote":
+      return "Enviado de outro dispositivo";
+    default:
+      return "Origem desconhecida";
+  }
+}
 
 function metricErrorCategory(error: unknown): ClientTextMetricErrorCategory {
   if (!(error instanceof RoomAccessError)) {
@@ -95,13 +109,16 @@ export default function TextSession() {
   const [maxDrops, setMaxDrops] = useState<number | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [remoteDropId, setRemoteDropId] = useState<string | null>(null);
+  const [dropOrigins, setDropOrigins] = useState<Record<string, DropOrigin>>({});
+  const [latestRemoteDropId, setLatestRemoteDropId] = useState<string | null>(null);
+  const [newDropId, setNewDropId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
   const dropsRef = useRef<TextDrop[]>([]);
+  const dropOriginsRef = useRef<Record<string, DropOrigin>>({});
   const roomCodeRef = useRef<string | null>(null);
   const roomKindRef = useRef<RoomKind | null>(null);
   const dropTtlMinutesRef = useRef(720);
@@ -113,7 +130,8 @@ export default function TextSession() {
   const preserveJoinContextRef = useRef(false);
   const autoJoinAttemptedRef = useRef(false);
   const hasOpenedRef = useRef(false);
-  const remoteHighlightTimerRef = useRef<number | null>(null);
+  const newDropTimerRef = useRef<number | null>(null);
+  const latestRemoteDropIdRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const clearComposerAfterPublishRef = useRef(true);
 
@@ -123,32 +141,44 @@ export default function TextSession() {
     setDrops(next);
   }, []);
 
-  const clearRemoteHighlight = useCallback(() => {
-    if (remoteHighlightTimerRef.current !== null) {
-      window.clearTimeout(remoteHighlightTimerRef.current);
-      remoteHighlightTimerRef.current = null;
+  const classifyDrops = useCallback((nextDrops: TextDrop[], origins: Record<string, DropOrigin>) => {
+    dropOriginsRef.current = origins;
+    setDropOrigins(origins);
+    replaceDrops(nextDrops);
+    const latest = nextDrops.find((drop) => origins[drop.id] === "remote")?.id ?? null;
+    latestRemoteDropIdRef.current = latest;
+    setLatestRemoteDropId(latest);
+  }, [replaceDrops]);
+
+  const markNewDrop = useCallback((dropId: string) => {
+    if (newDropTimerRef.current !== null) {
+      window.clearTimeout(newDropTimerRef.current);
     }
-    setRemoteDropId(null);
+    setNewDropId(dropId);
+    newDropTimerRef.current = window.setTimeout(() => {
+      newDropTimerRef.current = null;
+      setNewDropId(null);
+    }, NEW_DROP_DURATION_MS);
   }, []);
 
-  const highlightRemoteDrop = useCallback((dropId: string) => {
-    if (remoteHighlightTimerRef.current !== null) {
-      window.clearTimeout(remoteHighlightTimerRef.current);
+  const clearDropHighlights = useCallback(() => {
+    if (newDropTimerRef.current !== null) {
+      window.clearTimeout(newDropTimerRef.current);
+      newDropTimerRef.current = null;
     }
-    setRemoteDropId(dropId);
-    remoteHighlightTimerRef.current = window.setTimeout(() => {
-      remoteHighlightTimerRef.current = null;
-      setRemoteDropId(null);
-    }, 8000);
+    latestRemoteDropIdRef.current = null;
+    setLatestRemoteDropId(null);
+    setNewDropId(null);
   }, []);
-
   const resetRoomData = useCallback(() => {
     snapshotReadyRef.current = false;
     clientIdRef.current = null;
     roomKindRef.current = null;
     dropTtlMinutesRef.current = 720;
     hasOpenedRef.current = false;
-    clearRemoteHighlight();
+    dropOriginsRef.current = {};
+    setDropOrigins({});
+    clearDropHighlights();
     setSnapshotReady(false);
     setComposer("");
     replaceDrops([]);
@@ -162,7 +192,7 @@ export default function TextSession() {
     setIsPublishing(false);
     setIsClearing(false);
     setExportState({ status: "idle" });
-  }, [clearRemoteHighlight, replaceDrops]);
+  }, [clearDropHighlights, replaceDrops]);
 
   const clearRoomUrl = useCallback(() => {
     history.replaceState(history.state, "", "/");
@@ -234,7 +264,10 @@ export default function TextSession() {
         setExpiresAfterMinutes(opened.expiresAfterMinutes);
         setRoomExpiresAt(opened.expiresAt);
         setPresenceCount(opened.presence);
-        setRoomNotice(opened.created ? "Clipboard criado. Abra este endereço na outra máquina." : "Clipboard aberto.");
+        const protection = opened.protected ? " protegido por PIN" : " público";
+        setRoomNotice(opened.created
+          ? `Clipboard criado${protection}. Compartilhe este endereço com a outra máquina.`
+          : `Clipboard aberto${protection}.`);
       } catch (error) {
         handleAccessError(error);
       } finally {
@@ -257,10 +290,12 @@ export default function TextSession() {
       activateRoom(created.code);
       roomKindRef.current = created.kind;
       setRoomKind(created.kind);
-        setExpiresAfterMinutes(created.expiresAfterMinutes);
-        setRoomExpiresAt(created.expiresAt);
-        setPresenceCount(created.presence);
-      setRoomNotice("Código aleatório criado. Compartilhe o endereço com a outra máquina.");
+      setExpiresAfterMinutes(created.expiresAfterMinutes);
+      setRoomExpiresAt(created.expiresAt);
+      setPresenceCount(created.presence);
+      setRoomNotice(created.protected
+        ? "Código aleatório protegido por PIN criado. Compartilhe o endereço com a outra máquina."
+        : "Código aleatório público criado. Compartilhe o endereço com a outra máquina.");
     } catch (error) {
       handleAccessError(error);
     } finally {
@@ -303,7 +338,6 @@ export default function TextSession() {
   const handleCopyDrop = useCallback(async (drop: TextDrop) => {
     try {
       await copyText(drop.content);
-      clearRemoteHighlight();
       void recordTextMetric({
         event: "text_copied",
         ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
@@ -318,7 +352,7 @@ export default function TextSession() {
       });
       setErrorMessage("Não foi possível copiar este item agora.");
     }
-  }, [clearRemoteHighlight, copyText]);
+  }, [copyText]);
 
   const handleCopyLatest = useCallback(() => {
     const latest = drops[0];
@@ -415,6 +449,14 @@ export default function TextSession() {
     void recordTextMetric({ event: "screen_opened" });
     return () => document.documentElement.classList.remove("quickdrop-text-page");
   }, []);
+  useEffect(() => {
+    if (!roomNotice) {
+      return;
+    }
+    const timer = window.setTimeout(() => setRoomNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [roomNotice]);
+
 
   useEffect(() => {
     if (!roomCode || !roomExpiresAt || (presenceCount ?? 0) > 0) {
@@ -454,18 +496,22 @@ export default function TextSession() {
         const snapshotDrops = payload.text && payload.drops[0]?.content !== payload.text
           ? [legacyLiveDrop(payload.text, payload.version, payload.dropExpiresAfterMinutes), ...payload.drops]
           : payload.drops;
-        replaceDrops(sortDrops(snapshotDrops));
+        const knownOrigins = dropOriginsRef.current;
+        const origins = Object.fromEntries(snapshotDrops.map((drop) => [drop.id, knownOrigins[drop.id] ?? "unknown"]));
+        classifyDrops(sortDrops(snapshotDrops), origins);
         setIsPublishing(false);
         setIsClearing(false);
         setErrorMessage(null);
       },
       onDropAdded(payload) {
-        replaceDrops((current) => sortDrops([
+        const origin: DropOrigin = payload.by === clientIdRef.current ? "self" : "remote";
+        const origins = { ...dropOriginsRef.current, [payload.drop.id]: origin };
+        classifyDrops(sortDrops([
           payload.drop,
-          ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
-        ]));
+          ...dropsRef.current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
+        ]), origins);
         setIsPublishing(false);
-        if (payload.by === clientIdRef.current) {
+        if (origin === "self") {
           if (clearComposerAfterPublishRef.current) {
             setComposer("");
           }
@@ -473,32 +519,41 @@ export default function TextSession() {
           setRoomNotice("Item enviado.");
           window.setTimeout(() => composerRef.current?.focus(), 0);
         } else {
-          highlightRemoteDrop(payload.drop.id);
+          markNewDrop(payload.drop.id);
           setRoomNotice("Novo item recebido de outro dispositivo.");
         }
       },
       onDropUpdated(payload) {
-        replaceDrops((current) => sortDrops([
+        const origin: DropOrigin = payload.by === clientIdRef.current ? "self" : "remote";
+        const origins = { ...dropOriginsRef.current, [payload.drop.id]: origin };
+        classifyDrops(sortDrops([
           payload.drop,
-          ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
-        ]));
-        if (payload.by === clientIdRef.current) {
+          ...dropsRef.current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
+        ]), origins);
+        if (origin === "self") {
           setRoomNotice("Item editado.");
         } else {
-          highlightRemoteDrop(payload.drop.id);
+          markNewDrop(payload.drop.id);
           setRoomNotice("Item editado em outro dispositivo.");
         }
       },
       onDropsRemoved(payload) {
         const removed = new Set(payload.dropIds);
-        replaceDrops((current) => current.filter((drop) => !removed.has(drop.id)));
+        const nextDrops = dropsRef.current.filter((drop) => !removed.has(drop.id));
+        const origins = Object.fromEntries(Object.entries(dropOriginsRef.current).filter(([id]) => !removed.has(id)));
+        classifyDrops(nextDrops, origins);
       },
       onDropDeleted(payload) {
-        replaceDrops((current) => current.filter((drop) => drop.id !== payload.dropId));
+        const nextDrops = dropsRef.current.filter((drop) => drop.id !== payload.dropId);
+        const origins = { ...dropOriginsRef.current };
+        delete origins[payload.dropId];
+        classifyDrops(nextDrops, origins);
         setRoomNotice("Item excluído.");
       },
       onDropsCleared() {
-        clearRemoteHighlight();
+        clearDropHighlights();
+        dropOriginsRef.current = {};
+        setDropOrigins({});
         replaceDrops([]);
         setIsClearing(false);
         setRoomNotice("Clipboard limpo.");
@@ -521,22 +576,27 @@ export default function TextSession() {
         const current = dropsRef.current;
         const hadLegacy = current.some((drop) => drop.id.startsWith(virtualPrefix));
         const withoutLegacy = current.filter((drop) => !drop.id.startsWith(virtualPrefix));
-        if (!payload.text) {
-          replaceDrops(withoutLegacy);
-          if (hadLegacy) {
+        if (!payload.text || withoutLegacy[0]?.content === payload.text) {
+          const origins = Object.fromEntries(
+            Object.entries(dropOriginsRef.current).filter(([id]) => !id.startsWith(virtualPrefix)),
+          );
+          classifyDrops(withoutLegacy, origins);
+          if (!payload.text && hadLegacy) {
             setRoomNotice("Texto legado limpo.");
           }
-          return;
-        }
-        if (withoutLegacy[0]?.content === payload.text) {
-          replaceDrops(withoutLegacy);
           return;
         }
 
         const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
         const nextDrops = sortDrops([virtual, ...withoutLegacy]);
-        replaceDrops(nextDrops);
-        highlightRemoteDrop(virtual.id);
+        const origins = {
+          ...Object.fromEntries(
+            Object.entries(dropOriginsRef.current).filter(([id]) => !id.startsWith(virtualPrefix)),
+          ),
+          [virtual.id]: "remote" as DropOrigin,
+        };
+        classifyDrops(nextDrops, origins);
+        markNewDrop(virtual.id);
         setRoomNotice("Texto recebido de um cliente anterior.");
       },
       onTyping() {},
@@ -610,7 +670,7 @@ export default function TextSession() {
         controllerRef.current = null;
       }
     };
-  }, [clearRemoteHighlight, clearRoomUrl, highlightRemoteDrop, replaceDrops, resetRoomData, roomCode]);
+  }, [clearDropHighlights, clearRoomUrl, classifyDrops, markNewDrop, replaceDrops, resetRoomData, roomCode]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -624,12 +684,11 @@ export default function TextSession() {
   }, [leaveRoom]);
 
   useEffect(() => () => {
-    if (remoteHighlightTimerRef.current !== null) {
-      window.clearTimeout(remoteHighlightTimerRef.current);
+    if (newDropTimerRef.current !== null) {
+      window.clearTimeout(newDropTimerRef.current);
     }
     controllerRef.current?.close();
   }, []);
-
   const badgeVariant = roomCode
     ? connectionPhase === "open"
       ? "open"
@@ -805,7 +864,6 @@ export default function TextSession() {
             className="quickdrop-drop-composer-input"
             value={composer}
             onChange={(event) => {
-              clearRemoteHighlight();
               setComposer(event.currentTarget.value);
             }}
             onKeyDown={(event) => {
@@ -854,10 +912,15 @@ export default function TextSession() {
               {drops.map((drop) => (
                 <li
                   key={drop.id}
-                  className={`quickdrop-drop-card${remoteDropId === drop.id ? " quickdrop-drop-card--remote" : ""}`}
+                  className={`quickdrop-drop-card${latestRemoteDropId === drop.id ? " quickdrop-drop-card--remote" : ""}${newDropId === drop.id ? " quickdrop-drop-card--new" : ""}`}
                 >
                   <div className="quickdrop-drop-card-header">
-                    <span className={`quickdrop-drop-type quickdrop-drop-type--${drop.contentType}`}>{dropContentTypeLabel(drop.contentType)}</span>
+                    <div className="quickdrop-drop-card-labels">
+                      <span className={`quickdrop-drop-type quickdrop-drop-type--${drop.contentType}`}>{dropContentTypeLabel(drop.contentType)}</span>
+                      {dropOrigins[drop.id] === "self" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--self" aria-label={dropOriginLabel("self")}>VOCÊ</span> : null}
+                      {dropOrigins[drop.id] === "remote" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--remote" aria-label={dropOriginLabel("remote")}>OUTRO DISPOSITIVO</span> : null}
+                      {newDropId === drop.id ? <span className="quickdrop-drop-origin quickdrop-drop-origin--new" aria-label="Item novo">NOVO</span> : null}
+                    </div>
                     <time dateTime={drop.createdAt}>{formatDropTime(drop.createdAt)}</time>
                   </div>
                   {drop.contentType === "url" ? (

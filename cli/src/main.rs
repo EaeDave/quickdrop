@@ -21,15 +21,15 @@ mod update;
 
 pub(crate) const DEFAULT_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
 const USAGE: &str = "Usage:
-  qd
-  qd --tui [room] [--server <url>]
+  qd [<room> [pin]] [--server <url>]
+  qd <room> [pin] --msg <text> [--server <url>]
+  qd <room> [pin] --msg - [--server <url>]
+  qd <room> [pin] --copy [--server <url>]
   qd update [--check] [--server <url>]
-  qd <room> [--server <url>]
-  qd <message> <room> [pin] [--server <url>]
-  echo \"message\" | qd <room> [pin] [--server <url>]
 
 Options:
-  --tui                  Open the interactive terminal interface.
+  --msg <text>           Publish text without opening the TUI. Use - to read standard input.
+  --copy                 Print and copy the newest item without opening the TUI.
   update                 Download and install the latest qd binary.
   --check                Report whether a qd update is available.
   --server <url>         QuickDrop URL (default: QUICKDROP_API_BASE_URL or https://quickdrop.eaedave.xyz).
@@ -38,10 +38,31 @@ Options:
 
 #[derive(Debug, PartialEq, Eq)]
 struct QdCommand {
-    code: String,
-    content: Option<String>,
-    pin: Option<String>,
+    operation: Operation,
     server: Url,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Operation {
+    Tui {
+        initial_code: Option<String>,
+        initial_pin: Option<String>,
+    },
+    Message {
+        code: String,
+        pin: Option<String>,
+        source: MessageSource,
+    },
+    Copy {
+        code: String,
+        pin: Option<String>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MessageSource {
+    Text(String),
+    Stdin,
 }
 
 #[derive(Deserialize)]
@@ -49,11 +70,15 @@ struct QdCommand {
 struct OpenPayload {
     code: String,
     protected: bool,
+    #[serde(default)]
+    created: bool,
 }
 
+#[derive(Debug)]
 struct OpenResponse {
     code: String,
     protected: bool,
+    created: bool,
     access_cookie: Option<String>,
 }
 
@@ -90,131 +115,133 @@ async fn main() {
 
 async fn run(args: Vec<String>) -> Result<(), QdError> {
     update::cleanup_previous_update();
-    if args
-        .iter()
-        .any(|argument| argument == "--help" || argument == "-h")
-    {
-        if args.len() == 1 {
-            println!("{USAGE}");
-            return Ok(());
-        }
-        return Err(QdError::Usage(
-            "--help cannot be combined with other options.".to_owned(),
-        ));
+    if matches!(args.as_slice(), [argument] if argument == "--help" || argument == "-h") {
+        println!("{USAGE}");
+        return Ok(());
     }
-    if args
-        .iter()
-        .any(|argument| argument == "--version" || argument == "-V")
-    {
-        if args.len() == 1 {
-            println!("qd {}", env!("CARGO_PKG_VERSION"));
-            return Ok(());
-        }
-        return Err(QdError::Usage(
-            "--version cannot be combined with other options.".to_owned(),
-        ));
+    if matches!(args.as_slice(), [argument] if argument == "--version" || argument == "-V") {
+        println!("qd {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
     }
 
     if args.first().is_some_and(|argument| argument == "update") {
         return update::run_update(args.into_iter().skip(1).collect()).await;
     }
 
-    if should_launch_tui(&args, io::stdin().is_terminal()) {
-        let restart = update::capture_restart_command()?;
-        let tui_args = if args.first().is_some_and(|arg| arg == "--tui") {
-            args.into_iter().skip(1).collect()
-        } else {
-            args
-        };
-        let (server, code) = parse_tui_command(tui_args)?;
-        if tui::run_tui(server, code).await? {
-            restart.execute()?;
+    let command = parse_command(args)?;
+    match command.operation {
+        Operation::Tui {
+            initial_code,
+            initial_pin,
+        } => {
+            require_interactive_terminal(io::stdin().is_terminal(), io::stdout().is_terminal())?;
+            let restart = update::capture_restart_command()?;
+            if tui::run_tui(command.server, initial_code, initial_pin).await? {
+                restart.execute()?;
+            }
+            Ok(())
         }
-        return Ok(());
+        Operation::Message { code, pin, source } => {
+            let content = match source {
+                MessageSource::Text(content) => content,
+                MessageSource::Stdin => read_stdin()?,
+            };
+            validate_message_content(&content)?;
+            let client = http_client()?;
+            let room = add_missing_pin_guidance(
+                open_room(&client, &command.server, &code, pin.as_deref()).await,
+                pin.as_deref(),
+                &format!("qd {code} <pin> --msg <message>"),
+            )?;
+            publish_drop(
+                &command.server,
+                &room.code,
+                &content,
+                room.access_cookie.as_deref(),
+            )
+            .await?;
+            eprintln!("{}", publish_feedback(&room));
+            Ok(())
+        }
+        Operation::Copy { code, pin } => {
+            let client = http_client()?;
+            let room = add_missing_pin_guidance(
+                access_existing_room(&client, &command.server, &code, pin.as_deref()).await,
+                pin.as_deref(),
+                &format!("qd {code} <pin> --copy"),
+            )?;
+            let content = latest_drop(
+                &client,
+                &command.server,
+                &room.code,
+                room.access_cookie.as_deref(),
+            )
+            .await?;
+            let Some(content) = prepare_received_content(content, copy_to_system_clipboard)? else {
+                return Err(QdError::Runtime("No messages found.".to_owned()));
+            };
+            let mut stdout = io::stdout();
+            if !write_received_content(&mut stdout, &content)? {
+                return Ok(());
+            }
+            eprintln!("Copied the latest message.");
+            Ok(())
+        }
     }
-    if args.first().is_some_and(|argument| argument == "--tui") {
-        return Err(QdError::Usage(
-            "--tui requires an interactive terminal.".to_owned(),
-        ));
-    }
-
-    let stdin_is_piped = !io::stdin().is_terminal();
-    let piped_content = if stdin_is_piped {
-        Some(read_piped_stdin()?)
-    } else {
-        None
-    };
-    let command = parse_command(args, stdin_is_piped)?;
-    let content = piped_content
-        .filter(|content| !content.is_empty())
-        .or_else(|| command.content.clone());
-    let client = http_client()?;
-    let room = match open_room(&client, &command, command.pin.as_deref()).await {
+}
+fn add_missing_pin_guidance(
+    result: Result<OpenResponse, QdError>,
+    pin: Option<&str>,
+    usage: &str,
+) -> Result<OpenResponse, QdError> {
+    match result {
         Err(QdError::Remote {
             code: Some(code), ..
-        }) if code == "pin_required" && command.pin.is_none() => {
-            return Err(QdError::Runtime(
-                "Clipboard is protected by a PIN.\nuse: qd <message> <room> <pin>".to_owned(),
-            ));
-        }
-        result => result?,
-    };
-
-    if let Some(content) = content {
-        publish_drop(
-            &command.server,
-            &room.code,
-            &content,
-            room.access_cookie.as_deref(),
-        )
-        .await?;
-        return Ok(());
+        }) if code == "pin_required" && pin.is_none() => Err(QdError::Runtime(format!(
+            "This room is PIN-protected.\nUse: {usage}"
+        ))),
+        result => result,
     }
+}
 
-    let content = latest_drop(
-        &client,
-        &command.server,
-        &room.code,
-        room.access_cookie.as_deref(),
-    )
-    .await?;
-    if let Some(content) = prepare_received_content(content, copy_to_system_clipboard)? {
-        print!("{content}");
+fn publish_feedback(room: &OpenResponse) -> &'static str {
+    match (room.created, room.protected) {
+        (true, true) => "Created a new PIN-protected room and sent the message.",
+        (true, false) => "Created a new room and sent the message.",
+        (false, _) => "Message sent.",
+    }
+}
+fn validate_message_content(content: &str) -> Result<(), QdError> {
+    if content.trim().is_empty() {
+        Err(QdError::Usage("enter a message before sending.".to_owned()))
     } else {
-        eprintln!("qd: No messages found.");
+        Ok(())
+    }
+}
+
+fn write_received_content<W: Write>(writer: &mut W, content: &str) -> Result<bool, QdError> {
+    match writer
+        .write_all(content.as_bytes())
+        .and_then(|()| writer.flush())
+    {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(false),
+        Err(error) => Err(QdError::Runtime(format!(
+            "could not write the message: {error}"
+        ))),
+    }
+}
+
+fn require_interactive_terminal(
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> Result<(), QdError> {
+    if !stdin_is_terminal || !stdout_is_terminal {
+        return Err(QdError::Usage(
+            "interactive mode requires a terminal; use --msg <text> or --copy instead.".to_owned(),
+        ));
     }
     Ok(())
-}
-
-fn should_launch_tui(args: &[String], stdin_is_terminal: bool) -> bool {
-    stdin_is_terminal && (args.is_empty() || args.first().is_some_and(|arg| arg == "--tui"))
-}
-
-fn parse_tui_command(args: Vec<String>) -> Result<(Url, Option<String>), QdError> {
-    let mut code = None;
-    let mut server =
-        env::var("QUICKDROP_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
-    let mut arguments = args.into_iter();
-    while let Some(argument) = arguments.next() {
-        match argument.as_str() {
-            "--server" => {
-                server = arguments
-                    .next()
-                    .filter(|value| !value.starts_with('-'))
-                    .ok_or_else(|| QdError::Usage("--server requires a URL.".to_owned()))?;
-            }
-            _ if argument.starts_with('-') => {
-                return Err(QdError::Usage(format!("unknown option: {argument}")));
-            }
-            _ if code.is_some() => {
-                return Err(QdError::Usage(
-                    "provide only one clipboard code.".to_owned(),
-                ));
-            }
-            _ => code = Some(validate_code(&argument)?),
-        }
-    }
-    Ok((parse_server_url(&server)?, code))
 }
 
 fn validate_code(code: &str) -> Result<String, QdError> {
@@ -254,19 +281,55 @@ pub(crate) fn parse_server_url(server: &str) -> Result<Url, QdError> {
     Ok(server)
 }
 
-fn parse_command(args: Vec<String>, has_piped_content: bool) -> Result<QdCommand, QdError> {
+fn parse_command(args: Vec<String>) -> Result<QdCommand, QdError> {
     let mut positional = Vec::new();
+    let mut message = None;
+    let mut copy = false;
     let mut server =
         env::var("QUICKDROP_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
+    let mut server_was_set = false;
     let mut arguments = args.into_iter();
 
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "--msg" => {
+                if message.is_some() {
+                    return Err(QdError::Usage("provide --msg only once.".to_owned()));
+                }
+                if copy {
+                    return Err(QdError::Usage(
+                        "--msg and --copy cannot be combined.".to_owned(),
+                    ));
+                }
+                let content = arguments
+                    .next()
+                    .ok_or_else(|| QdError::Usage("--msg requires text.".to_owned()))?;
+                message = Some(if content == "-" {
+                    MessageSource::Stdin
+                } else {
+                    MessageSource::Text(content)
+                });
+            }
+            "--copy" => {
+                if copy {
+                    return Err(QdError::Usage("provide --copy only once.".to_owned()));
+                }
+                if message.is_some() {
+                    return Err(QdError::Usage(
+                        "--msg and --copy cannot be combined.".to_owned(),
+                    ));
+                }
+                copy = true;
+            }
             "--server" => {
+                if server_was_set {
+                    return Err(QdError::Usage("provide --server only once.".to_owned()));
+                }
                 server = arguments
                     .next()
                     .filter(|value| !value.starts_with('-'))
                     .ok_or_else(|| QdError::Usage("--server requires a URL.".to_owned()))?;
+                server_was_set = true;
             }
             _ if argument.starts_with('-') => {
                 return Err(QdError::Usage(format!("unknown option: {argument}")));
@@ -274,65 +337,132 @@ fn parse_command(args: Vec<String>, has_piped_content: bool) -> Result<QdCommand
             _ => positional.push(argument),
         }
     }
-    let (content, code, pin) = if has_piped_content {
-        match positional.as_slice() {
-            [code] => (None, code, None),
-            [code, pin] => (None, code, Some(pin.clone())),
-            [] => return Err(QdError::Usage("provide a clipboard room.".to_owned())),
-            _ => {
-                return Err(QdError::Usage(
-                    "use: echo \"message\" | qd <room> [pin]".to_owned(),
-                ))
+
+    if positional.len() > 2 {
+        return Err(QdError::Usage(
+            "provide only a room and optional PIN.".to_owned(),
+        ));
+    }
+    let code = positional
+        .first()
+        .map(|code| validate_code(code))
+        .transpose()?;
+    let pin = positional
+        .get(1)
+        .map(|pin| {
+            let length = pin.chars().count();
+            if !(4..=64).contains(&length) {
+                Err(QdError::Usage("use a PIN with 4–64 characters.".to_owned()))
+            } else {
+                Ok(pin.to_owned())
             }
+        })
+        .transpose()?;
+    let operation = if let Some(source) = message {
+        Operation::Message {
+            code: code.ok_or_else(|| QdError::Usage("--msg requires a room.".to_owned()))?,
+            pin,
+            source,
+        }
+    } else if copy {
+        Operation::Copy {
+            code: code.ok_or_else(|| QdError::Usage("--copy requires a room.".to_owned()))?,
+            pin,
         }
     } else {
-        match positional.as_slice() {
-            [code] => (None, code, None),
-            [content, code] => (Some(content.clone()), code, None),
-            [content, code, pin] => (Some(content.clone()), code, Some(pin.clone())),
-            [] => return Err(QdError::Usage("provide a clipboard room.".to_owned())),
-            _ => return Err(QdError::Usage("use: qd <message> <room> [pin]".to_owned())),
+        Operation::Tui {
+            initial_code: code,
+            initial_pin: pin,
         }
     };
-    let code = validate_code(code)?;
-    let pin = pin
-        .filter(|pin| !pin.trim().is_empty())
-        .map(|pin| pin.trim().to_owned());
     Ok(QdCommand {
-        code,
-        content,
-        pin,
+        operation,
         server: parse_server_url(&server)?,
     })
 }
 
 async fn open_room(
     client: &Client,
-    command: &QdCommand,
+    server: &Url,
+    code: &str,
     pin: Option<&str>,
 ) -> Result<OpenResponse, QdError> {
-    let url = endpoint(&command.server, &format!("api/text/{}/open", command.code))?;
-    let payload = pin
-        .filter(|pin| !pin.trim().is_empty())
-        .map_or_else(|| json!({}), |pin| json!({ "pin": pin.trim() }));
+    request_room_access(
+        client,
+        server,
+        code,
+        pin,
+        "open",
+        "open",
+        "qd <room> --msg <text>",
+    )
+    .await
+}
+
+async fn access_existing_room(
+    client: &Client,
+    server: &Url,
+    code: &str,
+    pin: Option<&str>,
+) -> Result<OpenResponse, QdError> {
+    request_room_access(
+        client,
+        server,
+        code,
+        pin,
+        "access",
+        "access",
+        "qd <room> --copy",
+    )
+    .await
+}
+
+async fn request_room_access(
+    client: &Client,
+    server: &Url,
+    code: &str,
+    pin: Option<&str>,
+    route: &str,
+    action: &str,
+    pinless_usage: &str,
+) -> Result<OpenResponse, QdError> {
+    let url = endpoint(server, &format!("api/text/{code}/{route}"))?;
+    let payload = pin.map_or_else(|| json!({}), |pin| json!({ "pin": pin }));
     let response = client
         .post(url)
         .json(&payload)
         .send()
         .await
-        .map_err(|error| QdError::Runtime(format!("could not open the clipboard: {error}")))?;
+        .map_err(|error| QdError::Runtime(format!("could not {action} the clipboard: {error}")))?;
     let access_cookie = response
         .headers()
         .get_all(SET_COOKIE)
         .iter()
         .filter_map(|value| value.to_str().ok())
         .find_map(|value| value.split(';').next().map(str::to_owned));
-    let opened: OpenPayload = parse_response(response, "could not open the clipboard.").await?;
-    Ok(OpenResponse {
+    let opened: OpenPayload =
+        parse_response(response, &format!("could not {action} the clipboard.")).await?;
+    let room = OpenResponse {
         code: opened.code,
         protected: opened.protected,
+        created: opened.created,
         access_cookie,
-    })
+    };
+    reject_pin_for_existing_public_room(&room, pin, pinless_usage)?;
+    Ok(room)
+}
+
+fn reject_pin_for_existing_public_room(
+    room: &OpenResponse,
+    pin: Option<&str>,
+    pinless_usage: &str,
+) -> Result<(), QdError> {
+    if pin.is_some() && !room.created && !room.protected {
+        return Err(QdError::Runtime(format!(
+            "This room already exists without a PIN.\nUse: {pinless_usage}"
+        )));
+    }
+    Ok(())
 }
 
 async fn latest_drop(
@@ -518,7 +648,7 @@ pub(crate) fn endpoint(server: &Url, path: &str) -> Result<Url, QdError> {
     Ok(url)
 }
 
-fn read_piped_stdin() -> Result<String, QdError> {
+fn read_stdin() -> Result<String, QdError> {
     let mut content = String::new();
     io::stdin()
         .read_to_string(&mut content)
@@ -638,52 +768,159 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opens_the_tui_when_qd_has_no_arguments_in_a_terminal() {
-        assert!(should_launch_tui(&[], true));
-        assert!(should_launch_tui(&["--tui".to_owned()], true));
-        assert!(!should_launch_tui(&[], false));
-        assert!(!should_launch_tui(&["DEV".to_owned()], true));
+    fn parses_tui_chooser_room_and_pin_forms() {
+        let chooser = parse_command(Vec::new()).unwrap();
+        assert_eq!(
+            chooser.operation,
+            Operation::Tui {
+                initial_code: None,
+                initial_pin: None,
+            }
+        );
+
+        let room = parse_command(vec![
+            "dev_1".to_owned(),
+            "1234".to_owned(),
+            "--server".to_owned(),
+            "https://quickdrop.example/".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            room.operation,
+            Operation::Tui {
+                initial_code: Some("DEV_1".to_owned()),
+                initial_pin: Some("1234".to_owned()),
+            }
+        );
+        assert_eq!(room.server.as_str(), "https://quickdrop.example/");
     }
 
     #[test]
-    fn parses_and_normalizes_a_code() {
-        let command = parse_command(
-            vec![
-                "dev_1".to_owned(),
-                "--server".to_owned(),
-                "https://quickdrop.example/".to_owned(),
-            ],
-            false,
-        )
+    fn parses_literal_and_stdin_message_forms() {
+        let literal = parse_command(vec![
+            "dev".to_owned(),
+            "1234".to_owned(),
+            "--msg".to_owned(),
+            "hello there".to_owned(),
+        ])
         .unwrap();
-        assert_eq!(command.code, "DEV_1");
-        assert_eq!(command.server.as_str(), "https://quickdrop.example/");
+        assert_eq!(
+            literal.operation,
+            Operation::Message {
+                code: "DEV".to_owned(),
+                pin: Some("1234".to_owned()),
+                source: MessageSource::Text("hello there".to_owned()),
+            }
+        );
+
+        let stdin =
+            parse_command(vec!["dev".to_owned(), "--msg".to_owned(), "-".to_owned()]).unwrap();
+        assert_eq!(
+            stdin.operation,
+            Operation::Message {
+                code: "DEV".to_owned(),
+                pin: None,
+                source: MessageSource::Stdin,
+            }
+        );
+
+        let hyphen_text = parse_command(vec![
+            "dev".to_owned(),
+            "--msg".to_owned(),
+            "-literal".to_owned(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            hyphen_text.operation,
+            Operation::Message {
+                source: MessageSource::Text(content),
+                ..
+            } if content == "-literal"
+        ));
+        for option_like_text in [
+            "--help",
+            "-h",
+            "--version",
+            "-V",
+            "--copy",
+            "--msg",
+            "--server",
+        ] {
+            let parsed = parse_command(vec![
+                "dev".to_owned(),
+                "--msg".to_owned(),
+                option_like_text.to_owned(),
+            ])
+            .unwrap();
+            assert!(matches!(
+                parsed.operation,
+                Operation::Message {
+                    source: MessageSource::Text(content),
+                    ..
+                } if content == option_like_text
+            ));
+        }
+    }
+
+    #[test]
+    fn parses_copy_without_inventing_a_message() {
+        let copy = parse_command(vec![
+            "dev".to_owned(),
+            "1234".to_owned(),
+            "--copy".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            copy.operation,
+            Operation::Copy {
+                code: "DEV".to_owned(),
+                pin: Some("1234".to_owned()),
+            }
+        );
+
+        let tui = parse_command(vec!["hello".to_owned(), "1234".to_owned()]).unwrap();
+        assert!(matches!(tui.operation, Operation::Tui { .. }));
+    }
+
+    #[test]
+    fn rejects_invalid_combinations_before_execution() {
+        let cases = [
+            vec!["dev", "--msg", "hello", "--copy"],
+            vec!["dev", "--copy", "--copy"],
+            vec!["dev", "--msg", "one", "--msg", "two"],
+            vec!["dev", "1234", "extra", "--copy"],
+            vec!["--msg", "hello"],
+            vec!["dev", "--tui"],
+            vec![
+                "dev",
+                "--server",
+                "https://one.example",
+                "--server",
+                "https://two.example",
+            ],
+            vec!["dev", ""],
+        ];
+        for args in cases {
+            let error = parse_command(args.into_iter().map(str::to_owned).collect()).unwrap_err();
+            assert!(matches!(error, QdError::Usage(_)));
+        }
     }
 
     #[test]
     fn rejects_an_invalid_code() {
-        let error = parse_command(vec!["invalid code".to_owned()], false).unwrap_err();
+        let error = parse_command(vec!["invalid code".to_owned()]).unwrap_err();
         assert!(matches!(error, QdError::Usage(message) if message.contains("1–16")));
     }
 
     #[test]
-    fn parses_positional_publish_and_piped_pin_forms() {
-        let positional = parse_command(
-            vec!["hello".to_owned(), "dev".to_owned(), "1234".to_owned()],
-            false,
-        )
-        .unwrap();
-        assert_eq!(positional.content.as_deref(), Some("hello"));
-        assert_eq!(positional.code, "DEV");
-        assert_eq!(positional.pin.as_deref(), Some("1234"));
-
-        let piped = parse_command(vec!["dev".to_owned(), "1234".to_owned()], true).unwrap();
-        assert!(piped.content.is_none());
-        assert_eq!(piped.code, "DEV");
-        assert_eq!(piped.pin.as_deref(), Some("1234"));
-
-        let empty_piped_content = Some(String::new()).filter(|content| !content.is_empty());
-        assert!(empty_piped_content.is_none());
+    fn noninteractive_tui_reports_actionable_guidance() {
+        let error = require_interactive_terminal(false, true).unwrap_err();
+        assert!(matches!(
+            error,
+            QdError::Usage(message)
+                if message == "interactive mode requires a terminal; use --msg <text> or --copy instead."
+        ));
+        assert!(require_interactive_terminal(true, false).is_err());
     }
 
     #[test]
@@ -699,6 +936,88 @@ mod tests {
     fn rejects_credentials_in_server_urls() {
         let error = parse_server_url("https://user:secret@quickdrop.example").unwrap_err();
         assert!(matches!(error, QdError::Usage(message) if message.contains("credentials")));
+    }
+
+    #[test]
+    fn parses_created_and_rejects_a_pin_for_an_existing_public_room() {
+        let opened: OpenPayload = serde_json::from_value(json!({
+            "code": "DEV",
+            "protected": false,
+            "created": true
+        }))
+        .unwrap();
+        assert!(opened.created);
+
+        let access_payload: OpenPayload = serde_json::from_value(json!({
+            "code": "DEV",
+            "protected": false
+        }))
+        .unwrap();
+        assert!(!access_payload.created);
+
+        let room = OpenResponse {
+            code: "DEV".to_owned(),
+            protected: false,
+            created: false,
+            access_cookie: None,
+        };
+        let error = reject_pin_for_existing_public_room(&room, Some("1234"), "qd <room> --copy")
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            QdError::Runtime(message)
+                if message == "This room already exists without a PIN.\nUse: qd <room> --copy"
+        ));
+        assert!(reject_pin_for_existing_public_room(&room, None, "qd <room> --copy").is_ok());
+    }
+    #[test]
+    fn missing_pin_errors_include_the_correct_command() {
+        let error = add_missing_pin_guidance(
+            Err(QdError::Remote {
+                code: Some("pin_required".to_owned()),
+                message: "Clipboard is protected by a PIN.".to_owned(),
+            }),
+            None,
+            "qd SECRET <pin> --copy",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            QdError::Runtime(message)
+                if message == "This room is PIN-protected.\nUse: qd SECRET <pin> --copy"
+        ));
+    }
+
+    #[test]
+    fn publish_feedback_uses_authoritative_room_metadata() {
+        let mut room = OpenResponse {
+            code: "DEV".to_owned(),
+            protected: false,
+            created: false,
+            access_cookie: None,
+        };
+        assert_eq!(publish_feedback(&room), "Message sent.");
+
+        room.created = true;
+        assert_eq!(
+            publish_feedback(&room),
+            "Created a new room and sent the message."
+        );
+
+        room.protected = true;
+        assert_eq!(
+            publish_feedback(&room),
+            "Created a new PIN-protected room and sent the message."
+        );
+    }
+    #[test]
+    fn rejects_empty_messages_before_network_work() {
+        assert!(validate_message_content("message").is_ok());
+        let error = validate_message_content(" \n\t").unwrap_err();
+        assert!(matches!(
+            error,
+            QdError::Usage(message) if message == "enter a message before sending."
+        ));
     }
 
     #[test]
@@ -742,5 +1061,35 @@ mod tests {
         .unwrap();
         assert!(result.is_none());
         assert!(!copied);
+    }
+    #[test]
+    fn closed_stdout_is_a_successful_pipe_termination() {
+        struct BrokenPipe;
+        impl Write for BrokenPipe {
+            fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        assert!(!write_received_content(&mut BrokenPipe, "message").unwrap());
+        let mut output = Vec::new();
+        assert!(write_received_content(&mut output, "message").unwrap());
+        assert_eq!(output, b"message");
+    }
+
+    #[test]
+    fn positional_pin_uses_the_server_length_contract() {
+        for pin in ["123", &"x".repeat(65)] {
+            let error = parse_command(vec!["DEV".to_owned(), pin.to_owned(), "--copy".to_owned()])
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                QdError::Usage(message) if message == "use a PIN with 4–64 characters."
+            ));
+        }
     }
 }
