@@ -720,19 +720,26 @@ async fn handle_mouse(
 }
 
 fn update_hover(app: &mut App<'_>, column: u16, row: u16) {
-    app.hover = app
+    if let Some(action) = app
         .ui
         .actions
         .iter()
         .find(|region| point_in_rect(column, row, region.area))
-        .map(|region| HoverTarget::Action(region.action))
-        .or_else(|| {
-            app.ui
-                .timeline_items
-                .iter()
-                .find(|region| point_in_rect(column, row, region.area))
-                .map(|region| HoverTarget::TimelineItem(region.index))
-        })
+        .map(|region| region.action)
+    {
+        app.hover = Some(HoverTarget::Action(action));
+        return;
+    }
+    if app.screen != Screen::Timeline {
+        app.hover = None;
+        return;
+    }
+    app.hover = app
+        .ui
+        .timeline_items
+        .iter()
+        .find(|region| point_in_rect(column, row, region.area))
+        .map(|region| HoverTarget::TimelineItem(region.index))
         .or_else(|| point_in_rect(column, row, app.ui.composer).then_some(HoverTarget::Composer));
 }
 
@@ -2590,6 +2597,29 @@ mod tests {
         handle_mouse(&mut app, mouse_event(MouseEventKind::Moved, 0, 0), None)
             .await
             .unwrap();
+        assert_eq!(app.hover, None);
+    }
+
+    #[tokio::test]
+    async fn overlays_do_not_hover_inactive_timeline_regions() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.replace_drops(vec![drop("new", "background", "2026-01-01T11:00:00Z")]);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let item = app.ui.timeline_items[0];
+
+        app.screen = Screen::Help;
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, item.area.x, item.area.y),
+            None,
+        )
+        .await
+        .unwrap();
+
         assert_eq!(app.hover, None);
     }
 
