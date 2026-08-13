@@ -88,6 +88,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...requiredEnv, TEXT_CUSTOM_SESSION_TTL_MINUTES: "0" })).toThrow(
       "TEXT_CUSTOM_SESSION_TTL_MINUTES",
     );
+    expect(() => loadConfig({ ...requiredEnv, TEXT_DROP_TTL_HOURS: "0" })).toThrow(
+      "TEXT_DROP_TTL_HOURS",
+    );
+    expect(() => loadConfig({ ...requiredEnv, TEXT_DROP_MAX_ITEMS: "0" })).toThrow(
+      "TEXT_DROP_MAX_ITEMS",
+    );
     expect(() => loadConfig({ ...requiredEnv, TEXT_METRICS_ENABLED: "sometimes" })).toThrow(
       "TEXT_METRICS_ENABLED",
     );
@@ -105,6 +111,8 @@ describe("loadConfig", () => {
     expect(config.textSessionCodeLength).toBe(6);
     expect(config.textSessionMaxSessions).toBe(500);
     expect(config.textSessionMaxClientsPerSession).toBe(20);
+    expect(config.textDropTtlHours).toBe(12);
+    expect(config.textDropMaxItems).toBe(10);
     expect(config.textMetricsEnabled).toBe(false);
     expect(config.textMetricsRetentionDays).toBe(90);
   });
@@ -118,6 +126,8 @@ describe("loadConfig", () => {
       TEXT_SESSION_CODE_LENGTH: "4",
       TEXT_SESSION_MAX_SESSIONS: "7",
       TEXT_SESSION_MAX_CLIENTS: "2",
+      TEXT_DROP_TTL_HOURS: "6",
+      TEXT_DROP_MAX_ITEMS: "25",
       TEXT_METRICS_ENABLED: "true",
       TEXT_METRICS_RETENTION_DAYS: "45",
     });
@@ -128,6 +138,8 @@ describe("loadConfig", () => {
     expect(config.textSessionCodeLength).toBe(4);
     expect(config.textSessionMaxSessions).toBe(7);
     expect(config.textSessionMaxClientsPerSession).toBe(2);
+    expect(config.textDropTtlHours).toBe(6);
+    expect(config.textDropMaxItems).toBe(25);
     expect(config.textMetricsEnabled).toBe(true);
     expect(config.textMetricsRetentionDays).toBe(45);
   });

@@ -27,6 +27,8 @@ const config: AppConfig = {
   textSessionCodeLength: 6,
   textSessionMaxSessions: 500,
   textSessionMaxClientsPerSession: 20,
+  textDropTtlHours: 12,
+  textDropMaxItems: 10,
   textMetricsEnabled: false,
   textMetricsRetentionDays: 90,
 };

@@ -614,6 +614,194 @@ html.quickdrop-text-page a {
   font-weight: 650;
 }
 
+.quickdrop-drop-composer,
+.quickdrop-drop-timeline {
+  border: 1px solid rgb(148 163 184 / 0.18);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgb(15 23 42 / 0.86), rgb(2 6 23 / 0.9));
+  box-shadow: 0 20px 58px rgb(2 6 23 / 0.36);
+}
+
+.quickdrop-drop-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.quickdrop-drop-composer h2,
+.quickdrop-drop-timeline h2 {
+  margin: 4px 0 0;
+  color: #f8fafc;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.quickdrop-drop-composer-input {
+  width: 100%;
+  min-height: 116px;
+  resize: vertical;
+  border: 1px solid rgb(148 163 184 / 0.22);
+  border-radius: 18px;
+  outline: none;
+  background: rgb(15 23 42 / 0.76);
+  color: #f8fafc;
+  padding: 16px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.quickdrop-drop-composer-input::placeholder {
+  color: #64748b;
+}
+
+.quickdrop-drop-composer-input:focus-visible {
+  border-color: rgb(56 189 248 / 0.7);
+  box-shadow: 0 0 0 4px rgb(56 189 248 / 0.14);
+}
+
+.quickdrop-drop-composer-footer,
+.quickdrop-drop-timeline-heading,
+.quickdrop-drop-card-header,
+.quickdrop-drop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quickdrop-drop-composer-footer p {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quickdrop-drop-timeline {
+  flex: 1;
+  min-height: 280px;
+  padding: 18px;
+}
+
+.quickdrop-drop-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quickdrop-drop-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid rgb(148 163 184 / 0.18);
+  border-radius: 20px;
+  background: rgb(15 23 42 / 0.72);
+  padding: 16px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.quickdrop-drop-card--remote {
+  border-color: rgb(56 189 248 / 0.66);
+  box-shadow: 0 0 30px rgb(56 189 248 / 0.15);
+  transform: translateY(-1px);
+}
+
+.quickdrop-drop-card-header time {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.quickdrop-drop-type {
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quickdrop-drop-type--url {
+  border-color: rgb(56 189 248 / 0.34);
+  color: #7dd3fc;
+}
+
+.quickdrop-drop-type--command {
+  border-color: rgb(251 191 36 / 0.34);
+  color: #fcd34d;
+}
+
+.quickdrop-drop-type--json {
+  border-color: rgb(167 139 250 / 0.38);
+  color: #c4b5fd;
+}
+
+.quickdrop-drop-content {
+  flex: 1;
+  min-height: 80px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 14px;
+  background: rgb(2 6 23 / 0.62);
+  color: #e2e8f0;
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickdrop-drop-content--url {
+  display: block;
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.quickdrop-drop-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.quickdrop-drop-actions .quickdrop-text-button {
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.quickdrop-drop-empty {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  margin-top: 18px;
+  border: 1px dashed rgb(148 163 184 / 0.22);
+  border-radius: 20px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.quickdrop-drop-empty p {
+  align-self: end;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.quickdrop-drop-empty span {
+  align-self: start;
+  max-width: 46ch;
+  color: #64748b;
+}
+
 .quickdrop-text-editor {
   position: relative;
   flex: 1;
@@ -694,6 +882,16 @@ html.quickdrop-text-page a {
     font-size: 16px;
   }
 
+  .quickdrop-drop-list {
+    grid-template-columns: 1fr;
+  }
+
+  .quickdrop-drop-composer-footer,
+  .quickdrop-drop-timeline-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .quickdrop-text-shortcuts {
     text-align: left;
   }
@@ -703,6 +901,10 @@ html.quickdrop-text-page a {
   .quickdrop-text-button,
   .quickdrop-text-icon-button,
   .quickdrop-text-editor::after {
+    transition: none;
+  }
+
+  .quickdrop-drop-card {
     transition: none;
   }
 }

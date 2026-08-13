@@ -1,18 +1,25 @@
-import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
-import { connectRoom, createRoom, openRoom, recordTextMetric, RoomAccessError, type ClientTextMetricErrorCategory, type RoomController, type RoomErrorCode, type RoomKind } from "./text-client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  connectRoom,
+  createRoom,
+  openRoom,
+  recordTextMetric,
+  RoomAccessError,
+  type ClientTextMetricErrorCategory,
+  type RoomController,
+  type RoomKind,
+  type TextDrop,
+} from "./text-client";
+import { dropContentTypeLabel, isPublishDropShortcut } from "./text-session-shortcuts";
 import { uploadFiles } from "./tauri";
-import { isCopyTextShortcut, remoteContentNotice } from "./text-session-shortcuts";
 import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
 
-type PendingRemoteUpdate = { text: string; version: number };
 type ConnectionPhase = "connecting" | "open" | "closed";
 type ExportState =
   | { status: "idle" }
   | { status: "uploading" }
   | { status: "success"; url: string; copied: boolean }
   | { status: "error"; message: string };
-
-const WRITE_DELAY_MS = 75;
 
 function metricErrorCategory(error: unknown): ClientTextMetricErrorCategory {
   if (!(error instanceof RoomAccessError)) {
@@ -34,6 +41,38 @@ function metricErrorCategory(error: unknown): ClientTextMetricErrorCategory {
   }
 }
 
+function sortDrops(drops: TextDrop[]): TextDrop[] {
+  return [...drops].sort((left, right) => {
+    const byDate = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    return byDate === 0 ? right.id.localeCompare(left.id) : byDate;
+  });
+}
+
+function formatDropTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Agora";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function legacyLiveDrop(text: string, version: number, dropExpiresAfterMinutes: number): TextDrop {
+  const createdAt = new Date();
+  return {
+    id: `legacy-live-${version}`,
+    content: text,
+    contentType: "text",
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + dropExpiresAfterMinutes * 60 * 1000).toISOString(),
+  };
+}
+
 export default function TextSession() {
   const initialCode = initialRoomCode();
   const [roomCode, setRoomCode] = useState<string | null>(null);
@@ -42,94 +81,77 @@ export default function TextSession() {
   const [pinRequired, setPinRequired] = useState(false);
   const [showPrivacyOptions, setShowPrivacyOptions] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
-  const [text, setText] = useState("");
-  const [version, setVersion] = useState(0);
+  const [composer, setComposer] = useState("");
+  const [drops, setDrops] = useState<TextDrop[]>([]);
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>("closed");
   const [snapshotReady, setSnapshotReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [roomNotice, setRoomNotice] = useState<string | null>(null);
   const [roomKind, setRoomKind] = useState<RoomKind | null>(null);
   const [expiresAfterMinutes, setExpiresAfterMinutes] = useState<number | null>(null);
-  const [clearPending, setClearPending] = useState(false);
-  const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
+  const [dropExpiresAfterMinutes, setDropExpiresAfterMinutes] = useState<number | null>(null);
+  const [maxDrops, setMaxDrops] = useState<number | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
-  const [remoteNotice, setRemoteNotice] = useState<string | null>(null);
+  const [remoteDropId, setRemoteDropId] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
   const roomCodeRef = useRef<string | null>(null);
   const roomKindRef = useRef<RoomKind | null>(null);
+  const dropTtlMinutesRef = useRef(720);
   const connectionPhaseRef = useRef<ConnectionPhase>("closed");
-  const hasOpenedRef = useRef(false);
-  const hasReceivedSnapshotRef = useRef(false);
   const snapshotReadyRef = useRef(false);
-  const clearPendingRef = useRef(false);
-  const debounceTimerRef = useRef<number | null>(null);
-  const draftTextRef = useRef("");
-  const syncedTextRef = useRef("");
-  const versionRef = useRef(0);
   const clientIdRef = useRef<string | null>(null);
-  const inFlightRef = useRef(false);
-  const sentTextRef = useRef<string | null>(null);
-  const queuedTextRef = useRef<string | null>(null);
   const leavingRoomRef = useRef(false);
   const suppressNextClosedRef = useRef(false);
   const preserveJoinContextRef = useRef(false);
-  const discardNextAckRef = useRef(false);
   const autoJoinAttemptedRef = useRef(false);
-  const flushAfterNextChangeRef = useRef(false);
-  const lastWriteDispatchAtRef = useRef(0);
+  const hasOpenedRef = useRef(false);
+  const remoteHighlightTimerRef = useRef<number | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const clearComposerAfterPublishRef = useRef(true);
 
-  const clearDebounceTimer = useCallback(() => {
-    if (debounceTimerRef.current !== null) {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
+  const clearRemoteHighlight = useCallback(() => {
+    if (remoteHighlightTimerRef.current !== null) {
+      window.clearTimeout(remoteHighlightTimerRef.current);
+      remoteHighlightTimerRef.current = null;
     }
+    setRemoteDropId(null);
   }, []);
 
-  const clearPendingWrites = useCallback(
-    (preserveDiscardAck = false) => {
-      clearDebounceTimer();
-      inFlightRef.current = false;
-      sentTextRef.current = null;
-      queuedTextRef.current = null;
-      discardNextAckRef.current = preserveDiscardAck;
-    },
-    [clearDebounceTimer],
-  );
-
-  const dismissRemoteNotice = useCallback(() => {
-    setRemoteNotice(null);
-  }, []);
-
-  const showRemoteNotice = useCallback((nextText: string) => {
-    setRemoteNotice(remoteContentNotice(nextText));
+  const highlightRemoteDrop = useCallback((dropId: string) => {
+    if (remoteHighlightTimerRef.current !== null) {
+      window.clearTimeout(remoteHighlightTimerRef.current);
+    }
+    setRemoteDropId(dropId);
+    remoteHighlightTimerRef.current = window.setTimeout(() => {
+      remoteHighlightTimerRef.current = null;
+      setRemoteDropId(null);
+    }, 8000);
   }, []);
 
   const resetRoomData = useCallback(() => {
     snapshotReadyRef.current = false;
-    setSnapshotReady(false);
-    clearPendingRef.current = false;
+    clientIdRef.current = null;
+    roomKindRef.current = null;
+    dropTtlMinutesRef.current = 720;
     hasOpenedRef.current = false;
-    hasReceivedSnapshotRef.current = false;
-    clearPendingWrites(false);
-    setPendingRemote(null);
+    clearRemoteHighlight();
+    setSnapshotReady(false);
+    setComposer("");
+    setDrops([]);
     setPresenceCount(null);
-    setRemoteNotice(null);
-    setExportState({ status: "idle" });
     setRoomNotice(null);
     setRoomKind(null);
-    roomKindRef.current = null;
     setExpiresAfterMinutes(null);
-    setClearPending(false);
-    setText("");
-    draftTextRef.current = "";
-    syncedTextRef.current = "";
-    versionRef.current = 0;
-    lastWriteDispatchAtRef.current = 0;
-    setVersion(0);
-    clientIdRef.current = null;
-  }, [clearPendingWrites]);
+    setDropExpiresAfterMinutes(null);
+    setMaxDrops(null);
+    setIsPublishing(false);
+    setIsClearing(false);
+    setExportState({ status: "idle" });
+  }, [clearRemoteHighlight]);
 
   const clearRoomUrl = useCallback(() => {
     history.replaceState(history.state, "", "/t");
@@ -142,15 +164,15 @@ export default function TextSession() {
         return;
       }
 
+      resetRoomData();
       roomCodeRef.current = normalized;
       setRoomCode(normalized);
       setJoinCode(normalized);
       setJoinPin("");
       setPinRequired(false);
       setErrorMessage(null);
-      setPendingRemote(null);
+      connectionPhaseRef.current = "connecting";
       setConnectionPhase("connecting");
-      resetRoomData();
       setRoomInUrl(normalized);
     },
     [resetRoomData],
@@ -181,18 +203,13 @@ export default function TextSession() {
   const handleAccessError = useCallback((error: unknown) => {
     void recordTextMetric({ event: "client_error", errorCategory: metricErrorCategory(error) });
     if (error instanceof RoomAccessError) {
-      if (
-        error.code === "pin_required" ||
-        error.code === "pin_invalid" ||
-        error.code === "invalid_token"
-      ) {
+      if (error.code === "pin_required" || error.code === "pin_invalid" || error.code === "invalid_token") {
         setPinRequired(true);
       }
       setErrorMessage(error.message);
       return;
     }
-
-    setErrorMessage(error instanceof Error ? error.message : "Falha ao acessar a sala");
+    setErrorMessage(error instanceof Error ? error.message : "Falha ao acessar o clipboard");
   }, []);
 
   const requestRoomOpen = useCallback(
@@ -200,11 +217,11 @@ export default function TextSession() {
       setIsJoining(true);
       try {
         const opened = await openRoom(code, pin);
-        activateRoom(code);
-        setRoomKind(opened.kind);
+        activateRoom(opened.code);
         roomKindRef.current = opened.kind;
+        setRoomKind(opened.kind);
         setExpiresAfterMinutes(opened.expiresAfterMinutes);
-        setRoomNotice(opened.created ? "Clipboard criado. Abra este mesmo endereço na outra máquina." : "Clipboard aberto.");
+        setRoomNotice(opened.created ? "Clipboard criado. Abra este endereço na outra máquina." : "Clipboard aberto.");
       } catch (error) {
         handleAccessError(error);
       } finally {
@@ -215,11 +232,9 @@ export default function TextSession() {
   );
 
   const handleJoin = useCallback(() => {
-    if (!joinCode.trim()) {
-      return;
+    if (joinCode.trim()) {
+      void requestRoomOpen(joinCode, joinPin);
     }
-
-    void requestRoomOpen(joinCode, joinPin);
   }, [joinCode, joinPin, requestRoomOpen]);
 
   const handleCreateRoom = useCallback(async () => {
@@ -227,8 +242,8 @@ export default function TextSession() {
     try {
       const created = await createRoom(joinPin);
       activateRoom(created.code);
-      setRoomKind(created.kind);
       roomKindRef.current = created.kind;
+      setRoomKind(created.kind);
       setExpiresAfterMinutes(created.expiresAfterMinutes);
       setRoomNotice("Código aleatório criado. Compartilhe o endereço com a outra máquina.");
     } catch (error) {
@@ -237,36 +252,6 @@ export default function TextSession() {
       setIsJoining(false);
     }
   }, [activateRoom, handleAccessError, joinPin]);
-
-  const flushPendingWrite = useCallback(() => {
-    if (!roomCodeRef.current || !controllerRef.current || connectionPhaseRef.current !== "open" || !snapshotReadyRef.current) {
-      return;
-    }
-
-    if (inFlightRef.current) {
-      return;
-    }
-
-    const nextText = queuedTextRef.current;
-    if (nextText === null || nextText === syncedTextRef.current) {
-      queuedTextRef.current = null;
-      return;
-    }
-
-    inFlightRef.current = true;
-    sentTextRef.current = nextText;
-    queuedTextRef.current = null;
-    lastWriteDispatchAtRef.current = Date.now();
-    controllerRef.current.sendWrite(nextText, versionRef.current);
-  }, []);
-
-  const scheduleFlush = useCallback(() => {
-    clearDebounceTimer();
-    debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
-      flushPendingWrite();
-    }, WRITE_DELAY_MS);
-  }, [clearDebounceTimer, flushPendingWrite]);
 
   const leaveRoom = useCallback(() => {
     leavingRoomRef.current = true;
@@ -278,57 +263,74 @@ export default function TextSession() {
     setJoinPin("");
     setPinRequired(false);
     resetRoomData();
+    connectionPhaseRef.current = "closed";
     setConnectionPhase("closed");
-    setPendingRemote(null);
     setErrorMessage(null);
-    setRoomNotice(null);
   }, [clearRoomUrl, resetRoomData]);
+
+  const publishDrop = useCallback((content = composer, clearComposerAfterPublish = true) => {
+    if (
+      !content.trim() ||
+      connectionPhaseRef.current !== "open" ||
+      !snapshotReadyRef.current ||
+      !controllerRef.current
+    ) {
+      return;
+    }
+
+    setIsPublishing(true);
+    clearComposerAfterPublishRef.current = clearComposerAfterPublish;
+    setErrorMessage(null);
+    setRoomNotice(clearComposerAfterPublish ? "Enviando item..." : "Reenviando item...");
+    controllerRef.current.addDrop(content);
+  }, [composer]);
+
+  const handleCopyDrop = useCallback(async (drop: TextDrop) => {
+    try {
+      await copyText(drop.content);
+      clearRemoteHighlight();
+      void recordTextMetric({
+        event: "text_copied",
+        ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
+      });
+      setRoomNotice("Item copiado.");
+      setErrorMessage(null);
+    } catch {
+      void recordTextMetric({
+        event: "client_error",
+        ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
+        errorCategory: "clipboard",
+      });
+      setErrorMessage("Não foi possível copiar este item agora.");
+    }
+  }, [clearRemoteHighlight, copyText]);
+
+  const handleCopyLatest = useCallback(() => {
+    const latest = drops[0];
+    if (latest) {
+      void handleCopyDrop(latest);
+    }
+  }, [drops, handleCopyDrop]);
 
   const handleCopyCode = useCallback(async () => {
     if (!roomCode) {
       return;
     }
-
     try {
       await copyText(roomCode);
+      setRoomNotice("Código copiado.");
       setErrorMessage(null);
     } catch {
       setErrorMessage("Não foi possível copiar o código agora.");
     }
   }, [copyText, roomCode]);
 
-  const handleCopyRoomText = useCallback(async () => {
-    if (!text) {
-      return;
-    }
-
-    try {
-      await copyText(text);
-      void recordTextMetric({
-        event: "text_copied",
-        ...(roomKind ? { roomKind } : {}),
-      });
-      dismissRemoteNotice();
-      setRoomNotice("Texto copiado.");
-      setErrorMessage(null);
-    } catch {
-      void recordTextMetric({
-        event: "client_error",
-        ...(roomKind ? { roomKind } : {}),
-        errorCategory: "clipboard",
-      });
-      setErrorMessage("Não foi possível copiar o texto agora.");
-    }
-  }, [copyText, dismissRemoteNotice, roomKind, text]);
-
   const handleCopyRoomLink = useCallback(async () => {
     if (!roomCode) {
       return;
     }
-
     try {
-      const roomUrl = new URL(textRoomPath(roomCode), window.location.origin).href;
-      await copyText(roomUrl);
+      await copyText(new URL(textRoomPath(roomCode), window.location.origin).href);
       setRoomNotice("Endereço do clipboard copiado.");
       setErrorMessage(null);
     } catch {
@@ -336,40 +338,42 @@ export default function TextSession() {
     }
   }, [copyText, roomCode]);
 
-  const handleClearRoomText = useCallback(() => {
+  const handleDeleteDrop = useCallback((drop: TextDrop) => {
+    if (connectionPhaseRef.current !== "open" || !snapshotReadyRef.current) {
+      return;
+    }
+    controllerRef.current?.deleteDrop(drop.id);
+    setRoomNotice("Excluindo item...");
+  }, []);
+
+  const handleClearDrops = useCallback(() => {
     if (
-      !text ||
+      drops.length === 0 ||
       connectionPhaseRef.current !== "open" ||
       !snapshotReadyRef.current ||
-      !window.confirm("Limpar o texto para todas as máquinas conectadas?")
+      !window.confirm("Limpar todos os itens para todas as máquinas conectadas?")
     ) {
       return;
     }
-
-    clearDebounceTimer();
-    clearPendingRef.current = true;
-    setClearPending(true);
-    setPendingRemote(null);
-    setText("");
-    draftTextRef.current = "";
-    queuedTextRef.current = "";
-    dismissRemoteNotice();
-    flushPendingWrite();
+    setIsClearing(true);
     setRoomNotice("Limpando clipboard...");
-    setErrorMessage(null);
-  }, [clearDebounceTimer, dismissRemoteNotice, flushPendingWrite, text]);
+    controllerRef.current?.clearDrops();
+  }, [drops.length]);
 
-  const handleExportText = useCallback(async () => {
-    if (!roomCode || text.trim().length === 0) {
+  const handleExportDrops = useCallback(async () => {
+    if (!roomCode || drops.length === 0) {
       return;
     }
-
     setExportState({ status: "uploading" });
+    const content = [...drops]
+      .reverse()
+      .map((drop) => `[${drop.createdAt}] ${dropContentTypeLabel(drop.contentType)}\n${drop.content}`)
+      .join("\n\n---\n\n");
 
     try {
-      const file = new File([text], `quickdrop-room-${roomCode}.txt`, { type: "text/plain" });
-      const uploaded = await uploadFiles([file]);
-
+      const uploaded = await uploadFiles([
+        new File([content], `quickdrop-${roomCode}-timeline.txt`, { type: "text/plain" }),
+      ]);
       try {
         await copyText(uploaded.url);
         setExportState({ status: "success", url: uploaded.url, copied: true });
@@ -379,73 +383,10 @@ export default function TextSession() {
     } catch (error) {
       setExportState({
         status: "error",
-        message: error instanceof Error ? error.message : "Falha ao enviar o texto como arquivo.",
+        message: error instanceof Error ? error.message : "Falha ao enviar a timeline como arquivo.",
       });
     }
-  }, [copyText, roomCode, text]);
-
-  const handleRemoteOverride = useCallback(() => {
-    if (!pendingRemote) {
-      return;
-    }
-
-    clearPendingWrites(true);
-    clearPendingRef.current = false;
-    setClearPending(false);
-    setPendingRemote(null);
-    setRoomNotice(null);
-    showRemoteNotice(pendingRemote.text);
-    setText(pendingRemote.text);
-    draftTextRef.current = pendingRemote.text;
-    syncedTextRef.current = pendingRemote.text;
-    versionRef.current = pendingRemote.version;
-    setVersion(pendingRemote.version);
-  }, [clearPendingWrites, pendingRemote, showRemoteNotice]);
-
-  const handleTextChange = useCallback(
-    (event: ChangeEvent<HTMLTextAreaElement>) => {
-      const nextText = event.currentTarget.value;
-      if (clearPendingRef.current) {
-        clearPendingRef.current = false;
-        setClearPending(false);
-        setRoomNotice(null);
-      }
-      dismissRemoteNotice();
-      draftTextRef.current = nextText;
-      setText(nextText);
-      queuedTextRef.current = nextText;
-
-      if (flushAfterNextChangeRef.current) {
-        flushAfterNextChangeRef.current = false;
-        clearDebounceTimer();
-        flushPendingWrite();
-        return;
-      }
-
-      if (
-        connectionPhaseRef.current === "open" &&
-        snapshotReadyRef.current &&
-        !inFlightRef.current &&
-        Date.now() - lastWriteDispatchAtRef.current >= WRITE_DELAY_MS
-      ) {
-        clearDebounceTimer();
-        flushPendingWrite();
-        return;
-      }
-
-      scheduleFlush();
-    },
-    [clearDebounceTimer, dismissRemoteNotice, flushPendingWrite, scheduleFlush],
-  );
-
-  const handleTextPaste = useCallback(() => {
-    flushAfterNextChangeRef.current = true;
-  }, []);
-
-  const handleTextBlur = useCallback(() => {
-    clearDebounceTimer();
-    flushPendingWrite();
-  }, [clearDebounceTimer, flushPendingWrite]);
+  }, [copyText, drops, roomCode]);
 
   useEffect(() => {
     roomCodeRef.current = roomCode;
@@ -464,9 +405,8 @@ export default function TextSession() {
     if (!initialCode || roomCode || autoJoinAttemptedRef.current) {
       return;
     }
-
     autoJoinAttemptedRef.current = true;
-    void requestRoomOpen(initialCode, undefined);
+    void requestRoomOpen(initialCode);
   }, [initialCode, requestRoomOpen, roomCode]);
 
   useEffect(() => {
@@ -476,107 +416,89 @@ export default function TextSession() {
 
     const controller = connectRoom(roomCode, {
       onSnapshot(payload) {
-        const shouldRetryClear = clearPendingRef.current && payload.text !== "";
-        const clearConfirmed = clearPendingRef.current && payload.text === "";
-        const receivedChangedSnapshot =
-          hasReceivedSnapshotRef.current &&
-          payload.text !== syncedTextRef.current &&
-          !shouldRetryClear &&
-          !clearConfirmed;
-
         snapshotReadyRef.current = true;
         setSnapshotReady(true);
-        hasReceivedSnapshotRef.current = true;
-        clearPendingWrites(false);
         hasOpenedRef.current = true;
-        draftTextRef.current = shouldRetryClear ? "" : payload.text;
-        syncedTextRef.current = payload.text;
-        queuedTextRef.current = shouldRetryClear ? "" : null;
-        versionRef.current = payload.version;
         clientIdRef.current = payload.clientId;
-        setText(shouldRetryClear ? "" : payload.text);
-        setVersion(payload.version);
-        setRoomKind(payload.kind);
         roomKindRef.current = payload.kind;
+        setRoomKind(payload.kind);
         setExpiresAfterMinutes(payload.expiresAfterMinutes);
-        setPendingRemote(null);
+        setDropExpiresAfterMinutes(payload.dropExpiresAfterMinutes);
+        dropTtlMinutesRef.current = payload.dropExpiresAfterMinutes;
+        setMaxDrops(payload.maxDrops);
+        const snapshotDrops = payload.text && payload.drops[0]?.content !== payload.text
+          ? [legacyLiveDrop(payload.text, payload.version, payload.dropExpiresAfterMinutes), ...payload.drops]
+          : payload.drops;
+        setDrops(sortDrops(snapshotDrops));
+        setIsPublishing(false);
+        setIsClearing(false);
         setErrorMessage(null);
-
-        if (clearConfirmed) {
-          clearPendingRef.current = false;
-          setClearPending(false);
-          setRoomNotice("Clipboard limpo.");
-        } else if (shouldRetryClear) {
-          setRoomNotice("Limpando clipboard...");
-        } else if (receivedChangedSnapshot) {
-          showRemoteNotice(payload.text);
-        }
-
-        flushPendingWrite();
       },
-      onUpdate(payload) {
+      onDropAdded(payload) {
+        setDrops((current) => sortDrops([
+          payload.drop,
+          ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
+        ]));
+        setIsPublishing(false);
         if (payload.by === clientIdRef.current) {
-          return;
+          if (clearComposerAfterPublishRef.current) {
+            setComposer("");
+          }
+          clearComposerAfterPublishRef.current = true;
+          setRoomNotice("Item enviado.");
+          window.setTimeout(() => composerRef.current?.focus(), 0);
+        } else {
+          highlightRemoteDrop(payload.drop.id);
+          setRoomNotice("Novo item recebido de outro dispositivo.");
         }
-
-        const hasLocalChanges =
-          draftTextRef.current !== syncedTextRef.current ||
-          inFlightRef.current ||
-          queuedTextRef.current !== null;
-        if (!hasLocalChanges) {
-          draftTextRef.current = payload.text;
-          syncedTextRef.current = payload.text;
-          versionRef.current = payload.version;
-          setText(payload.text);
-          setVersion(payload.version);
-          setPendingRemote(null);
-          showRemoteNotice(payload.text);
-          return;
-        }
-
-        setPendingRemote({ text: payload.text, version: payload.version });
+      },
+      onDropsRemoved(payload) {
+        const removed = new Set(payload.dropIds);
+        setDrops((current) => current.filter((drop) => !removed.has(drop.id)));
+      },
+      onDropDeleted(payload) {
+        setDrops((current) => current.filter((drop) => drop.id !== payload.dropId));
+        setRoomNotice("Item excluído.");
+      },
+      onDropsCleared() {
+        clearRemoteHighlight();
+        setDrops([]);
+        setIsClearing(false);
+        setRoomNotice("Clipboard limpo.");
       },
       onPresence(payload) {
         setPresenceCount(payload.count);
       },
+      // Represent a legacy client's live document as one replaceable virtual item.
+      onUpdate(payload) {
+        const virtualPrefix = "legacy-live-";
+        setDrops((current) => {
+          const withoutLegacy = current.filter((drop) => !drop.id.startsWith(virtualPrefix));
+          if (!payload.text) {
+            return withoutLegacy;
+          }
+          if (withoutLegacy[0]?.content === payload.text) {
+            return withoutLegacy;
+          }
+          const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
+          highlightRemoteDrop(virtual.id);
+          return sortDrops([virtual, ...withoutLegacy]);
+        });
+        setRoomNotice(payload.text ? "Texto recebido de um cliente anterior." : "Texto legado limpo.");
+      },
       onTyping() {},
       onPointer() {},
       onPeerLeft() {},
-      onAck(payload) {
-        if (discardNextAckRef.current) {
-          discardNextAckRef.current = false;
-          return;
-        }
-
-        const acknowledgedText = sentTextRef.current;
-        versionRef.current = payload.version;
-        setVersion(payload.version);
-        if (acknowledgedText !== null) {
-          syncedTextRef.current = acknowledgedText;
-          sentTextRef.current = null;
-          inFlightRef.current = false;
-        }
-
-        if (clearPendingRef.current && acknowledgedText === "") {
-          clearPendingRef.current = false;
-          setClearPending(false);
-          setPendingRemote(null);
-          setRoomNotice("Clipboard limpo.");
-        }
-
-        flushPendingWrite();
-      },
+      onAck() {},
       onError(payload) {
+        setIsPublishing(false);
+        setIsClearing(false);
         void recordTextMetric({
           event: "client_error",
           ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
           errorCategory: metricErrorCategory(new RoomAccessError(payload.message, payload.code)),
         });
-        if (
-          payload.code === "pin_required" ||
-          payload.code === "pin_invalid" ||
-          payload.code === "invalid_token"
-        ) {
+        if (payload.code === "pin_required" || payload.code === "pin_invalid" || payload.code === "invalid_token") {
           preserveJoinContextRef.current = true;
           setPinRequired(true);
           setJoinPin("");
@@ -584,49 +506,44 @@ export default function TextSession() {
           controllerRef.current?.close();
           return;
         }
-
         setErrorMessage(payload.message);
       },
       onStatus(status) {
         connectionPhaseRef.current = status;
         setConnectionPhase(status);
-
         if (status === "open") {
           hasOpenedRef.current = true;
           return;
         }
 
-        clearPendingWrites(false);
         snapshotReadyRef.current = false;
         setSnapshotReady(false);
-
-        if (status === "closed") {
-          if (suppressNextClosedRef.current) {
-            suppressNextClosedRef.current = false;
-            return;
-          }
-
-          if (leavingRoomRef.current) {
-            leavingRoomRef.current = false;
-            return;
-          }
-
-          controllerRef.current = null;
-          if (preserveJoinContextRef.current) {
-            preserveJoinContextRef.current = false;
-            roomCodeRef.current = null;
-            setRoomCode(null);
-            resetRoomData();
-            return;
-          }
-
-          if (roomCodeRef.current) {
-            roomCodeRef.current = null;
-            setRoomCode(null);
-            clearRoomUrl();
-          }
-          resetRoomData();
+        setIsPublishing(false);
+        setIsClearing(false);
+        if (status !== "closed") {
+          return;
         }
+        if (suppressNextClosedRef.current) {
+          suppressNextClosedRef.current = false;
+          return;
+        }
+        if (leavingRoomRef.current) {
+          leavingRoomRef.current = false;
+          return;
+        }
+
+        controllerRef.current = null;
+        if (preserveJoinContextRef.current) {
+          preserveJoinContextRef.current = false;
+          roomCodeRef.current = null;
+          setRoomCode(null);
+          resetRoomData();
+          return;
+        }
+        roomCodeRef.current = null;
+        setRoomCode(null);
+        clearRoomUrl();
+        resetRoomData();
       },
     });
 
@@ -640,40 +557,25 @@ export default function TextSession() {
         controllerRef.current = null;
       }
     };
-  }, [
-    clearPendingWrites,
-    clearRoomUrl,
-    flushPendingWrite,
-    initialCode,
-    requestRoomOpen,
-    resetRoomData,
-    roomCode,
-    showRemoteNotice,
-  ]);
+  }, [clearRemoteHighlight, clearRoomUrl, highlightRemoteDrop, resetRoomData, roomCode]);
+
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape" && roomCodeRef.current) {
         event.preventDefault();
         leaveRoom();
-        return;
-      }
-
-      if (roomCodeRef.current && draftTextRef.current && isCopyTextShortcut(event)) {
-        event.preventDefault();
-        void handleCopyRoomText();
       }
     };
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleCopyRoomText, leaveRoom]);
+  }, [leaveRoom]);
 
-  useEffect(() => {
-    return () => {
-      clearDebounceTimer();
-      controllerRef.current?.close();
-    };
-  }, [clearDebounceTimer]);
+  useEffect(() => () => {
+    if (remoteHighlightTimerRef.current !== null) {
+      window.clearTimeout(remoteHighlightTimerRef.current);
+    }
+    controllerRef.current?.close();
+  }, []);
 
   const badgeVariant = roomCode
     ? connectionPhase === "open"
@@ -684,27 +586,24 @@ export default function TextSession() {
           ? "reconnecting"
           : "connecting"
     : null;
-  const statusLabel =
-    badgeVariant === "open"
-      ? "Conectado"
-      : badgeVariant === "closed"
-        ? "Desconectado"
-        : badgeVariant === "reconnecting"
-          ? "Reconectando"
-          : "Conectando";
-  const presenceLabel =
-    presenceCount === null ? null : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
-  const exportButtonLabel = exportState.status === "uploading" ? "Enviando..." : "Enviar como arquivo";
-  const showExportSuccess = exportState.status === "success";
-  const showExportError = exportState.status === "error";
-  const pinLabel = pinRequired ? "PIN da sala" : "PIN (opcional)";
-  const primaryJoinLabel = isJoining ? "Abrindo..." : "Abrir";
-  const createLabel = isJoining ? "Gerando..." : "Gerar código aleatório";
+  const statusLabel = badgeVariant === "open"
+    ? "Conectado"
+    : badgeVariant === "closed"
+      ? "Desconectado"
+      : badgeVariant === "reconnecting"
+        ? "Reconectando"
+        : "Conectando";
+  const presenceLabel = presenceCount === null
+    ? null
+    : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
   const expiryLabel = expiresAfterMinutes === null
     ? null
-    : `Expira ${expiresAfterMinutes >= 60 && expiresAfterMinutes % 60 === 0 ? `${expiresAfterMinutes / 60}h` : `${expiresAfterMinutes} min`} depois que todos saírem.`;
-
+    : `Sala expira ${expiresAfterMinutes >= 60 && expiresAfterMinutes % 60 === 0 ? `${expiresAfterMinutes / 60}h` : `${expiresAfterMinutes} min`} depois que todos saírem.`;
+  const dropPolicyLabel = dropExpiresAfterMinutes === null
+    ? null
+    : `Itens duram ${dropExpiresAfterMinutes >= 60 && dropExpiresAfterMinutes % 60 === 0 ? `${dropExpiresAfterMinutes / 60}h` : `${dropExpiresAfterMinutes} min`}${maxDrops ? ` · máximo ${maxDrops}` : ""}.`;
   if (!roomCode) {
+    const primaryJoinLabel = isJoining ? "Abrindo..." : "Abrir";
     return (
       <main className="quickdrop-text-shell">
         <section className="quickdrop-text-card quickdrop-text-join">
@@ -741,11 +640,10 @@ export default function TextSession() {
           {pinRequired || showPrivacyOptions ? (
             <>
               <label className="quickdrop-text-field">
-                <span>{pinLabel}</span>
+                <span>{pinRequired ? "PIN da sala" : "PIN (opcional)"}</span>
                 <input
                   className="quickdrop-text-input"
                   autoComplete="off"
-                  inputMode="text"
                   type="password"
                   maxLength={64}
                   placeholder={pinRequired ? "Informe o PIN" : "Proteja o clipboard se quiser"}
@@ -760,7 +658,7 @@ export default function TextSession() {
                 />
               </label>
               <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={handleCreateRoom}>
-                {createLabel}
+                {isJoining ? "Gerando..." : "Gerar código aleatório"}
               </button>
             </>
           ) : null}
@@ -768,7 +666,6 @@ export default function TextSession() {
           <p className="quickdrop-text-copy">
             Códigos curtos são públicos e fáceis de adivinhar. Não use para senhas ou dados sensíveis.
           </p>
-
           <div className="quickdrop-text-actions">
             <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim() || isJoining} onClick={handleJoin}>
               {primaryJoinLabel}
@@ -793,51 +690,33 @@ export default function TextSession() {
       <section className="quickdrop-text-room">
         <header className="quickdrop-text-room-header">
           <div className="quickdrop-text-room-meta">
-            <button className="quickdrop-text-icon-button" type="button" onClick={leaveRoom}>
-              ← Voltar
-            </button>
+            <button className="quickdrop-text-icon-button" type="button" onClick={leaveRoom}>← Voltar</button>
             <div>
               <p className="quickdrop-text-kicker">Clipboard ativo</p>
               <div className="quickdrop-text-room-code-row">
                 <h1 className="quickdrop-text-room-code">{roomCode}</h1>
-                <button
-                  className="quickdrop-text-button quickdrop-text-button--primary"
-                  type="button"
-                  aria-keyshortcuts="Control+Enter Meta+Enter"
-                  disabled={text.length === 0}
-                  onClick={handleCopyRoomText}
-                  title="Copiar texto (Ctrl/⌘ + Enter)"
-                >
-                  Copiar texto
+                <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={drops.length === 0} onClick={handleCopyLatest}>
+                  Copiar mais recente
                 </button>
-                <button className="quickdrop-text-button" type="button" onClick={handleCopyRoomLink}>
-                  Compartilhar endereço
-                </button>
-                <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>
-                  Copiar código
-                </button>
+                <button className="quickdrop-text-button" type="button" onClick={handleCopyRoomLink}>Compartilhar endereço</button>
+                <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>Copiar código</button>
                 <button
                   className="quickdrop-text-button quickdrop-text-button--ghost"
                   type="button"
-                  disabled={clearPending || text.length === 0 || connectionPhase !== "open" || !snapshotReady}
-                  onClick={handleClearRoomText}
+                  disabled={isClearing || drops.length === 0 || connectionPhase !== "open" || !snapshotReady}
+                  onClick={handleClearDrops}
                 >
-                  {clearPending ? "Limpando..." : "Limpar clipboard"}
+                  {isClearing ? "Limpando..." : "Limpar todos"}
                 </button>
-                <button
-                  className="quickdrop-text-button"
-                  type="button"
-                  disabled={exportState.status === "uploading" || text.trim().length === 0}
-                  onClick={handleExportText}
-                >
-                  {exportButtonLabel}
+                <button className="quickdrop-text-button" type="button" disabled={exportState.status === "uploading" || drops.length === 0} onClick={handleExportDrops}>
+                  {exportState.status === "uploading" ? "Enviando..." : "Enviar timeline como arquivo"}
                 </button>
               </div>
               {presenceLabel ? <p className="quickdrop-text-room-presence">{presenceLabel}</p> : null}
               {expiryLabel ? <p className="quickdrop-text-room-presence">{expiryLabel}{roomKind === "custom" ? " Código público." : ""}</p> : null}
+              {dropPolicyLabel ? <p className="quickdrop-text-room-presence">{dropPolicyLabel}</p> : null}
             </div>
           </div>
-
           <span
             className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}
             role="status"
@@ -849,55 +728,98 @@ export default function TextSession() {
         </header>
 
         {roomNotice ? <p className="quickdrop-text-note quickdrop-text-note--success" aria-live="polite" aria-atomic="true">{roomNotice}</p> : null}
-        {remoteNotice ? (
-          <p className="quickdrop-text-note quickdrop-text-note--remote" role="status" aria-live="polite" aria-atomic="true">
-            {remoteNotice}
-          </p>
-        ) : null}
-        {showExportError ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{exportState.message}</p> : null}
-        {showExportSuccess ? (
-          <p className="quickdrop-text-note quickdrop-text-note--success">
-            {exportState.copied ? (
-              "Texto enviado. Link copiado."
-            ) : (
-              <>
-                Texto enviado. <a href={exportState.url} target="_blank" rel="noreferrer">Abrir link</a>
-              </>
-            )}
-          </p>
-        ) : null}
         {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{errorMessage}</p> : null}
-        {pendingRemote ? (
-          <div className="quickdrop-text-banner" role="status" aria-live="polite">
-            <p>Conteúdo atualizado em outra máquina</p>
-            <button className="quickdrop-text-button quickdrop-text-button--banner" type="button" onClick={handleRemoteOverride}>
-              Carregar
-            </button>
-          </div>
+        {exportState.status === "error" ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{exportState.message}</p> : null}
+        {exportState.status === "success" ? (
+          <p className="quickdrop-text-note quickdrop-text-note--success">
+            {exportState.copied ? "Timeline enviada. Link copiado." : <>Timeline enviada. <a href={exportState.url} target="_blank" rel="noreferrer">Abrir link</a></>}
+          </p>
         ) : null}
 
-        <div className={`quickdrop-text-editor${remoteNotice ? " quickdrop-text-editor--remote" : ""}`}>
-          <label className="sr-only" htmlFor="quickdrop-shared-text">Texto compartilhado</label>
+        <section className="quickdrop-drop-composer" aria-labelledby="quickdrop-drop-composer-title">
+          <div>
+            <p className="quickdrop-text-kicker">Novo item</p>
+            <h2 id="quickdrop-drop-composer-title">Cole uma vez, mantenha o histórico</h2>
+          </div>
+          <label className="sr-only" htmlFor="quickdrop-drop-content">Texto do novo item</label>
           <textarea
-            id="quickdrop-shared-text"
-            className="quickdrop-text-textarea"
-            value={text}
-            aria-describedby="quickdrop-text-shortcuts"
-            aria-keyshortcuts="Control+Enter Meta+Enter"
-            onBlur={handleTextBlur}
-            onChange={handleTextChange}
-            onPaste={handleTextPaste}
+            ref={composerRef}
+            id="quickdrop-drop-content"
+            className="quickdrop-drop-composer-input"
+            value={composer}
+            onChange={(event) => {
+              clearRemoteHighlight();
+              setComposer(event.currentTarget.value);
+            }}
+            onKeyDown={(event) => {
+              if (isPublishDropShortcut(event.nativeEvent)) {
+                event.preventDefault();
+                publishDrop();
+              }
+            }}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
             autoComplete="off"
             autoFocus
-            placeholder="Digite ou cole algo aqui..."
+            placeholder="Digite ou cole um texto, URL, comando ou JSON..."
+            aria-describedby="quickdrop-drop-shortcuts"
+            aria-keyshortcuts="Control+Enter Meta+Enter"
           />
-        </div>
-        <p id="quickdrop-text-shortcuts" className="quickdrop-text-shortcuts">
-          Ctrl/⌘ + Enter para copiar · Esc para sair
-        </p>
+          <div className="quickdrop-drop-composer-footer">
+            <p id="quickdrop-drop-shortcuts">Ctrl/⌘ + Enter para enviar · Esc para sair</p>
+            <button
+              className="quickdrop-text-button quickdrop-text-button--primary"
+              type="button"
+              disabled={!composer.trim() || isPublishing || connectionPhase !== "open" || !snapshotReady}
+              onClick={() => publishDrop()}
+            >
+              {isPublishing ? "Enviando..." : "Enviar item"}
+            </button>
+          </div>
+        </section>
+
+        <section className="quickdrop-drop-timeline" aria-labelledby="quickdrop-drop-timeline-title">
+          <div className="quickdrop-drop-timeline-heading">
+            <div>
+              <p className="quickdrop-text-kicker">Histórico</p>
+              <h2 id="quickdrop-drop-timeline-title">{drops.length} {drops.length === 1 ? "item" : "itens"}</h2>
+            </div>
+          </div>
+
+          {drops.length === 0 ? (
+            <div className="quickdrop-drop-empty">
+              <p>Nenhum item ainda.</p>
+              <span>Envie o primeiro texto acima e abra este código na outra máquina.</span>
+            </div>
+          ) : (
+            <ol className="quickdrop-drop-list">
+              {drops.map((drop) => (
+                <li
+                  key={drop.id}
+                  className={`quickdrop-drop-card${remoteDropId === drop.id ? " quickdrop-drop-card--remote" : ""}`}
+                >
+                  <div className="quickdrop-drop-card-header">
+                    <span className={`quickdrop-drop-type quickdrop-drop-type--${drop.contentType}`}>{dropContentTypeLabel(drop.contentType)}</span>
+                    <time dateTime={drop.createdAt}>{formatDropTime(drop.createdAt)}</time>
+                  </div>
+                  {drop.contentType === "url" ? (
+                    <a className="quickdrop-drop-content quickdrop-drop-content--url" href={drop.content} target="_blank" rel="noopener noreferrer nofollow">
+                      {drop.content}
+                    </a>
+                  ) : (
+                    <pre className="quickdrop-drop-content"><code>{drop.content}</code></pre>
+                  )}
+                  <div className="quickdrop-drop-actions">
+                    <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" onClick={() => void handleCopyDrop(drop)}>Copiar</button>
+                    <button className="quickdrop-text-button" type="button" disabled={connectionPhase !== "open" || !snapshotReady || isPublishing} onClick={() => publishDrop(drop.content, false)}>Reenviar</button>
+                    <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" disabled={connectionPhase !== "open" || !snapshotReady || drop.id.startsWith("legacy-")} onClick={() => handleDeleteDrop(drop)}>Excluir</button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
       </section>
     </main>
   );

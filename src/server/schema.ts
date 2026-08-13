@@ -57,6 +57,7 @@ export const textRooms = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    dropsStartedAt: timestamp("drops_started_at", { withTimezone: true }),
   },
   (table) => [
     index("text_rooms_expires_idx").on(table.expiresAt).where(sql`${table.deletedAt} is null`),
@@ -65,6 +66,30 @@ export const textRooms = pgTable(
 );
 
 export type TextRoomRecord = typeof textRooms.$inferSelect;
+
+export const textDrops = pgTable(
+  "text_drops",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    roomId: uuid("room_id").notNull().references(() => textRooms.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    contentType: varchar("content_type", { length: 16 }).default("text").notNull(),
+    legacyRoomVersion: integer("legacy_room_version"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("text_drops_room_timeline_idx")
+      .on(table.roomId, table.createdAt.desc(), table.id.desc()),
+    index("text_drops_expiry_idx").on(table.expiresAt),
+    uniqueIndex("text_drops_legacy_room_version_unique")
+      .on(table.roomId, table.legacyRoomVersion)
+      .where(sql`${table.legacyRoomVersion} is not null`),
+    check("text_drops_content_not_empty", sql`length(${table.content}) > 0`),
+  ],
+);
+
+export type TextDropRecord = typeof textDrops.$inferSelect;
 
 export const textFunnelMetrics = pgTable(
   "text_funnel_metrics",

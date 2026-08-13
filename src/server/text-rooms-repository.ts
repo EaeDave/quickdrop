@@ -13,6 +13,7 @@ export type TextRoomRow = {
   updated_at: Date;
   expires_at: Date | null;
   deleted_at: Date | null;
+  drops_started_at: Date | null;
 };
 
 export type CreateTextRoomInput = {
@@ -204,6 +205,7 @@ function toTextRoomRow(row: TextRoomRecord): TextRoomRow {
     updated_at: row.updatedAt,
     expires_at: row.expiresAt,
     deleted_at: row.deletedAt,
+    drops_started_at: row.dropsStartedAt,
   };
 }
 

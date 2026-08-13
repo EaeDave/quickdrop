@@ -7,7 +7,7 @@ export type TextShortcutEvent = {
   isComposing: boolean;
 };
 
-export function isCopyTextShortcut(event: TextShortcutEvent): boolean {
+export function isPublishDropShortcut(event: TextShortcutEvent): boolean {
   return (
     event.key === "Enter" &&
     (event.ctrlKey || event.metaKey) &&
@@ -17,8 +17,15 @@ export function isCopyTextShortcut(event: TextShortcutEvent): boolean {
   );
 }
 
-export function remoteContentNotice(text: string): string {
-  return text.length === 0
-    ? "Clipboard limpo em outro dispositivo."
-    : "Novo texto recebido de outro dispositivo.";
+export function dropContentTypeLabel(contentType: "text" | "url" | "command" | "json"): string {
+  switch (contentType) {
+    case "url":
+      return "URL";
+    case "command":
+      return "Comando";
+    case "json":
+      return "JSON";
+    default:
+      return "Texto";
+  }
 }
