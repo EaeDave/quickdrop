@@ -423,4 +423,28 @@ mod tests {
         assert_eq!(fs::read(&current).unwrap(), bytes);
         let _ = fs::remove_dir_all(directory);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn captured_restart_path_executes_the_replacement_binary() {
+        let directory = env::temp_dir().join(format!("qd-update-restart-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let current = directory.join("qd");
+        fs::write(&current, b"#!/bin/sh\nexit 1\n").unwrap();
+        let restart = RestartCommand {
+            executable: current.clone(),
+            args: Vec::new(),
+        };
+        let bytes = b"#!/bin/sh\nexit 0\n";
+        let checksum = format!("{:x}", Sha256::digest(bytes));
+
+        install_verified_binary(bytes, &checksum, &current).unwrap();
+        let status = ProcessCommand::new(&restart.executable)
+            .args(&restart.args)
+            .status()
+            .unwrap();
+
+        assert!(status.success());
+        let _ = fs::remove_dir_all(directory);
+    }
 }

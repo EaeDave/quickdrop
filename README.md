@@ -143,12 +143,13 @@ Keyboard shortcuts:
 | Timeline | `g`/`G`/`Home`, `End` | Select the first or last drop |
 | Timeline | `Enter`, `i`/`I`, `Tab` | Focus the composer |
 | Timeline | `e`/`E`, `c`/`C`, `r`/`R`, `d`/`D` | Edit, copy, resend, or delete the selected drop |
+| Any screen | `Ctrl+O` | Leave the current clipboard and enter another code |
 | Any screen | `Ctrl+U` | Install an available `qd` update and restart the TUI |
 | Timeline | `?`, `q`/`Q` | Open help or quit |
 | Confirm delete | `y`/`Y`, `Enter`; `n`/`N`, `Esc` | Confirm or cancel the deletion |
-| Composer | `Enter`, `Ctrl+Enter` | Publish a new drop or insert a line break |
+| Composer | `Enter`, `Ctrl+Enter`/`Shift+Enter` | Publish a new drop or insert a line break |
 | Composer | `Esc` | Return to the timeline |
-| Editor | `Enter`, `Ctrl+Enter` | Save changes or insert a line break |
+| Editor | `Enter`, `Ctrl+Enter`/`Shift+Enter` | Save changes or insert a line break |
 | Editor | `Esc` | Cancel editing |
 
 Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hold `Shift` while dragging to use the terminal's native text selection.
