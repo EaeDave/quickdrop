@@ -20,7 +20,14 @@ use tokio::{
     sync::mpsc,
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{
+        client::IntoClientRequest,
+        http::{header::COOKIE, HeaderValue},
+        Message,
+    },
+};
 use tui_textarea::TextArea;
 
 use crate::{
@@ -30,6 +37,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Code,
+    Pin,
     Timeline,
     Help,
     ConfirmDelete,
@@ -48,6 +56,7 @@ enum ConnectionState {
 #[derive(Debug)]
 enum Action {
     Publish(String),
+    Update(String, String),
     Delete(String),
 }
 #[derive(Debug)]
@@ -56,20 +65,28 @@ enum NetEvent {
     Snapshot(Vec<TextDrop>),
     Removed(Vec<String>),
     Added(TextDrop, bool),
+    Updated(TextDrop, bool),
     Deleted(String),
     PublishFailed(Vec<String>),
     Cleared,
-    Error(String),
+    Error {
+        code: Option<String>,
+        message: String,
+    },
 }
 
 struct App<'a> {
     screen: Screen,
     focus: Focus,
     code_input: String,
+    pin_input: String,
     code: String,
     drops: Vec<TextDrop>,
     selected: usize,
     composer: TextArea<'a>,
+    composer_draft_before_edit: Option<String>,
+    editing_drop_id: Option<String>,
+    edit_saving: bool,
     connection: ConnectionState,
     status: Option<String>,
     quit: bool,
@@ -90,11 +107,15 @@ impl<'a> App<'a> {
             },
             focus: Focus::Timeline,
             code_input: String::new(),
+            pin_input: String::new(),
             code: code.unwrap_or_default(),
             drops: Vec::new(),
             selected: 0,
             composer,
             connection: ConnectionState::Connecting,
+            composer_draft_before_edit: None,
+            editing_drop_id: None,
+            edit_saving: false,
             status: None,
             quit: false,
             no_color: env::var_os("NO_COLOR").is_some(),
@@ -167,6 +188,49 @@ impl<'a> App<'a> {
         self.composer.set_cursor_line_style(Style::default());
         self.focus = Focus::Composer;
     }
+    fn begin_edit(&mut self) {
+        let Some(drop) = self.selected_drop() else {
+            return;
+        };
+        let drop_id = drop.id.clone();
+        let content = drop.content.clone();
+        self.composer_draft_before_edit = Some(self.composer_content());
+        self.composer = TextArea::from(content.split('\n').map(str::to_owned).collect::<Vec<_>>());
+        self.composer.set_cursor_line_style(Style::default());
+        self.editing_drop_id = Some(drop_id);
+        self.edit_saving = false;
+        self.focus = Focus::Composer;
+    }
+    fn finish_edit(&mut self) {
+        let draft = self.composer_draft_before_edit.take().unwrap_or_default();
+        self.composer = TextArea::from(draft.split('\n').map(str::to_owned).collect::<Vec<_>>());
+        self.composer
+            .set_placeholder_text("Write or paste a new drop…");
+        self.composer.set_cursor_line_style(Style::default());
+        self.editing_drop_id = None;
+        self.edit_saving = false;
+        self.focus = Focus::Timeline;
+    }
+    fn update_drop(&mut self, drop: TextDrop, local: bool) {
+        let selected_id = self.selected_drop().map(|item| item.id.clone());
+        if let Some(existing) = self.drops.iter_mut().find(|item| item.id == drop.id) {
+            *existing = drop;
+            sort_drops(&mut self.drops);
+            if let Some(selected_id) = selected_id {
+                self.selected = self
+                    .drops
+                    .iter()
+                    .position(|item| item.id == selected_id)
+                    .unwrap_or_else(|| self.selected.min(self.drops.len().saturating_sub(1)));
+            }
+            if local {
+                self.finish_edit();
+                self.status = Some("Edited".to_owned());
+            } else {
+                self.status = Some("Edited on another device".to_owned());
+            }
+        }
+    }
 }
 
 pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
@@ -189,34 +253,42 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                 copy: false,
                 server: app.server.clone(),
             };
+            let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
             let room = match http_client() {
-                Ok(client) => open_room(&client, &command).await,
+                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
                 Err(error) => Err(error),
             };
             let room = match room {
                 Ok(room) => room,
+                Err(QdError::Remote {
+                    code: Some(code),
+                    message,
+                }) if code == "pin_required"
+                    || code == "pin_invalid"
+                    || code == "invalid_token" =>
+                {
+                    app.screen = Screen::Pin;
+                    app.pin_input.clear();
+                    app.status = Some(message);
+                    continue;
+                }
                 Err(error) => {
                     app.screen = Screen::Code;
                     app.code_input = app.code.clone();
                     app.status = Some(error_message(error));
                     app.code.clear();
+                    app.pin_input.clear();
                     continue;
                 }
             };
-            if room.protected {
-                app.screen = Screen::Code;
-                app.code_input = app.code.clone();
-                app.status =
-                    Some("PIN-protected clipboards are only available on the web".to_owned());
-                app.code.clear();
-                continue;
-            }
+            app.pin_input.clear();
             app.code = room.code;
             let (actions_tx, actions_rx) = mpsc::channel(32);
             let (network_tx, network_rx) = mpsc::channel(64);
             tokio::spawn(realtime_client(
                 app.server.clone(),
                 app.code.clone(),
+                room.access_cookie,
                 actions_rx,
                 network_tx,
             ));
@@ -224,17 +296,26 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
         }
 
         if let Some((actions, network)) = connection.as_mut() {
-            tokio::select! {
-                terminal_event = events.next() => match terminal_event {
-                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
-                    Some(Ok(_)) => {}
-                    Some(Err(error)) => return Err(terminal_error(error)),
-                    None => return Ok(()),
+            let reset_connection = tokio::select! {
+                terminal_event = events.next() => {
+                    match terminal_event {
+                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => return Err(terminal_error(error)),
+                        None => return Ok(()),
+                    }
+                    false
                 },
                 network_event = network.recv() => match network_event {
                     Some(event) => apply_network_event(&mut app, event),
-                    None => app.connection = ConnectionState::Reconnecting,
+                    None => {
+                        app.connection = ConnectionState::Reconnecting;
+                        false
+                    }
                 }
+            };
+            if reset_connection {
+                connection = None;
             }
         } else {
             match events.next().await {
@@ -277,6 +358,32 @@ async fn handle_key(
             }
             _ => {}
         },
+        Screen::Pin => match key.code {
+            KeyCode::Esc => {
+                app.screen = Screen::Code;
+                app.code_input = app.code.clone();
+                app.pin_input.clear();
+                app.status = None;
+            }
+            KeyCode::Enter => {
+                let pin_length = app.pin_input.trim().chars().count();
+                if (4..=64).contains(&pin_length) {
+                    app.screen = Screen::Timeline;
+                    app.status = None;
+                } else {
+                    app.status = Some("Use a PIN with 4–64 characters".to_owned());
+                }
+            }
+            KeyCode::Backspace => {
+                app.pin_input.pop();
+            }
+            KeyCode::Char(character)
+                if !character.is_control() && app.pin_input.chars().count() < 64 =>
+            {
+                app.pin_input.push(character);
+            }
+            _ => {}
+        },
         Screen::Help => match key.code {
             KeyCode::Char('q') => app.quit = true,
             KeyCode::Esc | KeyCode::Char('?') => app.screen = Screen::Timeline,
@@ -310,27 +417,47 @@ async fn handle_timeline_key(
 ) -> Result<(), QdError> {
     if app.focus == Focus::Composer {
         if key.code == KeyCode::Esc {
-            app.focus = Focus::Timeline;
+            if app.editing_drop_id.is_some() {
+                app.finish_edit();
+            } else {
+                app.focus = Focus::Timeline;
+            }
         } else if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Enter | KeyCode::Char('s'))
         {
             let content = app.composer_content();
+            let verb = if app.editing_drop_id.is_some() {
+                "saving"
+            } else {
+                "sending"
+            };
             if content.trim().is_empty() {
-                app.status = Some("Write something before sending".to_owned());
+                app.status = Some(format!("Write something before {verb}"));
             } else if app.connection != ConnectionState::Connected {
-                app.status = Some("Wait for the connection before sending".to_owned());
+                app.status = Some(format!("Wait for the connection before {verb}"));
+            } else if app.edit_saving {
+                app.status = Some("Wait for edit confirmation".to_owned());
             } else if let Some(sender) = actions {
-                sender
-                    .send(Action::Publish(content))
-                    .await
-                    .map_err(channel_error)?;
-                app.clear_composer();
-                app.focus = Focus::Timeline;
-                app.status = Some("Sending…".to_owned());
+                if let Some(drop_id) = app.editing_drop_id.clone() {
+                    sender
+                        .send(Action::Update(drop_id, content))
+                        .await
+                        .map_err(channel_error)?;
+                    app.edit_saving = true;
+                    app.status = Some("Saving…".to_owned());
+                } else {
+                    sender
+                        .send(Action::Publish(content))
+                        .await
+                        .map_err(channel_error)?;
+                    app.clear_composer();
+                    app.focus = Focus::Timeline;
+                    app.status = Some("Sending…".to_owned());
+                }
             }
         } else if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
             app.clear_composer();
-        } else {
+        } else if !app.edit_saving {
             app.composer.input(key);
         }
         return Ok(());
@@ -343,6 +470,7 @@ async fn handle_timeline_key(
         KeyCode::Char('g') | KeyCode::Home => app.selected = 0,
         KeyCode::Char('G') | KeyCode::End => app.selected = app.drops.len().saturating_sub(1),
         KeyCode::Enter | KeyCode::Char('i') | KeyCode::Tab => app.focus = Focus::Composer,
+        KeyCode::Char('e') if app.selected_drop().is_some() => app.begin_edit(),
         KeyCode::Char('y') => {
             if let Some(content) = app.selected_drop().map(|drop| drop.content.clone()) {
                 match copy_to_system_clipboard(&content) {
@@ -371,11 +499,20 @@ async fn handle_timeline_key(
     Ok(())
 }
 
-fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
+fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
     match event {
-        NetEvent::State(state) => app.connection = state,
-        NetEvent::Snapshot(drops) => app.replace_drops(drops),
+        NetEvent::State(state) => {
+            app.connection = state;
+            if state == ConnectionState::Reconnecting {
+                app.edit_saving = false;
+            }
+        }
+        NetEvent::Snapshot(drops) => {
+            app.edit_saving = false;
+            app.replace_drops(drops);
+        }
         NetEvent::Added(drop, local) => app.add_drop(drop, local),
+        NetEvent::Updated(drop, local) => app.update_drop(drop, local),
         NetEvent::Deleted(id) => {
             app.remove_drop(&id);
             app.status = Some("Deleted".to_owned());
@@ -394,13 +531,24 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
             app.restore_composer(contents);
             app.status = Some("Unconfirmed text was restored to the composer".to_owned());
         }
-        NetEvent::Error(message) => app.status = Some(message),
+        NetEvent::Error { code, message } => {
+            app.edit_saving = false;
+            app.status = Some(message);
+            if code.as_deref().is_some_and(remote_error_requires_pin) {
+                app.screen = Screen::Pin;
+                app.pin_input.clear();
+                app.connection = ConnectionState::Connecting;
+                return true;
+            }
+        }
     }
+    false
 }
 
 async fn realtime_client(
     server: Url,
     code: String,
+    access_cookie: Option<String>,
     mut actions: mpsc::Receiver<Action>,
     events: mpsc::Sender<NetEvent>,
 ) {
@@ -423,7 +571,22 @@ async fn realtime_client(
         } else {
             "ws"
         });
-        let Ok((mut socket, _)) = connect_async(url.as_str()).await else {
+        let Ok(mut request) = url.as_str().into_client_request() else {
+            return;
+        };
+        if let Some(cookie) = access_cookie.as_deref() {
+            let Ok(cookie) = HeaderValue::from_str(cookie) else {
+                let _ = events
+                    .send(NetEvent::Error {
+                        code: None,
+                        message: "The room access cookie is invalid".to_owned(),
+                    })
+                    .await;
+                return;
+            };
+            request.headers_mut().insert(COOKIE, cookie);
+        }
+        let Ok((mut socket, _)) = connect_async(request).await else {
             sleep(Duration::from_secs(2)).await;
             continue;
         };
@@ -459,15 +622,40 @@ async fn realtime_client(
                         }
                         pending_publishes.push_back((content, Instant::now()));
                     }
+                    Some(Action::Update(drop_id, content)) => {
+                        let message = Message::Text(
+                            json!({
+                                "type": "drop_update",
+                                "dropId": drop_id,
+                                "content": content,
+                            })
+                            .to_string()
+                            .into(),
+                        );
+                        if socket.send(message).await.is_err() {
+                            if events
+                                .send(NetEvent::Error {
+                                    code: None,
+                                    message: "Edit was not sent; reconnecting".to_owned(),
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            break;
+                        }
+                    }
                     Some(Action::Delete(drop_id)) => {
                         let message = Message::Text(
                             json!({ "type": "drop_delete", "dropId": drop_id }).to_string().into(),
                         );
                         if socket.send(message).await.is_err() {
                             if events
-                                .send(NetEvent::Error(
-                                    "Delete was not sent; reconnecting".to_owned(),
-                                ))
+                                .send(NetEvent::Error {
+                                    code: None,
+                                    message: "Delete was not sent; reconnecting".to_owned(),
+                                })
                                 .await
                                 .is_err()
                             {
@@ -480,20 +668,29 @@ async fn realtime_client(
                 },
                 message = socket.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(mut event) = parse_server_event(&text, &mut client_id) {
+                        if let Some(event) = parse_server_event(&text, &mut client_id) {
+                            let auth_failed = matches!(
+                                &event,
+                                NetEvent::Error { code: Some(code), .. }
+                                    if remote_error_requires_pin(code)
+                            );
                             if matches!(event, NetEvent::Added(_, true)) {
                                 pending_publishes.pop_front();
-                            } else if matches!(event, NetEvent::Error(_))
+                            } else if matches!(event, NetEvent::Error { .. })
                                 && !pending_publishes.is_empty()
                             {
-                                event = NetEvent::PublishFailed(
-                                    pending_publishes
-                                        .drain(..)
-                                        .map(|(content, _)| content)
-                                        .collect(),
-                                );
+                                let unresolved = pending_publishes
+                                    .drain(..)
+                                    .map(|(content, _)| content)
+                                    .collect();
+                                if events.send(NetEvent::PublishFailed(unresolved)).await.is_err() {
+                                    return;
+                                }
                             }
                             if events.send(event).await.is_err() {
+                                return;
+                            }
+                            if auth_failed {
                                 return;
                             }
                         }
@@ -557,6 +754,12 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
                 .ok()
                 .map(|drop| NetEvent::Added(drop, local))
         }
+        "drop_updated" => {
+            let local = client_id.as_deref() == payload.get("by").and_then(Value::as_str);
+            serde_json::from_value(payload.get("drop")?.clone())
+                .ok()
+                .map(|drop| NetEvent::Updated(drop, local))
+        }
         "drop_deleted" => payload
             .get("dropId")?
             .as_str()
@@ -565,15 +768,23 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
             .ok()
             .map(NetEvent::Removed),
         "drops_cleared" => Some(NetEvent::Cleared),
-        "error" => Some(NetEvent::Error(
-            payload
+        "error" => Some(NetEvent::Error {
+            code: payload
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            message: payload
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("The server rejected the action")
                 .to_owned(),
-        )),
+        }),
         _ => None,
     }
+}
+
+fn remote_error_requires_pin(code: &str) -> bool {
+    matches!(code, "pin_required" | "pin_invalid" | "invalid_token")
 }
 
 fn sort_drops(drops: &mut [TextDrop]) {
@@ -598,6 +809,7 @@ fn valid_code_char(character: char) -> bool {
 fn render(frame: &mut Frame<'_>, app: &mut App<'_>) {
     match app.screen {
         Screen::Code => render_code(frame, app),
+        Screen::Pin => render_pin(frame, app),
         _ => render_timeline(frame, app),
     }
     match app.screen {
@@ -633,6 +845,42 @@ fn render_code(frame: &mut Frame<'_>, app: &App<'_>) {
     );
     frame.render_widget(
         Paragraph::new(app.status.as_deref().unwrap_or("Enter open · Esc quit")).style(
+            Style::default().fg(if app.status.is_some() {
+                app.color(Color::Red)
+            } else {
+                Color::Reset
+            }),
+        ),
+        rows[3],
+    );
+}
+
+fn render_pin(frame: &mut Frame<'_>, app: &App<'_>) {
+    let area = centered_rect(52, 9, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title(format!(" Unlock {} ", app.code))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.color(Color::Cyan)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    frame.render_widget(Paragraph::new("PIN"), rows[0]);
+    let masked = "•".repeat(app.pin_input.chars().count());
+    frame.render_widget(
+        Paragraph::new(format!("> {masked}_")).block(Block::default().borders(Borders::ALL)),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new(app.status.as_deref().unwrap_or("Enter unlock · Esc back")).style(
             Style::default().fg(if app.status.is_some() {
                 app.color(Color::Red)
             } else {
@@ -709,9 +957,14 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         )
         .block(Block::default().title(" Timeline ").borders(Borders::ALL));
     frame.render_stateful_widget(timeline, rows[1], &mut state);
+    let composer_title = if app.editing_drop_id.is_some() {
+        " Edit drop "
+    } else {
+        " New drop "
+    };
     app.composer.set_block(
         Block::default()
-            .title(" New drop ")
+            .title(composer_title)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(if app.focus == Focus::Composer {
                 app.color(Color::Cyan)
@@ -724,9 +977,13 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .status
         .as_deref()
         .unwrap_or(if app.focus == Focus::Composer {
-            "Ctrl+S/Enter send · Esc timeline · Ctrl+U clear"
+            if app.editing_drop_id.is_some() {
+                "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear"
+            } else {
+                "Ctrl+S/Enter send · Esc timeline · Ctrl+U clear"
+            }
         } else {
-            "Enter edit · y copy · r resend · d delete · ? help · q quit"
+            "e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit"
         });
     frame.render_widget(Paragraph::new(footer).alignment(Alignment::Center), rows[3]);
 }
@@ -734,7 +991,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
 fn render_help(frame: &mut Frame<'_>, app: &App<'_>) {
     let area = centered_rect(58, 18, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  y copy · r resend · d delete\n\nComposer\n  Ctrl+S/Enter send · Ctrl+U clear · Esc timeline\n\n? or Esc close · q quit";
+    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete\n\nComposer / editor\n  Ctrl+S/Ctrl+Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -850,7 +1107,9 @@ fn channel_error<T>(_: mpsc::error::SendError<T>) -> QdError {
 }
 fn error_message(error: QdError) -> String {
     match error {
-        QdError::Runtime(message) | QdError::Usage(message) => message,
+        QdError::Runtime(message) | QdError::Usage(message) | QdError::Remote { message, .. } => {
+            message
+        }
     }
 }
 
@@ -896,6 +1155,41 @@ mod tests {
             panic!("expected remote added event")
         };
         assert_eq!(drop.content, "hello");
+        let event = parse_server_event(
+            r#"{"type":"drop_updated","by":"local-client","drop":{"id":"1","content":"edited","createdAt":"2026-01-01T11:00:00Z"}}"#,
+            &mut client_id,
+        )
+        .unwrap();
+        let NetEvent::Updated(drop, true) = event else {
+            panic!("expected local updated event")
+        };
+        assert_eq!(drop.content, "edited");
+    }
+
+    #[test]
+    fn expired_access_returns_to_pin_and_reconnect_releases_the_editor() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("SECRET".to_owned()));
+        app.screen = Screen::Timeline;
+        app.editing_drop_id = Some("drop-1".to_owned());
+        app.edit_saving = true;
+
+        assert!(!apply_network_event(
+            &mut app,
+            NetEvent::State(ConnectionState::Reconnecting),
+        ));
+        assert!(!app.edit_saving);
+
+        let mut client_id = Some("local-client".to_owned());
+        let event = parse_server_event(
+            r#"{"type":"error","error":"invalid_token","message":"Access expired"}"#,
+            &mut client_id,
+        )
+        .unwrap();
+        assert!(apply_network_event(&mut app, event));
+        assert_eq!(app.screen, Screen::Pin);
+        assert!(app.pin_input.is_empty());
+        assert_eq!(app.status.as_deref(), Some("Access expired"));
     }
 
     #[test]
@@ -951,6 +1245,92 @@ mod tests {
         assert_eq!(content, "hello");
         assert!(app.composer_content().is_empty());
         assert_eq!(app.focus, Focus::Timeline);
+    }
+
+    #[tokio::test]
+    async fn e_edits_the_selected_drop_and_restores_the_composer_draft() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.connection = ConnectionState::Connected;
+        app.composer.insert_str("existing draft");
+        app.replace_drops(vec![drop("selected", "original", "2026-01-01T11:00:00Z")]);
+        let (actions, mut received) = mpsc::channel(1);
+
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+            Some(&actions),
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.editing_drop_id.as_deref(), Some("selected"));
+        assert_eq!(app.composer_content(), "original");
+
+        app.composer = TextArea::default();
+        app.composer.insert_str("edited");
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            Some(&actions),
+        )
+        .await
+        .unwrap();
+        let Some(Action::Update(drop_id, content)) = received.recv().await else {
+            panic!("expected update action")
+        };
+        assert_eq!(drop_id, "selected");
+        assert_eq!(content, "edited");
+        assert!(app.edit_saving);
+
+        apply_network_event(
+            &mut app,
+            NetEvent::Updated(drop("selected", "edited", "2026-01-01T11:00:00Z"), true),
+        );
+        assert_eq!(
+            app.selected_drop().map(|drop| drop.content.as_str()),
+            Some("edited")
+        );
+        assert_eq!(app.composer_content(), "existing draft");
+        assert!(app.editing_drop_id.is_none());
+        assert_eq!(app.focus, Focus::Timeline);
+    }
+
+    #[tokio::test]
+    async fn pin_prompt_accepts_a_valid_pin_and_returns_to_the_code_screen() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("SECRET".to_owned()));
+        app.screen = Screen::Pin;
+        for character in "1234".chars() {
+            handle_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Timeline);
+        assert_eq!(app.pin_input, "1234");
+
+        app.screen = Screen::Pin;
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Code);
+        assert_eq!(app.code_input, "SECRET");
+        assert!(app.pin_input.is_empty());
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures_util::{SinkExt, StreamExt};
-use reqwest::{Client, Url};
+use reqwest::{header::SET_COOKIE, Client, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -34,9 +34,15 @@ struct QdCommand {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OpenPayload {
+    code: String,
+    protected: bool,
+}
+
 struct OpenResponse {
     code: String,
     protected: bool,
+    access_cookie: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +69,7 @@ async fn main() {
             eprintln!("{message}\n\n{USAGE}");
             std::process::exit(2);
         }
-        Err(QdError::Runtime(message)) => {
+        Err(QdError::Runtime(message) | QdError::Remote { message, .. }) => {
             eprintln!("qd: {message}");
             std::process::exit(1);
         }
@@ -106,7 +112,7 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
         Some(read_piped_stdin()?)
     };
     let client = http_client()?;
-    let room = open_room(&client, &command).await?;
+    let room = open_room(&client, &command, None).await?;
     if room.protected {
         return Err(QdError::Runtime(
             "this clipboard requires a PIN and is not yet supported by qd.".to_owned(),
@@ -234,15 +240,33 @@ fn parse_command(args: Vec<String>) -> Result<QdCommand, QdError> {
     Ok(QdCommand { code, copy, server })
 }
 
-async fn open_room(client: &Client, command: &QdCommand) -> Result<OpenResponse, QdError> {
+async fn open_room(
+    client: &Client,
+    command: &QdCommand,
+    pin: Option<&str>,
+) -> Result<OpenResponse, QdError> {
     let url = endpoint(&command.server, &format!("api/text/{}/open", command.code))?;
+    let payload = pin
+        .filter(|pin| !pin.trim().is_empty())
+        .map_or_else(|| json!({}), |pin| json!({ "pin": pin.trim() }));
     let response = client
         .post(url)
-        .json(&json!({}))
+        .json(&payload)
         .send()
         .await
         .map_err(|error| QdError::Runtime(format!("could not open the clipboard: {error}")))?;
-    parse_response(response, "could not open the clipboard.").await
+    let access_cookie = response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| value.split(';').next().map(str::to_owned));
+    let opened: OpenPayload = parse_response(response, "could not open the clipboard.").await?;
+    Ok(OpenResponse {
+        code: opened.code,
+        protected: opened.protected,
+        access_cookie,
+    })
 }
 
 async fn latest_drop(client: &Client, server: &Url, code: &str) -> Result<String, QdError> {
@@ -364,8 +388,13 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
         let message = payload
             .get("message")
             .and_then(Value::as_str)
-            .unwrap_or(fallback);
-        return Err(QdError::Runtime(message.to_owned()));
+            .unwrap_or(fallback)
+            .to_owned();
+        let code = payload
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        return Err(QdError::Remote { code, message });
     }
     serde_json::from_value(payload).map_err(|error| {
         QdError::Runtime(format!("the server returned an invalid response: {error}"))
@@ -440,6 +469,10 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
 #[derive(Debug)]
 enum QdError {
     Runtime(String),
+    Remote {
+        code: Option<String>,
+        message: String,
+    },
     Usage(String),
 }
 

@@ -39,6 +39,7 @@ export type RoomHandlers = {
   }): void;
   onUpdate(payload: { text: string; version: number; by: string; origin?: "drop_sync" }): void;
   onDropAdded(payload: { drop: TextDrop; by: string }): void;
+  onDropUpdated(payload: { drop: TextDrop; by: string }): void;
   onDropsRemoved(payload: { dropIds: string[] }): void;
   onDropDeleted(payload: { dropId: string }): void;
   onDropsCleared(): void;
@@ -488,6 +489,16 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
           return;
         }
         handlers.onDropAdded({ drop, by });
+        return;
+      }
+
+      if (payload.type === "drop_updated") {
+        const drop = "drop" in payload ? parseTextDrop(payload.drop) : null;
+        const by = "by" in payload ? parseString(payload.by) : null;
+        if (!drop || !by) {
+          return;
+        }
+        handlers.onDropUpdated({ drop, by });
         return;
       }
 

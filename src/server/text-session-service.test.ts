@@ -14,11 +14,13 @@ import type {
   DeleteTextDropResult,
   TextDropRow,
   TextDropsRepository,
+  UpdateTextDropInput,
+  UpdateTextDropResult,
 } from "./text-drops-repository";
 import type { CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
-  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error" | "drop_added" | "drops_removed" | "drop_deleted" | "drops_cleared";
+  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error" | "drop_added" | "drop_updated" | "drops_removed" | "drop_deleted" | "drops_cleared";
   text?: string;
   version?: number;
   clientId?: string;
@@ -234,6 +236,26 @@ class InMemoryTextDropsRepository implements TextDropsRepository {
       legacyText: legacy.text,
       legacyVersion: legacy.version,
     } : null;
+  }
+
+  async updateDrop(input: UpdateTextDropInput): Promise<UpdateTextDropResult | null> {
+    const drop = this.drops.find(
+      (entry) =>
+        entry.room_id === input.roomId &&
+        entry.id === input.dropId &&
+        entry.expires_at > input.updatedAt,
+    );
+    if (!drop) {
+      const legacy = this.rooms.readLegacyById(input.roomId);
+      return legacy ? { drop: null, legacyText: legacy.text, legacyVersion: legacy.version } : null;
+    }
+    drop.content = input.content;
+    drop.content_type = input.contentType;
+    const latest = this.active(input.roomId, input.updatedAt)[0]?.content ?? "";
+    const legacy = this.rooms.updateLegacyById(input.roomId, latest, input.updatedAt);
+    return legacy
+      ? { drop: copyDrop(drop), legacyText: legacy.text, legacyVersion: legacy.version }
+      : null;
   }
 
   async deleteDrop(roomId: string, dropId: string, deletedAt: Date): Promise<DeleteTextDropResult | null> {
@@ -681,7 +703,7 @@ describe("text session routes", () => {
     }
   });
 
-  test("creates immutable drops, syncs the timeline, evicts the oldest, deletes, and clears", async () => {
+  test("creates, edits, syncs, evicts, deletes, and clears timeline drops", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
     const repository = new InMemoryTextRoomsRepository();
     const server = await startTestServer(repository, clock, 500, undefined, 2);
@@ -713,16 +735,34 @@ describe("text session routes", () => {
       const eviction = await nextMessageOfType(author, "drops_removed");
       expect(eviction.dropIds).toEqual([firstAuthor.drop!.id]);
 
+      const secondId = second.drop!.id;
+      author.send(JSON.stringify({
+        type: "drop_update",
+        dropId: secondId,
+        content: "edited text",
+      }));
+      const editedAuthor = await nextMessageOfType(author, "drop_updated");
+      const editedViewer = await nextMessageOfType(viewer, "drop_updated");
+      expect(editedAuthor.drop).toMatchObject({
+        id: secondId,
+        content: "edited text",
+        contentType: "text",
+      });
+      expect(editedViewer.drop).toEqual(editedAuthor.drop);
+      expect((await repository.findTextRoomByCode("DROPS"))?.text).toBe(
+        "sudo systemctl restart quickdrop",
+      );
+
       const snapshot = await server.app.inject({ method: "GET", url: "/api/text/DROPS" });
       const snapshotPayload = JSON.parse(snapshot.body);
       expect(snapshotPayload.drops.map((drop: { content: string }) => drop.content)).toEqual([
         "sudo systemctl restart quickdrop",
-        '{"ok":true}',
+        "edited text",
       ]);
 
-      const secondId = second.drop!.id;
-      viewer.send(JSON.stringify({ type: "drop_delete", dropId: secondId }));
-      expect((await nextMessageOfType(author, "drop_deleted")).dropId).toBe(secondId);
+      const secondIdToDelete = second.drop!.id;
+      viewer.send(JSON.stringify({ type: "drop_delete", dropId: secondIdToDelete }));
+      expect((await nextMessageOfType(author, "drop_deleted")).dropId).toBe(secondIdToDelete);
 
       author.send(JSON.stringify({ type: "drops_clear" }));
       expect((await nextMessageOfType(author, "drops_cleared")).type).toBe("drops_cleared");
@@ -860,6 +900,12 @@ describe("text session routes", () => {
       });
       expect(opened.statusCode).toBe(200);
       expect(JSON.parse(opened.body).created).toBe(false);
+      const cookie = opened.headers["set-cookie"];
+      const cookieHeader = Array.isArray(cookie) ? cookie[0] : cookie;
+      expect(cookieHeader).toContain("qd_text_access_SECRET=");
+      const socket = server.connect("SECRET", cookieHeader);
+      const snapshot = await expectJoined(socket, 1);
+      expect(snapshot.type).toBe("snapshot");
     } finally {
       await server.close();
     }

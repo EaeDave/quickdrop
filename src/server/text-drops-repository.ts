@@ -20,6 +20,14 @@ export type CreateTextDropInput = {
   expiresAt: Date;
 };
 
+export type UpdateTextDropInput = {
+  roomId: string;
+  dropId: string;
+  content: string;
+  contentType: TextDropContentType;
+  updatedAt: Date;
+};
+
 export type TextDropMutationResult = {
   legacyText: string;
   legacyVersion: number;
@@ -35,6 +43,10 @@ export type DeleteTextDropResult = TextDropMutationResult & {
   deleted: boolean;
 };
 
+export type UpdateTextDropResult = TextDropMutationResult & {
+  drop: TextDropRow | null;
+};
+
 export type ClearTextDropsResult = TextDropMutationResult & {
   deletedIds: string[];
 };
@@ -42,6 +54,7 @@ export type ClearTextDropsResult = TextDropMutationResult & {
 export type TextDropsRepository = {
   listActiveDrops(roomId: string, now: Date, limit: number): Promise<TextDropRow[]>;
   createDrop(input: CreateTextDropInput, maxItems: number): Promise<CreateTextDropResult | null>;
+  updateDrop(input: UpdateTextDropInput): Promise<UpdateTextDropResult | null>;
   deleteDrop(roomId: string, dropId: string, deletedAt: Date): Promise<DeleteTextDropResult | null>;
   clearDrops(roomId: string, deletedAt: Date): Promise<ClearTextDropsResult | null>;
   findExpiredDrops(now: Date, limit?: number): Promise<TextDropRow[]>;
@@ -130,6 +143,44 @@ export async function createDrop(
       legacyText: room.text,
       legacyVersion: room.version,
     };
+  });
+}
+
+export async function updateDrop(input: UpdateTextDropInput): Promise<UpdateTextDropResult | null> {
+  return db.transaction(async (tx) => {
+    await lockRoom(tx, input.roomId);
+    const roomRows = await tx
+      .select({ text: textRooms.text, version: textRooms.version })
+      .from(textRooms)
+      .where(and(eq(textRooms.id, input.roomId), isNull(textRooms.deletedAt)))
+      .limit(1);
+    const room = roomRows[0];
+    if (!room) {
+      return null;
+    }
+    const updatedRows = await tx
+      .update(textDrops)
+      .set({
+        content: input.content,
+        contentType: input.contentType,
+      })
+      .where(and(
+        eq(textDrops.id, input.dropId),
+        eq(textDrops.roomId, input.roomId),
+        gt(textDrops.expiresAt, input.updatedAt),
+      ))
+      .returning();
+    const updated = updatedRows[0];
+
+    if (!updated) {
+      return { drop: null, legacyText: room.text, legacyVersion: room.version };
+    }
+
+    const legacy = await updateLegacyRoomFromLatestDrop(tx, input.roomId, input.updatedAt);
+    if (!legacy) {
+      throw new Error("text room disappeared while editing a drop");
+    }
+    return { drop: toTextDropRow(updated), ...legacy };
   });
 }
 
@@ -273,6 +324,7 @@ function normalizeContentType(value: string): TextDropContentType {
 export const textDropsRepository: TextDropsRepository = {
   listActiveDrops,
   createDrop,
+  updateDrop,
   deleteDrop,
   clearDrops,
   findExpiredDrops,

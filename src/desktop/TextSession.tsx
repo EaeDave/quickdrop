@@ -459,6 +459,18 @@ export default function TextSession() {
           setRoomNotice("Novo item recebido de outro dispositivo.");
         }
       },
+      onDropUpdated(payload) {
+        replaceDrops((current) => sortDrops([
+          payload.drop,
+          ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
+        ]));
+        if (payload.by === clientIdRef.current) {
+          setRoomNotice("Item editado.");
+        } else {
+          highlightRemoteDrop(payload.drop.id);
+          setRoomNotice("Item editado em outro dispositivo.");
+        }
+      },
       onDropsRemoved(payload) {
         const removed = new Set(payload.dropIds);
         replaceDrops((current) => current.filter((drop) => !removed.has(drop.id)));

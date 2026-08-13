@@ -7,7 +7,7 @@ QuickDrop is a self-hosted, cross-platform tool for moving files and short text 
 - Temporary file uploads backed by Cloudflare R2 and PostgreSQL
 - Public download links with configurable expiration and storage limits
 - Real-time text clipboards addressed by short, human-readable codes
-- Immutable text-drop timeline with per-item copy, resend, and delete actions
+- Text-drop timeline with per-item edit, copy, resend, and delete actions
 - Native Rust CLI for SSH, remote desktops, Linux, and Windows
 - Linux desktop integration for OmarchyBar and Waybar
 - Windows desktop client with system tray and autostart support
@@ -102,7 +102,7 @@ See [`.env.example`](.env.example) for the complete development template.
 
 Open `/t` in the web application and enter a code containing 1–16 ASCII letters, numbers, `_`, or `-`. The same operation opens an active clipboard or creates it when it does not exist.
 
-Each publication creates an immutable drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards remain available through the web interface.
+Each publication creates a drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards are available through the web interface and interactive TUI.
 
 Canonical URLs use this form:
 
@@ -125,7 +125,7 @@ Run `qd` in an interactive terminal to open the Ratatui interface:
 qd
 ```
 
-The TUI opens or creates a clipboard by code, displays its drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports copying, resending, and deleting the selected drop.
+The TUI opens or creates a clipboard by code, prompts for the PIN when a protected clipboard requires one, displays its drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, and deleting the selected drop.
 
 Open a code directly in the TUI:
 
@@ -140,10 +140,12 @@ Keyboard shortcuts:
 | Timeline | `j`/`↓`, `k`/`↑` | Select the next or previous drop |
 | Timeline | `g`/`Home`, `G`/`End` | Select the first or last drop |
 | Timeline | `Enter`, `i`, `Tab` | Focus the composer |
-| Timeline | `y`, `r`, `d` | Copy, resend, or delete the selected drop |
+| Timeline | `e`, `y`, `r`, `d` | Edit, copy, resend, or delete the selected drop |
 | Timeline | `?`, `q` | Open help or quit |
 | Composer | `Ctrl+S` or `Ctrl+Enter` | Publish a new drop |
 | Composer | `Ctrl+U`, `Esc` | Clear the composer or return to the timeline |
+| Editor | `Ctrl+S` or `Ctrl+Enter` | Save changes to the selected drop |
+| Editor | `Ctrl+U`, `Esc` | Clear the editor or cancel editing |
 
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
@@ -176,7 +178,7 @@ qd MYCODE --server http://127.0.0.1:3000
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 qd
 ```
 
-On Linux, `--copy` tries `wl-copy`, `xclip`, then `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. PIN-protected clipboards are deliberately rejected by the CLI until an interactive credential flow is implemented.
+On Linux, `--copy` tries `wl-copy`, `xclip`, then `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive commands still reject protected clipboards because they do not prompt for credentials.
 
 Build release binaries:
 
