@@ -10,6 +10,8 @@
     "db:check": "bunx drizzle-kit check",
     "cleanup:run": "bun run src/server/cleanup-cli.ts",
     "metrics:text": "bun run scripts/text-metrics-report.ts",
+    "release": "bun run scripts/release.ts",
+    "release:check": "bun run scripts/release.ts --check",
     "qd": "mise exec rust@stable -- cargo run --quiet --manifest-path cli/Cargo.toml --",
     "qd:build": "mise exec rust@stable -- cargo build --release --manifest-path cli/Cargo.toml",
     "qd:build:linux": "mise exec rust@stable -- cargo build --release --target x86_64-unknown-linux-gnu --manifest-path cli/Cargo.toml",

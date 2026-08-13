@@ -219,6 +219,18 @@ Package the Linux release:
 bun run desktop:package:linux
 ```
 
+### Publishing a release
+
+From a clean, up-to-date `main` branch, publish with one command:
+
+```bash
+bun run release patch
+# or: bun run release minor
+# or: bun run release 1.0.0
+```
+
+The command keeps the desktop and CLI manifests aligned, runs both Cargo checks, commits the version, and atomically pushes `main` with the annotated tag. GitHub Actions then builds Linux and Windows in parallel with Rust caches and publishes the desktop binaries, Windows installer, CLI/TUI binaries, and checksums. Use `bun run release:check` for a non-publishing manifest check.
+
 ### End-user installation
 
 Windows PowerShell:

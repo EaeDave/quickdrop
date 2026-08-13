@@ -1,0 +1,116 @@
+name: Build and release
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - cli/**
+      - src-tauri/**
+      - src/desktop/**
+      - scripts/package-linux-release.ts
+      - scripts/package-windows-qd-release.ts
+      - scripts/release.ts
+      - package.json
+      - bun.lock
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cli
+            src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libayatana-appindicator3-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Linux desktop and qd
+        run: |
+          bun tauri build --ci --no-bundle
+          cargo build --release --target x86_64-unknown-linux-gnu --manifest-path cli/Cargo.toml
+
+      - name: Package Linux assets
+        run: bun run scripts/package-linux-release.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            src-tauri/target/release/quickdrop_*_x86_64-linux
+            cli/target/release/qd_*_x86_64-linux
+            cli/target/release/qd_*_x86_64-linux.sha256
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cli
+            src-tauri
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Windows desktop installer and qd
+        run: |
+          bun tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+          cargo build --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml
+
+      - name: Package Windows qd assets
+        run: bun run scripts/package-windows-qd-release.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe
+            cli/target/release/qd_*_x86_64-windows.exe
+            cli/target/release/qd_*_x86_64-windows.exe.sha256
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes --title "${GITHUB_REF_NAME}"
