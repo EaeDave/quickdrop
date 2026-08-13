@@ -15,6 +15,7 @@ base_url="${QUICKDROP_API_BASE_URL:-$DEFAULT_BASE_URL}"
 base_url="${base_url%/}"
 installer_url="${QUICKDROP_LINUX_INSTALLER_URL:-$base_url/linux/latest}"
 qd_url="${QUICKDROP_QD_URL:-$base_url/linux/qd/latest}"
+qd_checksum_url="${QUICKDROP_QD_CHECKSUM_URL:-$base_url/linux/qd/latest.sha256}"
 launcher_url="${QUICKDROP_LAUNCHER_URL:-${QUICKDROP_WAYBAR_LAUNCHER_URL:-$base_url/linux/quickdrop-launcher}}"
 bar_installer_url="${QUICKDROP_BAR_INSTALLER_URL:-$base_url/linux/install-bar-integration}"
 waybar_patcher_url="${QUICKDROP_WAYBAR_PATCHER_URL:-$base_url/linux/install-waybar-module.py}"
@@ -71,6 +72,9 @@ detect_environment() {
 
   if [[ -z "$local_binary" || -z "$local_qd" || -z "$local_launcher" || -z "$local_bar_installer" || -z "$local_waybar_patcher" || -z "$local_omarchy_plugin" ]]; then
     require_command curl
+  fi
+  if [[ -z "$local_qd" ]]; then
+    require_command sha256sum
   fi
 
   if command -v hyprctl >/dev/null 2>&1 || [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
@@ -147,12 +151,18 @@ install_qd() {
     return
   fi
 
+  local checksum_path="$tmp_dir/qd.sha256"
   info "Downloading qd from $qd_url"
   curl -fSL "$qd_url" -o "$download_path" || fail "Failed to download qd from $qd_url"
+  curl -fSL "$qd_checksum_url" -o "$checksum_path" || fail "Failed to download the qd checksum from $qd_checksum_url"
 
-  local size
+  local size expected_checksum
   size="$(wc -c < "$download_path")"
   [[ "$size" -ge "$MIN_BINARY_BYTES" ]] || fail "Downloaded qd binary is unexpectedly small: $size bytes. The release asset may be missing."
+  expected_checksum="$(cut -d ' ' -f 1 < "$checksum_path")"
+  [[ "$expected_checksum" =~ ^[0-9a-fA-F]{64}$ ]] || fail "The qd checksum manifest is invalid."
+  printf '%s  %s\n' "$expected_checksum" "$download_path" | sha256sum -c - >/dev/null ||
+    fail "qd checksum verification failed. The downloaded binary was not installed."
 
   install -m 0755 "$download_path" "$qd_path"
   info "Installed qd to $qd_path"

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
@@ -172,6 +172,63 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     await runInstaller(sandbox, "none", {});
 
     expect(await readFile(configPath, "utf8")).toBe("QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+  });
+
+  test("rejects a downloaded qd binary whose checksum does not match", async () => {
+    const sandbox = await createSandbox();
+    const fakeBinDir = join(sandbox.root, "fake-bin");
+    const fakeCurl = join(fakeBinDir, "curl");
+    const remoteQd = join(sandbox.root, "remote-qd");
+    const checksum = join(sandbox.root, "remote-qd.sha256");
+    await mkdir(fakeBinDir);
+    await writeFile(remoteQd, Buffer.alloc(1_048_576, "q"));
+    await writeFile(checksum, `${"0".repeat(64)}  qd\n`);
+    await writeFile(
+      fakeCurl,
+      `#!/bin/sh
+url=
+output=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  *.sha256) cp "$QD_CHECKSUM_SOURCE" "$output" ;;
+  *) cp "$QD_BINARY_SOURCE" "$output" ;;
+esac
+`,
+    );
+    await chmod(fakeCurl, 0o755);
+
+    const result = await $`bash ${scriptPath}`
+      .env({
+        ...process.env,
+        PATH: `${fakeBinDir}:${process.env.PATH}`,
+        HOME: sandbox.root,
+        QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
+        QUICKDROP_LAUNCHER_FILE: launcherSource,
+        QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
+        QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
+        QUICKDROP_OMARCHY_PLUGIN_SOURCE: omarchyPluginSource,
+        QUICKDROP_BIN_DIR: sandbox.binDir,
+        QUICKDROP_SHARE_DIR: sandbox.shareDir,
+        QUICKDROP_CONFIG_DIR: sandbox.configDir,
+        QUICKDROP_BAR: "none",
+        QUICKDROP_BAR_NO_RESTART: "1",
+        QUICKDROP_QD_URL: "https://example.test/qd",
+        QUICKDROP_QD_CHECKSUM_URL: "https://example.test/qd.sha256",
+        QD_BINARY_SOURCE: remoteQd,
+        QD_CHECKSUM_SOURCE: checksum,
+      })
+      .quiet()
+      .nothrow();
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("checksum verification failed");
+    expect(await Bun.file(sandbox.qdPath).exists()).toBe(false);
   });
 
   test("does not rewrite backend configuration during an integration-only install", async () => {

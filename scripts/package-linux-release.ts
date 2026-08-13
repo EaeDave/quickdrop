@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -32,8 +33,15 @@ const assets = [
   },
 ];
 
+const qdChecksumPath = `${assets[1]!.path}.sha256`;
+
 for (const asset of assets) {
   await Bun.write(asset.path, Bun.file(asset.source));
   await chmod(asset.path, 0o755);
   console.log(asset.path);
 }
+
+const qdBytes = await Bun.file(assets[1]!.path).arrayBuffer();
+const qdChecksum = createHash("sha256").update(new Uint8Array(qdBytes)).digest("hex");
+await Bun.write(qdChecksumPath, `${qdChecksum}  ${assets[1]!.path.split("/").at(-1)}\n`);
+console.log(qdChecksumPath);

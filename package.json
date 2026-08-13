@@ -21,7 +21,7 @@
     "desktop:build": "bun tauri build --ci",
     "desktop:build:windows": "bun tauri build --ci --target x86_64-pc-windows-msvc",
     "desktop:package:linux": "bun run desktop:build && bun run qd:build:linux && bun run scripts/package-linux-release.ts",
-    "desktop:install": "bun run scripts/install-desktop.ts",
+    "desktop:install": "bun run qd:build && bun run scripts/install-desktop.ts",
     "desktop:install:local": "bun run local:server:up && QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 bun run desktop:install",
     "bar:install": "bash scripts/install-bar-local.sh",
     "waybar:install": "QUICKDROP_BAR=waybar bash scripts/install-bar-local.sh",

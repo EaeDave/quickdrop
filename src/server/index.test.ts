@@ -376,7 +376,7 @@ describe("buildApp", () => {
     }
   });
 
-  test("proxies the latest qd binary through the server GitHub token", async () => {
+  test("proxies the latest qd binary and checksum through the server GitHub token", async () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
       if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
@@ -386,14 +386,23 @@ describe("buildApp", () => {
               name: "qd_0.1.1_x86_64-linux",
               url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8",
             },
+            {
+              name: "qd_0.1.1_x86_64-linux.sha256",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9",
+            },
           ],
         });
       }
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer github-token",
+      );
       if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8") {
-        expect((init?.headers as Record<string, string>).authorization).toBe(
-          "Bearer github-token",
-        );
         return new Response("qd-binary", {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9") {
+        return new Response(`${"a".repeat(64)}  qd_0.1.1_x86_64-linux\n`, {
           headers: { "content-type": "application/octet-stream" },
         });
       }
@@ -402,11 +411,21 @@ describe("buildApp", () => {
 
     const { app } = buildApp();
     try {
-      const response = await app.inject({ method: "GET", url: "/linux/qd/latest" });
-      expect(response.statusCode).toBe(200);
-      expect(response.headers["content-disposition"]).toContain("qd_0.1.1_x86_64-linux");
-      expect(response.headers["cache-control"]).toBe("public, max-age=300");
-      expect(response.body).toBe("qd-binary");
+      const binary = await app.inject({ method: "GET", url: "/linux/qd/latest" });
+      expect(binary.statusCode).toBe(200);
+      expect(binary.headers["content-disposition"]).toContain("qd_0.1.1_x86_64-linux");
+      expect(binary.headers["cache-control"]).toBe("public, max-age=300");
+      expect(binary.body).toBe("qd-binary");
+
+      const checksum = await app.inject({
+        method: "GET",
+        url: "/linux/qd/latest.sha256",
+      });
+      expect(checksum.statusCode).toBe(200);
+      expect(checksum.headers["content-disposition"]).toContain(
+        "qd_0.1.1_x86_64-linux.sha256",
+      );
+      expect(checksum.body).toContain("qd_0.1.1_x86_64-linux");
     } finally {
       await app.close();
     }

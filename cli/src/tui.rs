@@ -1,4 +1,4 @@
-use std::{env, io, time::Duration};
+use std::{collections::VecDeque, env, io, time::Duration};
 
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -16,7 +16,10 @@ use ratatui::{
 };
 use reqwest::Url;
 use serde_json::{json, Value};
-use tokio::{sync::mpsc, time::sleep};
+use tokio::{
+    sync::mpsc,
+    time::{interval, sleep, Instant, MissedTickBehavior},
+};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui_textarea::TextArea;
 
@@ -51,11 +54,11 @@ enum Action {
 enum NetEvent {
     State(ConnectionState),
     Snapshot(Vec<TextDrop>),
+    Removed(Vec<String>),
     Added(TextDrop, bool),
     Deleted(String),
-    Removed(Vec<String>),
+    PublishFailed(Vec<String>),
     Cleared,
-    PublishFailed(String),
     Error(String),
 }
 
@@ -114,9 +117,13 @@ impl<'a> App<'a> {
         }
     }
     fn replace_drops(&mut self, mut drops: Vec<TextDrop>) {
+        let selected_id = self.selected_drop().map(|drop| drop.id.clone());
+        let fallback = self.selected;
         sort_drops(&mut drops);
         self.drops = drops;
-        self.selected = self.selected.min(self.drops.len().saturating_sub(1));
+        self.selected = selected_id
+            .and_then(|id| self.drops.iter().position(|drop| drop.id == id))
+            .unwrap_or_else(|| fallback.min(self.drops.len().saturating_sub(1)));
     }
     fn add_drop(&mut self, drop: TextDrop, local: bool) {
         let selected_id = self.selected_drop().map(|item| item.id.clone());
@@ -152,7 +159,8 @@ impl<'a> App<'a> {
             .set_placeholder_text("Write or paste a new drop…");
         self.composer.set_cursor_line_style(Style::default());
     }
-    fn restore_composer(&mut self, content: String) {
+    fn restore_composer(&mut self, contents: Vec<String>) {
+        let content = contents.join("\n\n");
         self.composer = TextArea::from(content.split('\n').map(str::to_owned).collect::<Vec<_>>());
         self.composer
             .set_placeholder_text("Write or paste a new drop…");
@@ -382,9 +390,9 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
             app.selected = 0;
             app.status = Some("Cleared".to_owned());
         }
-        NetEvent::PublishFailed(content) => {
-            app.restore_composer(content);
-            app.status = Some("Publish was not confirmed; the text was restored".to_owned());
+        NetEvent::PublishFailed(contents) => {
+            app.restore_composer(contents);
+            app.status = Some("Unconfirmed text was restored to the composer".to_owned());
         }
         NetEvent::Error(message) => app.status = Some(message),
     }
@@ -428,7 +436,9 @@ async fn realtime_client(
         }
 
         let mut client_id = None;
-        let mut pending_publish = None;
+        let mut pending_publishes = VecDeque::new();
+        let mut confirmation_tick = interval(Duration::from_secs(1));
+        confirmation_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 action = actions.recv() => match action {
@@ -437,12 +447,17 @@ async fn realtime_client(
                             json!({ "type": "drop_add", "content": content }).to_string().into(),
                         );
                         if socket.send(message).await.is_err() {
-                            if events.send(NetEvent::PublishFailed(content)).await.is_err() {
+                            let mut unresolved = pending_publishes
+                                .drain(..)
+                                .map(|(content, _)| content)
+                                .collect::<Vec<_>>();
+                            unresolved.push(content);
+                            if events.send(NetEvent::PublishFailed(unresolved)).await.is_err() {
                                 return;
                             }
                             break;
                         }
-                        pending_publish = Some(content);
+                        pending_publishes.push_back((content, Instant::now()));
                     }
                     Some(Action::Delete(drop_id)) => {
                         let message = Message::Text(
@@ -467,11 +482,16 @@ async fn realtime_client(
                     Some(Ok(Message::Text(text))) => {
                         if let Some(mut event) = parse_server_event(&text, &mut client_id) {
                             if matches!(event, NetEvent::Added(_, true)) {
-                                pending_publish = None;
-                            } else if matches!(event, NetEvent::Error(_)) {
-                                if let Some(content) = pending_publish.take() {
-                                    event = NetEvent::PublishFailed(content);
-                                }
+                                pending_publishes.pop_front();
+                            } else if matches!(event, NetEvent::Error(_))
+                                && !pending_publishes.is_empty()
+                            {
+                                event = NetEvent::PublishFailed(
+                                    pending_publishes
+                                        .drain(..)
+                                        .map(|(content, _)| content)
+                                        .collect(),
+                                );
                             }
                             if events.send(event).await.is_err() {
                                 return;
@@ -485,11 +505,33 @@ async fn realtime_client(
                     }
                     Some(Ok(_)) => {}
                     Some(Err(_)) | None => break,
+                },
+                _ = confirmation_tick.tick(), if !pending_publishes.is_empty() => {
+                    let timed_out = pending_publishes
+                        .front()
+                        .is_some_and(|(_, sent_at)| sent_at.elapsed() >= Duration::from_secs(15));
+                    if timed_out {
+                        let unresolved = pending_publishes
+                            .drain(..)
+                            .map(|(content, _)| content)
+                            .collect();
+                        if events.send(NetEvent::PublishFailed(unresolved)).await.is_err() {
+                            return;
+                        }
+                    }
                 }
             }
         }
-        if let Some(content) = pending_publish {
-            if events.send(NetEvent::PublishFailed(content)).await.is_err() {
+        if !pending_publishes.is_empty() {
+            let unresolved = pending_publishes
+                .drain(..)
+                .map(|(content, _)| content)
+                .collect();
+            if events
+                .send(NetEvent::PublishFailed(unresolved))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -871,6 +913,15 @@ mod tests {
             Some("selected")
         );
         assert!(app.status.is_none());
+        app.replace_drops(vec![
+            drop("newest", "newest", "2026-01-01T12:00:00Z"),
+            drop("selected", "selected", "2026-01-01T10:00:00Z"),
+            drop("older", "older", "2026-01-01T09:00:00Z"),
+        ]);
+        assert_eq!(
+            app.selected_drop().map(|drop| drop.id.as_str()),
+            Some("selected")
+        );
 
         apply_network_event(&mut app, NetEvent::Cleared);
         assert!(app.drops.is_empty());
@@ -916,8 +967,11 @@ mod tests {
         .unwrap();
         assert!(app.quit);
 
-        apply_network_event(&mut app, NetEvent::PublishFailed("unsent text".to_owned()));
-        assert_eq!(app.composer_content(), "unsent text");
+        apply_network_event(
+            &mut app,
+            NetEvent::PublishFailed(vec!["first unsent".to_owned(), "second unsent".to_owned()]),
+        );
+        assert_eq!(app.composer_content(), "first unsent\n\nsecond unsent");
         assert_eq!(app.focus, Focus::Composer);
         assert!(app
             .status
