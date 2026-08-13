@@ -5,7 +5,12 @@ Set-StrictMode -Version Latest
 $AppName = "QuickDrop"
 $DefaultInstallerUrl = "https://quickdrop.eaedave.xyz/windows/latest.exe"
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("quickdrop-install-" + [System.Guid]::NewGuid().ToString("N"))
+$DefaultQdUrl = "https://quickdrop.eaedave.xyz/windows/qd/latest.exe"
+$DefaultQdChecksumUrl = "https://quickdrop.eaedave.xyz/windows/qd/latest.sha256"
+$MinimumBinaryBytes = 1048576
 $InstallerPath = Join-Path $TempDir "QuickDropSetup.exe"
+$QdDownloadPath = Join-Path $TempDir "qd.exe"
+$QdChecksumPath = Join-Path $TempDir "qd.exe.sha256"
 
 function Resolve-InstallerUrl {
   if ($env:QUICKDROP_WINDOWS_INSTALLER_URL) {
@@ -13,6 +18,48 @@ function Resolve-InstallerUrl {
   }
 
   return $DefaultInstallerUrl
+}
+
+function Resolve-QdUrl {
+  if ($env:QUICKDROP_WINDOWS_QD_URL) {
+    return $env:QUICKDROP_WINDOWS_QD_URL
+  }
+
+  return $DefaultQdUrl
+}
+
+function Resolve-QdChecksumUrl {
+  if ($env:QUICKDROP_WINDOWS_QD_CHECKSUM_URL) {
+    return $env:QUICKDROP_WINDOWS_QD_CHECKSUM_URL
+  }
+
+  return $DefaultQdChecksumUrl
+}
+
+function Install-Qd {
+  if (-not $env:LOCALAPPDATA) {
+    throw "LOCALAPPDATA is required to install qd."
+  }
+
+  $QdBinDirectory = if ($env:QUICKDROP_WINDOWS_QD_BIN_DIR) {
+    [System.Environment]::ExpandEnvironmentVariables($env:QUICKDROP_WINDOWS_QD_BIN_DIR)
+  } else {
+    Join-Path $env:LOCALAPPDATA "QuickDrop\\bin"
+  }
+  New-Item -ItemType Directory -Path $QdBinDirectory -Force | Out-Null
+  Copy-Item -LiteralPath $QdDownloadPath -Destination (Join-Path $QdBinDirectory "qd.exe") -Force
+
+  $UserPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+  $PathEntries = @($UserPath -split ";" | Where-Object { $_ })
+  if (-not ($PathEntries | Where-Object { $_.TrimEnd("\\") -ieq $QdBinDirectory.TrimEnd("\\") })) {
+    $UpdatedPath = (@($QdBinDirectory) + $PathEntries) -join ";"
+    [System.Environment]::SetEnvironmentVariable("Path", $UpdatedPath, "User")
+  }
+  if (-not (($env:Path -split ";") | Where-Object { $_.TrimEnd("\\") -ieq $QdBinDirectory.TrimEnd("\\") })) {
+    $env:Path = "$QdBinDirectory;$env:Path"
+  }
+
+  Write-Host "Installed qd CLI/TUI to $QdBinDirectory\\qd.exe"
 }
 
 function Resolve-PathValue {
@@ -173,10 +220,28 @@ try {
 
   $InstallerUrl = Resolve-InstallerUrl
   Write-Host "Downloading $AppName from $InstallerUrl"
+  $QdUrl = Resolve-QdUrl
+  $QdChecksumUrl = Resolve-QdChecksumUrl
+  Write-Host "Downloading qd CLI/TUI from $QdUrl"
+  Invoke-WebRequest -Uri $QdUrl -OutFile $QdDownloadPath -UseBasicParsing
+  Invoke-WebRequest -Uri $QdChecksumUrl -OutFile $QdChecksumPath -UseBasicParsing
+
+  $QdBinary = Get-Item $QdDownloadPath
+  if ($QdBinary.Length -lt $MinimumBinaryBytes) {
+    throw "Downloaded qd binary is unexpectedly small: $($QdBinary.Length) bytes."
+  }
+  $ExpectedChecksum = ((Get-Content -LiteralPath $QdChecksumPath -Raw).Trim() -split "\\s+")[0]
+  if ($ExpectedChecksum -notmatch "^[a-fA-F0-9]{64}$") {
+    throw "Downloaded qd checksum is invalid."
+  }
+  $ActualChecksum = (Get-FileHash -LiteralPath $QdDownloadPath -Algorithm SHA256).Hash
+  if ($ActualChecksum -ine $ExpectedChecksum) {
+    throw "Downloaded qd binary failed checksum verification."
+  }
   Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing
 
   $Installer = Get-Item $InstallerPath
-  if ($Installer.Length -lt 1048576) {
+  if ($Installer.Length -lt $MinimumBinaryBytes) {
     throw "Downloaded installer is unexpectedly small: $($Installer.Length) bytes."
   }
 
@@ -186,8 +251,10 @@ try {
     throw "$AppName installer failed with exit code $($process.ExitCode)."
   }
 
+  Install-Qd
+
   Start-InstalledQuickDrop
-  Write-Host "$AppName installed and opened. It will start with Windows."
+  Write-Host "$AppName and qd are installed. QuickDrop will start with Windows."
 } finally {
   Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 }

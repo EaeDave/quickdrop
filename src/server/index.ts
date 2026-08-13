@@ -16,7 +16,11 @@ import {
   handleLinuxQdChecksumDownload,
   handleLinuxQdDownload,
 } from "./linux-installer-service";
-import { handleWindowsInstallerDownload } from "./windows-installer-service";
+import {
+  handleWindowsInstallerDownload,
+  handleWindowsQdChecksumDownload,
+  handleWindowsQdDownload,
+} from "./windows-installer-service";
 import { TextSessionHub } from "./text-session-hub";
 import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
 import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
@@ -101,6 +105,12 @@ export function buildApp() {
 
   app.get("/windows/latest.exe", async (_request, reply) =>
     handleWindowsInstallerDownload(reply, { config }),
+  );
+  app.get("/windows/qd/latest.exe", async (_request, reply) =>
+    handleWindowsQdDownload(reply, { config }),
+  );
+  app.get("/windows/qd/latest.sha256", async (_request, reply) =>
+    handleWindowsQdChecksumDownload(reply, { config }),
   );
   app.get("/linux/latest", async (_request, reply) =>
     handleLinuxInstallerDownload(reply, { config }),

@@ -14,6 +14,7 @@
     "qd:build": "mise exec rust@stable -- cargo build --release --manifest-path cli/Cargo.toml",
     "qd:build:linux": "mise exec rust@stable -- cargo build --release --target x86_64-unknown-linux-gnu --manifest-path cli/Cargo.toml",
     "qd:build:windows": "mise exec rust@stable -- cargo build --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml",
+    "qd:package:windows": "bun run scripts/package-windows-qd-release.ts",
     "desktop:css": "bunx @tailwindcss/cli -i ./src/desktop/input.css -o ./src/desktop/output.css --minify",
     "desktop:serve": "bun run src/desktop/dev-server.ts",
     "desktop:build:web": "bun run desktop:css && bun build --compile --target=browser --minify ./src/desktop/index.html --outdir dist",

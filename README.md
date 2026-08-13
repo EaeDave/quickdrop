@@ -125,7 +125,7 @@ Run `qd` in an interactive terminal to open the Ratatui interface:
 qd
 ```
 
-The TUI opens or creates a clipboard by code, prompts for the PIN when a protected clipboard requires one, displays its drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, and deleting the selected drop.
+The TUI opens or creates a clipboard by code, can create a new PIN-protected clipboard with `Ctrl+P`, and prompts for the PIN when opening an existing protected clipboard. It displays the drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, and deleting the selected drop.
 
 Open a code directly in the TUI:
 
@@ -137,6 +137,8 @@ Keyboard shortcuts:
 
 | Context | Keys | Action |
 |---|---|---|
+| Code | `Enter` | Open a clipboard or create a public one |
+| Code | `Ctrl+P` | Create a PIN-protected clipboard |
 | Timeline | `j`/`↓`, `k`/`↑` | Select the next or previous drop |
 | Timeline | `g`/`Home`, `G`/`End` | Select the first or last drop |
 | Timeline | `Enter`, `i`, `Tab` | Focus the composer |
@@ -186,6 +188,7 @@ Build release binaries:
 bun run qd:build          # current platform
 bun run qd:build:linux    # x86_64 Linux
 bun run qd:build:windows  # x86_64 Windows, from a Windows runner
+bun run qd:package:windows  # versioned qd.exe and SHA-256 assets
 ```
 
 Artifacts are written below `cli/target/`.
@@ -222,6 +225,15 @@ Windows PowerShell:
 
 ```powershell
 irm https://quickdrop.eaedave.xyz/install.ps1 | iex
+```
+
+The Windows installer installs or updates both the desktop/tray client and `qd.exe`, adds the CLI/TUI directory to the user `PATH`, and verifies the downloaded `qd.exe` against its published SHA-256 checksum. Open a new PowerShell window and run `qd` to start the TUI.
+
+The standalone Windows CLI/TUI is also available from:
+
+```text
+https://quickdrop.eaedave.xyz/windows/qd/latest.exe
+https://quickdrop.eaedave.xyz/windows/qd/latest.sha256
 ```
 
 Linux full installation:
