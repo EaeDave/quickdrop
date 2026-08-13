@@ -125,7 +125,7 @@ Run `qd` in an interactive terminal to open the Ratatui interface:
 qd
 ```
 
-The TUI opens or creates a clipboard by code, can create a new PIN-protected clipboard with `Ctrl+P`, and prompts for the PIN when opening an existing protected clipboard. It displays the drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, and deleting the selected drop.
+The TUI opens or creates a clipboard by code. `Ctrl+P` starts a PIN-protected create even with an empty code field: choose the name next, then Enter asks for the PIN. It also prompts for the PIN when opening an existing protected clipboard. It displays the drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, deleting the selected drop, and updating itself when a newer `qd` release is available.
 
 Open a code directly in the TUI:
 
@@ -138,11 +138,12 @@ Keyboard shortcuts:
 | Context | Keys | Action |
 |---|---|---|
 | Code | `Enter` | Open a clipboard or create a public one |
-| Code | `Ctrl+P` | Create a PIN-protected clipboard |
+| Code | `Ctrl+P` | Start a PIN-protected create; Enter then asks for the PIN |
 | Timeline | `j`/`↓`, `k`/`↑` | Select the next or previous drop |
 | Timeline | `g`/`Home`, `G`/`End` | Select the first or last drop |
 | Timeline | `Enter`, `i`, `Tab` | Focus the composer |
 | Timeline | `e`, `y`, `r`, `d` | Edit, copy, resend, or delete the selected drop |
+| Timeline | `u` | Install an available `qd` update and restart the TUI |
 | Timeline | `?`, `q` | Open help or quit |
 | Composer | `Ctrl+S` or `Ctrl+Enter` | Publish a new drop |
 | Composer | `Ctrl+U`, `Esc` | Clear the composer or return to the timeline |
@@ -152,6 +153,15 @@ Keyboard shortcuts:
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
 Non-interactive commands remain suitable for pipes and scripts.
+
+Update the installed `qd` binary from the latest public release:
+
+```bash
+qd update
+qd update --check
+```
+
+The TUI checks for a newer release on launch. If one is available, press `u` to download it, verify the published SHA-256 checksum, replace the running binary, and reopen the TUI.
 
 
 Publish stdin as a new drop:

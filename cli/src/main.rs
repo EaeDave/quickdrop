@@ -11,16 +11,20 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 mod tui;
+mod update;
 
-const DEFAULT_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
+pub(crate) const DEFAULT_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
 const USAGE: &str = "Usage:
   qd
   qd --tui [code] [--server <url>]
+  qd update [--check] [--server <url>]
   echo \"text\" | qd <code> [--server <url>] [--copy]
   qd <code> [--server <url>] [--copy]
 
 Options:
   --tui                  Open the interactive terminal interface.
+  update                 Download and install the latest qd binary.
+  --check                Report whether a qd update is available.
   --copy                 Copy sent or received text to the local clipboard.
   --server <url>         QuickDrop URL (default: QUICKDROP_API_BASE_URL or https://quickdrop.eaedave.xyz).
   -h, --help             Show this help.";
@@ -77,6 +81,7 @@ async fn main() {
 }
 
 async fn run(args: Vec<String>) -> Result<(), QdError> {
+    update::cleanup_previous_update();
     if args
         .iter()
         .any(|argument| argument == "--help" || argument == "-h")
@@ -88,6 +93,10 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
         return Err(QdError::Usage(
             "--help cannot be combined with other options.".to_owned(),
         ));
+    }
+
+    if args.first().is_some_and(|argument| argument == "update") {
+        return update::run_update(args.into_iter().skip(1).collect()).await;
     }
 
     if should_launch_tui(&args, io::stdin().is_terminal()) {
@@ -185,7 +194,7 @@ fn validate_code(code: &str) -> Result<String, QdError> {
     Ok(code.to_ascii_uppercase())
 }
 
-fn parse_server_url(server: &str) -> Result<Url, QdError> {
+pub(crate) fn parse_server_url(server: &str) -> Result<Url, QdError> {
     let mut server = Url::parse(server).map_err(|_| {
         QdError::Usage("the server URL must start with http:// or https://.".to_owned())
     })?;
@@ -294,7 +303,7 @@ fn latest_content(snapshot: SnapshotResponse) -> String {
         .unwrap_or(snapshot.text)
 }
 
-fn http_client() -> Result<Client, QdError> {
+pub(crate) fn http_client() -> Result<Client, QdError> {
     Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
@@ -401,7 +410,7 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
     })
 }
 
-fn endpoint(server: &Url, path: &str) -> Result<Url, QdError> {
+pub(crate) fn endpoint(server: &Url, path: &str) -> Result<Url, QdError> {
     let mut url = server.clone();
     let prefix = server.path().trim_end_matches('/');
     url.set_path(&format!("{prefix}/{path}"));
@@ -467,7 +476,7 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
 }
 
 #[derive(Debug)]
-enum QdError {
+pub(crate) enum QdError {
     Runtime(String),
     Remote {
         code: Option<String>,

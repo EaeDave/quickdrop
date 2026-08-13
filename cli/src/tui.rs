@@ -34,7 +34,8 @@ use tokio_tungstenite::{
 use tui_textarea::TextArea;
 
 use crate::{
-    copy_to_system_clipboard, endpoint, http_client, open_room, QdCommand, QdError, TextDrop,
+    copy_to_system_clipboard, endpoint, http_client, open_room, update, QdCommand, QdError,
+    TextDrop,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +84,154 @@ enum NetEvent {
     },
 }
 
+#[derive(Debug)]
+enum UpdateEvent {
+    Check(Result<Option<update::AvailableUpdate>, QdError>),
+    Applied(Result<String, QdError>),
+}
+pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
+    let mut terminal = TerminalGuard::enter()?;
+    let mut events = EventStream::new();
+    let mut app = App::new(server, initial_code);
+    let mut connection = None;
+    let (update_tx, mut update_rx) = mpsc::channel(2);
+    tokio::spawn({
+        let server = app.server.clone();
+        let update_tx = update_tx.clone();
+        async move {
+            let _ = update_tx
+                .send(UpdateEvent::Check(update::check_for_update(&server).await))
+                .await;
+        }
+    });
+
+    loop {
+        terminal
+            .draw(|frame| render(frame, &mut app))
+            .map_err(terminal_error)?;
+        if app.update_requested {
+            app.update_requested = false;
+            if let Some(available) = app.available_update.clone() {
+                let server = app.server.clone();
+                let update_tx = update_tx.clone();
+                tokio::spawn(async move {
+                    let _ = update_tx
+                        .send(UpdateEvent::Applied(
+                            update::apply_update(&server, Some(&available)).await,
+                        ))
+                        .await;
+                });
+            }
+        }
+        if app.quit {
+            if app.restart_after_update {
+                drop(terminal);
+                return update::restart_current_process();
+            }
+            return Ok(());
+        }
+
+        if app.screen == Screen::Timeline && connection.is_none() {
+            let command = QdCommand {
+                code: app.code.clone(),
+                copy: false,
+                server: app.server.clone(),
+            };
+            let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
+            let room = match http_client() {
+                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
+                Err(error) => Err(error),
+            };
+            let room = match room {
+                Ok(room) => room,
+                Err(QdError::Remote {
+                    code: Some(code),
+                    message,
+                }) if code == "pin_required"
+                    || code == "pin_invalid"
+                    || code == "invalid_token" =>
+                {
+                    if code == "pin_required" || code == "invalid_token" {
+                        app.pin_purpose = PinPurpose::Unlock;
+                    }
+                    app.screen = Screen::Pin;
+                    app.pin_input.clear();
+                    app.status = Some(message);
+                    continue;
+                }
+                Err(error) => {
+                    app.screen = Screen::Code;
+                    app.code_input = app.code.clone();
+                    app.status = Some(error_message(error));
+                    app.code.clear();
+                    app.pin_input.clear();
+                    continue;
+                }
+            };
+            let creating_protected = app.pin_purpose == PinPurpose::Create;
+            if creating_protected && !room.protected {
+                app.screen = Screen::Code;
+                app.code_input = app.code.clone();
+                app.status = Some("This clipboard already exists without a PIN".to_owned());
+                app.code.clear();
+                app.pin_input.clear();
+                continue;
+            }
+            app.pin_purpose = PinPurpose::Unlock;
+            app.pin_input.clear();
+            app.code = room.code;
+            let (actions_tx, actions_rx) = mpsc::channel(32);
+            let (network_tx, network_rx) = mpsc::channel(64);
+            tokio::spawn(realtime_client(
+                app.server.clone(),
+                app.code.clone(),
+                room.access_cookie,
+                actions_rx,
+                network_tx,
+            ));
+            connection = Some((actions_tx, network_rx));
+        }
+
+        if let Some((actions, network)) = connection.as_mut() {
+            let reset_connection = tokio::select! {
+                terminal_event = events.next() => {
+                    match terminal_event {
+                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => return Err(terminal_error(error)),
+                        None => return Ok(()),
+                    }
+                    false
+                },
+                update_event = update_rx.recv() => {
+                    apply_update_event(&mut app, update_event);
+                    false
+                },
+                network_event = network.recv() => match network_event {
+                    Some(event) => apply_network_event(&mut app, event),
+                    None => {
+                        app.connection = ConnectionState::Reconnecting;
+                        false
+                    }
+                }
+            };
+            if reset_connection {
+                connection = None;
+            }
+        } else {
+            tokio::select! {
+                terminal_event = events.next() => match terminal_event {
+                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => return Err(terminal_error(error)),
+                    None => return Ok(()),
+                },
+                update_event = update_rx.recv() => apply_update_event(&mut app, update_event),
+            }
+        }
+    }
+}
+
 struct App<'a> {
     screen: Screen,
     focus: Focus,
@@ -98,9 +247,13 @@ struct App<'a> {
     edit_saving: bool,
     connection: ConnectionState,
     status: Option<String>,
-    quit: bool,
+    available_update: Option<update::AvailableUpdate>,
+    update_busy: bool,
+    update_requested: bool,
+    restart_after_update: bool,
     no_color: bool,
     server: Url,
+    quit: bool,
 }
 
 impl<'a> App<'a> {
@@ -127,18 +280,32 @@ impl<'a> App<'a> {
             editing_drop_id: None,
             edit_saving: false,
             status: None,
-            quit: false,
+            available_update: None,
+            update_busy: false,
+            update_requested: false,
+            restart_after_update: false,
             no_color: env::var_os("NO_COLOR").is_some(),
             server,
+            quit: false,
         }
     }
     fn submit_code(&mut self, pin_purpose: Option<PinPurpose>) {
+        if self.code_input.is_empty() {
+            if pin_purpose == Some(PinPurpose::Create) {
+                self.pin_purpose = PinPurpose::Create;
+                self.status = Some("Choose a code, then Enter to set the PIN".to_owned());
+            } else {
+                self.status = Some("Use 1–16 letters, numbers, hyphens, or underscores".to_owned());
+            }
+            return;
+        }
         match normalize_code(&self.code_input) {
             Ok(code) => {
                 self.code = code;
                 self.status = None;
-                if let Some(pin_purpose) = pin_purpose {
-                    self.pin_purpose = pin_purpose;
+                if pin_purpose == Some(PinPurpose::Create) || self.pin_purpose == PinPurpose::Create
+                {
+                    self.pin_purpose = PinPurpose::Create;
                     self.pin_input.clear();
                     self.screen = Screen::Pin;
                 } else {
@@ -260,114 +427,6 @@ impl<'a> App<'a> {
     }
 }
 
-pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
-    let mut terminal = TerminalGuard::enter()?;
-    let mut events = EventStream::new();
-    let mut app = App::new(server, initial_code);
-    let mut connection = None;
-
-    loop {
-        terminal
-            .draw(|frame| render(frame, &mut app))
-            .map_err(terminal_error)?;
-        if app.quit {
-            return Ok(());
-        }
-
-        if app.screen == Screen::Timeline && connection.is_none() {
-            let command = QdCommand {
-                code: app.code.clone(),
-                copy: false,
-                server: app.server.clone(),
-            };
-            let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
-            let room = match http_client() {
-                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
-                Err(error) => Err(error),
-            };
-            let room = match room {
-                Ok(room) => room,
-                Err(QdError::Remote {
-                    code: Some(code),
-                    message,
-                }) if code == "pin_required"
-                    || code == "pin_invalid"
-                    || code == "invalid_token" =>
-                {
-                    if code == "pin_required" || code == "invalid_token" {
-                        app.pin_purpose = PinPurpose::Unlock;
-                    }
-                    app.screen = Screen::Pin;
-                    app.pin_input.clear();
-                    app.status = Some(message);
-                    continue;
-                }
-                Err(error) => {
-                    app.screen = Screen::Code;
-                    app.code_input = app.code.clone();
-                    app.status = Some(error_message(error));
-                    app.code.clear();
-                    app.pin_input.clear();
-                    continue;
-                }
-            };
-            let creating_protected = app.pin_purpose == PinPurpose::Create;
-            if creating_protected && !room.protected {
-                app.screen = Screen::Code;
-                app.code_input = app.code.clone();
-                app.status = Some("This clipboard already exists without a PIN".to_owned());
-                app.code.clear();
-                app.pin_input.clear();
-                continue;
-            }
-            app.pin_purpose = PinPurpose::Unlock;
-            app.pin_input.clear();
-            app.code = room.code;
-            let (actions_tx, actions_rx) = mpsc::channel(32);
-            let (network_tx, network_rx) = mpsc::channel(64);
-            tokio::spawn(realtime_client(
-                app.server.clone(),
-                app.code.clone(),
-                room.access_cookie,
-                actions_rx,
-                network_tx,
-            ));
-            connection = Some((actions_tx, network_rx));
-        }
-
-        if let Some((actions, network)) = connection.as_mut() {
-            let reset_connection = tokio::select! {
-                terminal_event = events.next() => {
-                    match terminal_event {
-                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
-                        Some(Ok(_)) => {}
-                        Some(Err(error)) => return Err(terminal_error(error)),
-                        None => return Ok(()),
-                    }
-                    false
-                },
-                network_event = network.recv() => match network_event {
-                    Some(event) => apply_network_event(&mut app, event),
-                    None => {
-                        app.connection = ConnectionState::Reconnecting;
-                        false
-                    }
-                }
-            };
-            if reset_connection {
-                connection = None;
-            }
-        } else {
-            match events.next().await {
-                Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
-                Some(Ok(_)) => {}
-                Some(Err(error)) => return Err(terminal_error(error)),
-                None => return Ok(()),
-            }
-        }
-    }
-}
-
 async fn handle_key(
     app: &mut App<'_>,
     key: KeyEvent,
@@ -383,7 +442,12 @@ async fn handle_key(
         Screen::Code => match key.code {
             KeyCode::Esc => app.quit = true,
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.submit_code(Some(PinPurpose::Create));
+                if app.pin_purpose == PinPurpose::Create && app.code_input.is_empty() {
+                    app.pin_purpose = PinPurpose::Unlock;
+                    app.status = None;
+                } else {
+                    app.submit_code(Some(PinPurpose::Create));
+                }
             }
             KeyCode::Enter => app.submit_code(None),
             KeyCode::Backspace => {
@@ -531,6 +595,21 @@ async fn handle_timeline_key(
             }
         }
         KeyCode::Char('d') if app.selected_drop().is_some() => app.screen = Screen::ConfirmDelete,
+        KeyCode::Char('u') if app.available_update.is_some() => {
+            if app.update_busy {
+                app.status = Some("Updating qd…".to_owned());
+            } else {
+                app.update_busy = true;
+                app.update_requested = true;
+                app.status = Some(format!(
+                    "Updating to qd {}…",
+                    app.available_update
+                        .as_ref()
+                        .map(|item| item.version.as_str())
+                        .unwrap_or_default()
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -581,6 +660,36 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
         }
     }
     false
+}
+
+fn apply_update_event(app: &mut App<'_>, event: Option<UpdateEvent>) {
+    match event {
+        Some(UpdateEvent::Check(Ok(Some(available)))) => {
+            app.available_update = Some(available);
+            if app.status.is_none() {
+                if let Some(update) = &app.available_update {
+                    app.status = Some(format!(
+                        "qd {} available · press u to update",
+                        update.version
+                    ));
+                }
+            }
+        }
+        Some(UpdateEvent::Check(Ok(None))) | None => {}
+        Some(UpdateEvent::Check(Err(error))) => {
+            if app.status.is_none() {
+                app.status = Some(error_message(error));
+            }
+        }
+        Some(UpdateEvent::Applied(Ok(_))) => {
+            app.restart_after_update = true;
+            app.quit = true;
+        }
+        Some(UpdateEvent::Applied(Err(error))) => {
+            app.update_busy = false;
+            app.status = Some(error_message(error));
+        }
+    }
 }
 
 async fn realtime_client(
@@ -860,8 +969,13 @@ fn render(frame: &mut Frame<'_>, app: &mut App<'_>) {
 fn render_code(frame: &mut Frame<'_>, app: &App<'_>) {
     let area = centered_rect(52, 9, frame.area());
     frame.render_widget(Clear, area);
+    let creating_protected = app.pin_purpose == PinPurpose::Create;
     let block = Block::default()
-        .title(" Open a clipboard ")
+        .title(if creating_protected {
+            " Create a protected clipboard "
+        } else {
+            " Open a clipboard "
+        })
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.color(Color::Cyan)));
     let inner = block.inner(area);
@@ -882,11 +996,11 @@ fn render_code(frame: &mut Frame<'_>, app: &App<'_>) {
         rows[1],
     );
     frame.render_widget(
-        Paragraph::new(
-            app.status
-                .as_deref()
-                .unwrap_or("Enter open/public create · Ctrl+P create with PIN · Esc quit"),
-        )
+        Paragraph::new(app.status.as_deref().unwrap_or(if creating_protected {
+            "Enter set PIN · Ctrl+P cancel protected create · Esc quit"
+        } else {
+            "Enter open/public create · Ctrl+P create with PIN · Esc quit"
+        }))
         .style(Style::default().fg(if app.status.is_some() {
             app.color(Color::Red)
         } else {
@@ -1020,25 +1134,29 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             })),
     );
     frame.render_widget(&app.composer, rows[2]);
-    let footer = app
-        .status
-        .as_deref()
-        .unwrap_or(if app.focus == Focus::Composer {
-            if app.editing_drop_id.is_some() {
-                "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear"
-            } else {
-                "Ctrl+S/Enter send · Esc timeline · Ctrl+U clear"
-            }
+    let default_footer = if app.focus == Focus::Composer {
+        if app.editing_drop_id.is_some() {
+            "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear".to_owned()
         } else {
-            "e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit"
-        });
+            "Ctrl+S/Ctrl+Enter send · Esc timeline · Ctrl+U clear".to_owned()
+        }
+    } else if let Some(update) = &app.available_update {
+        format!(
+            "u update to {} · e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit",
+            update.version
+        )
+    } else {
+        "e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit"
+            .to_owned()
+    };
+    let footer = app.status.as_deref().unwrap_or(default_footer.as_str());
     frame.render_widget(Paragraph::new(footer).alignment(Alignment::Center), rows[3]);
 }
 
 fn render_help(frame: &mut Frame<'_>, app: &App<'_>) {
     let area = centered_rect(58, 18, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete\n\nComposer / editor\n  Ctrl+S/Ctrl+Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
+    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete · u update qd\n\nComposer / editor\n  Ctrl+S/Ctrl+Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1404,6 +1522,46 @@ mod tests {
         assert_eq!(app.focus, Focus::Timeline);
     }
     #[tokio::test]
+    async fn ctrl_p_with_empty_code_enters_protected_create_then_asks_for_pin() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, None);
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Code);
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Choose a code, then Enter to set the PIN")
+        );
+
+        for character in "teste".chars() {
+            handle_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Pin);
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+        assert_eq!(app.code, "TESTE");
+    }
+
+    #[tokio::test]
     async fn ctrl_p_requests_a_pin_before_creating_a_protected_room() {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, None);
@@ -1448,6 +1606,7 @@ mod tests {
         assert_eq!(app.pin_purpose, PinPurpose::Create);
         assert_eq!(app.pin_input, "1234");
         app.screen = Screen::Code;
+        app.pin_purpose = PinPurpose::Unlock;
         app.code_input = "PUBLIC".to_owned();
         handle_key(
             &mut app,
@@ -1495,6 +1654,35 @@ mod tests {
         assert_eq!(app.screen, Screen::Code);
         assert_eq!(app.code_input, "SECRET");
         assert!(app.pin_input.is_empty());
+    }
+
+    #[tokio::test]
+    async fn u_requests_an_available_qd_update() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        apply_update_event(
+            &mut app,
+            Some(UpdateEvent::Check(Ok(Some(update::AvailableUpdate {
+                version: "9.9.9".to_owned(),
+                checksum: "aa".repeat(32),
+            })))),
+        );
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("press u to update")));
+
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(app.update_requested);
+        assert!(app.update_busy);
+        assert_eq!(app.status.as_deref(), Some("Updating to qd 9.9.9…"));
     }
 
     #[tokio::test]
