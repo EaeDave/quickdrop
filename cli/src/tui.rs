@@ -1598,7 +1598,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         (
             if compact {
                 format!(
-                    "{} · Ctrl+Enter newline · Esc {}",
+                    "{} · Ctrl/Shift+Enter newline · Esc {}",
                     submit_label.trim_matches(['[', ']']),
                     if app.editing_drop_id.is_some() {
                         "cancel"
@@ -1608,7 +1608,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                 )
             } else {
                 format!(
-                    "{} · Ctrl+Enter new line · Esc {}",
+                    "{} · Ctrl/Shift+Enter new line · Esc {}",
                     submit_label.trim_matches(['[', ']']),
                     if app.editing_drop_id.is_some() {
                         "cancel"
