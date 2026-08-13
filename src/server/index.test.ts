@@ -104,27 +104,19 @@ describe("buildApp", () => {
     }
   });
 
-  test("serves the text relay SPA at /t", async () => {
+  test("serves the home page without treating it as a room", async () => {
     const { app } = buildApp();
 
     try {
       const response = await app.inject({
         method: "GET",
-        url: "/t",
+        url: "/",
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/html");
       expect(response.body).toContain("QuickDrop");
-
-      const responseWithQuery = await app.inject({
-        method: "GET",
-        url: "/t?source=shared",
-      });
-      expect(responseWithQuery.statusCode).toBe(200);
-      expect(responseWithQuery.headers["cache-control"]).toBe("no-store, max-age=0");
-      expect(responseWithQuery.headers["referrer-policy"]).toBe("no-referrer");
-      expect(responseWithQuery.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers["cache-control"]).not.toBe("no-store, max-age=0");
     } finally {
       await app.close();
     }
@@ -136,7 +128,7 @@ describe("buildApp", () => {
     try {
       const response = await app.inject({
         method: "GET",
-        url: "/t/abc123",
+        url: "/abc123",
       });
 
       expect(response.statusCode).toBe(200);
@@ -516,7 +508,7 @@ describe("buildApp", () => {
 describe("redactTextCodeFromUrl", () => {
   test("removes clipboard codes from request-log URLs", () => {
     expect(redactTextCodeFromUrl("/api/text/SECRET/open")).toBe("/api/text/[code]/open");
-    expect(redactTextCodeFromUrl("/t/SECRET")).toBe("/t/[code]");
+    expect(redactTextCodeFromUrl("/SECRET")).toBe("/[code]");
     expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
       "/?c=[code]&source=test&c=[code]",
     );

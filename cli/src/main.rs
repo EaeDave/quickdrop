@@ -479,6 +479,39 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
     Err(QdError::Runtime(message.to_owned()))
 }
 
+pub(crate) fn open_in_browser(url: &Url) -> Result<(), QdError> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = ProcessCommand::new("rundll32.exe");
+        command.args(["url.dll,FileProtocolHandler", url.as_str()]);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = ProcessCommand::new("open");
+        command.arg(url.as_str());
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = ProcessCommand::new("xdg-open");
+        command.arg(url.as_str());
+        command
+    };
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            QdError::Runtime(format!("could not open the room in a browser: {error}"))
+        })?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 #[derive(Debug)]
 pub(crate) enum QdError {
     Runtime(String),

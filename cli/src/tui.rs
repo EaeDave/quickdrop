@@ -35,8 +35,8 @@ use tokio_tungstenite::{
 use tui_textarea::TextArea;
 
 use crate::{
-    copy_to_system_clipboard, endpoint, http_client, open_room, update, QdCommand, QdError,
-    TextDrop,
+    copy_to_system_clipboard, endpoint, http_client, open_in_browser, open_room, update, QdCommand,
+    QdError, TextDrop,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +108,7 @@ enum MouseAction {
     Delete,
     Update,
     SwitchRoom,
+    OpenRoom,
     Help,
     Quit,
     ConfirmDelete,
@@ -732,6 +733,7 @@ async fn run_mouse_action(
             }
         }
         MouseAction::Update => request_update(app),
+        MouseAction::OpenRoom => open_room_link(app),
         MouseAction::SwitchRoom => app.switch_room(),
         MouseAction::Help => app.screen = Screen::Help,
         MouseAction::Quit => app.quit = true,
@@ -795,6 +797,37 @@ fn copy_selected(app: &mut App<'_>) {
     }
 }
 
+fn room_url(app: &App<'_>) -> Url {
+    endpoint(&app.server, &app.code).expect("room URLs use an already validated server URL")
+}
+
+fn open_room_link(app: &mut App<'_>) {
+    share_room_link(app, copy_to_system_clipboard, open_in_browser);
+}
+
+fn share_room_link<C, O>(app: &mut App<'_>, copy: C, open: O)
+where
+    C: FnOnce(&str) -> Result<(), QdError>,
+    O: FnOnce(&Url) -> Result<(), QdError>,
+{
+    let url = room_url(app);
+    let copied = copy(url.as_str());
+    let opened = open(&url);
+    app.status = Some(match (copied, opened) {
+        (Ok(()), Ok(())) => "Room link copied and opened".to_owned(),
+        (Err(copy_error), Ok(())) => {
+            format!("Browser opened, but {}", error_message(copy_error))
+        }
+        (Ok(()), Err(open_error)) => {
+            format!("Link copied, but {}", error_message(open_error))
+        }
+        (Err(copy_error), Err(open_error)) => format!(
+            "{}; {}",
+            error_message(copy_error),
+            error_message(open_error)
+        ),
+    });
+}
 async fn resend_selected(
     app: &mut App<'_>,
     actions: Option<&mpsc::Sender<Action>>,
@@ -1499,15 +1532,21 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         app.presence,
         compact,
     );
-    let title = if compact {
-        format!(" QuickDrop · {}  ", app.code)
-    } else {
-        format!(" QuickDrop · {} · {}  ", app.code, app.server)
-    };
+    let room_url = room_url(app).to_string();
+    let prefix = " QuickDrop · ";
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(title, Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(connection_label, Style::default().fg(connection_color)),
+            Span::styled(prefix, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                room_url.as_str(),
+                Style::default()
+                    .fg(app.color(Color::Cyan))
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            ),
+            Span::styled(
+                format!("  {connection_label}"),
+                Style::default().fg(connection_color),
+            ),
             Span::raw(
                 expiry_label
                     .map(|label| format!("  {label}"))
@@ -1517,6 +1556,20 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .block(Block::default().borders(Borders::ALL)),
         rows[0],
     );
+    let link_x = rows[0]
+        .x
+        .saturating_add(1)
+        .saturating_add(prefix.chars().count() as u16);
+    let available_width = rows[0].right().saturating_sub(1).saturating_sub(link_x);
+    app.ui.actions.push(ActionRegion {
+        area: Rect::new(
+            link_x,
+            rows[0].y.saturating_add(1),
+            (room_url.chars().count() as u16).min(available_width),
+            1,
+        ),
+        action: MouseAction::OpenRoom,
+    });
     let items: Vec<ListItem<'_>> = app
         .drops
         .iter()
@@ -2474,6 +2527,30 @@ mod tests {
         assert!(!app.quit);
     }
 
+    #[test]
+    fn room_link_uses_the_canonical_url_and_runs_both_click_actions() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DAVID".to_owned()));
+        let mut copied = None;
+        let mut opened = None;
+
+        share_room_link(
+            &mut app,
+            |url| {
+                copied = Some(url.to_owned());
+                Ok(())
+            },
+            |url| {
+                opened = Some(url.to_string());
+                Ok(())
+            },
+        );
+
+        assert_eq!(copied.as_deref(), Some("https://quickdrop.example/DAVID"));
+        assert_eq!(opened.as_deref(), copied.as_deref());
+        assert_eq!(app.status.as_deref(), Some("Room link copied and opened"));
+    }
+
     #[tokio::test]
     async fn q_quits_from_help_and_failed_publish_restores_the_composer() {
         let server = Url::parse("https://quickdrop.example").unwrap();
@@ -2522,6 +2599,12 @@ mod tests {
                 .map(|cell| cell.symbol())
                 .collect();
             assert!(rendered.contains("QuickDrop"));
+            assert!(rendered.contains("https://quickdrop.example/DEV"));
+            assert!(app
+                .ui
+                .actions
+                .iter()
+                .any(|region| region.action == MouseAction::OpenRoom));
             assert!(rendered.contains("hello from QuickDrop"));
             let rendered_lower = rendered.to_ascii_lowercase();
             assert!(rendered_lower.contains("c copy"));

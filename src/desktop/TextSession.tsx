@@ -165,7 +165,7 @@ export default function TextSession() {
   }, [clearRemoteHighlight, replaceDrops]);
 
   const clearRoomUrl = useCallback(() => {
-    history.replaceState(history.state, "", "/t");
+    history.replaceState(history.state, "", "/");
   }, []);
 
   const activateRoom = useCallback(
