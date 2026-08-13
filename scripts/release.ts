@@ -31,6 +31,14 @@ export function nextVersion(current: string, requested: string): string {
   }
 }
 
+export function assertReleasePlatform(platform: NodeJS.Platform, arch: string): void {
+  if (platform !== "linux" || arch !== "x64") {
+    throw new Error(
+      "QuickDrop releases must be started from x86_64 Linux; Windows assets are built in GitHub Actions",
+    );
+  }
+}
+
 async function manifestVersions(): Promise<Map<string, string>> {
   const versions = new Map<string, string>();
   const tauriConfig = (await Bun.file(VERSION_FILES[0]).json()) as { version?: string };
@@ -112,9 +120,7 @@ async function main(): Promise<void> {
     return;
   }
   if (!requested) throw new Error("Usage: bun run release <patch|minor|major|X.Y.Z>");
-  if (process.platform !== "linux") {
-    throw new Error("QuickDrop releases must be started from Linux; Windows assets are built in GitHub Actions");
-  }
+  assertReleasePlatform(process.platform, process.arch);
 
   const next = nextVersion(current, requested);
   if (next === current) throw new Error(`Version is already ${current}`);

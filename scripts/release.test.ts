@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextVersion, parseVersion } from "./release";
+import { assertReleasePlatform, nextVersion, parseVersion } from "./release";
 
 describe("release version selection", () => {
   test("increments semantic versions", () => {
@@ -17,5 +17,13 @@ describe("release version selection", () => {
     for (const version of ["1.2", "1.2.3-beta", "01.2.3", "latest"]) {
       expect(() => parseVersion(version)).toThrow("Invalid semantic version");
     }
+  });
+});
+
+describe("release host validation", () => {
+  test("only accepts x86_64 Linux", () => {
+    expect(() => assertReleasePlatform("linux", "x64")).not.toThrow();
+    expect(() => assertReleasePlatform("linux", "arm64")).toThrow("x86_64 Linux");
+    expect(() => assertReleasePlatform("win32", "x64")).toThrow("x86_64 Linux");
   });
 });
