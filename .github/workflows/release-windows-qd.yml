@@ -35,7 +35,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Build Windows CLI and TUI
-        run: bun run qd:build:windows
+        run: cargo build --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml
 
       - name: Package release assets
         run: bun run qd:package:windows
