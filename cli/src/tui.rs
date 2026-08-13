@@ -46,6 +46,11 @@ enum Screen {
     ConfirmDelete,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PinPurpose {
+    Unlock,
+    Create,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Timeline,
     Composer,
@@ -83,6 +88,7 @@ struct App<'a> {
     focus: Focus,
     code_input: String,
     pin_input: String,
+    pin_purpose: PinPurpose,
     code: String,
     drops: Vec<TextDrop>,
     selected: usize,
@@ -111,6 +117,7 @@ impl<'a> App<'a> {
             focus: Focus::Timeline,
             code_input: String::new(),
             pin_input: String::new(),
+            pin_purpose: PinPurpose::Unlock,
             code: code.unwrap_or_default(),
             drops: Vec::new(),
             selected: 0,
@@ -123,6 +130,23 @@ impl<'a> App<'a> {
             quit: false,
             no_color: env::var_os("NO_COLOR").is_some(),
             server,
+        }
+    }
+    fn submit_code(&mut self, pin_purpose: Option<PinPurpose>) {
+        match normalize_code(&self.code_input) {
+            Ok(code) => {
+                self.code = code;
+                self.status = None;
+                if let Some(pin_purpose) = pin_purpose {
+                    self.pin_purpose = pin_purpose;
+                    self.pin_input.clear();
+                    self.screen = Screen::Pin;
+                } else {
+                    self.pin_purpose = PinPurpose::Unlock;
+                    self.screen = Screen::Timeline;
+                }
+            }
+            Err(message) => self.status = Some(message),
         }
     }
     fn color(&self, color: Color) -> Color {
@@ -270,6 +294,9 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                     || code == "pin_invalid"
                     || code == "invalid_token" =>
                 {
+                    if code == "pin_required" || code == "invalid_token" {
+                        app.pin_purpose = PinPurpose::Unlock;
+                    }
                     app.screen = Screen::Pin;
                     app.pin_input.clear();
                     app.status = Some(message);
@@ -284,6 +311,16 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                     continue;
                 }
             };
+            let creating_protected = app.pin_purpose == PinPurpose::Create;
+            if creating_protected && !room.protected {
+                app.screen = Screen::Code;
+                app.code_input = app.code.clone();
+                app.status = Some("This clipboard already exists without a PIN".to_owned());
+                app.code.clear();
+                app.pin_input.clear();
+                continue;
+            }
+            app.pin_purpose = PinPurpose::Unlock;
             app.pin_input.clear();
             app.code = room.code;
             let (actions_tx, actions_rx) = mpsc::channel(32);
@@ -345,14 +382,10 @@ async fn handle_key(
     match app.screen {
         Screen::Code => match key.code {
             KeyCode::Esc => app.quit = true,
-            KeyCode::Enter => match normalize_code(&app.code_input) {
-                Ok(code) => {
-                    app.code = code;
-                    app.screen = Screen::Timeline;
-                    app.status = None;
-                }
-                Err(message) => app.status = Some(message),
-            },
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.submit_code(Some(PinPurpose::Create));
+            }
+            KeyCode::Enter => app.submit_code(None),
             KeyCode::Backspace => {
                 app.code_input.pop();
             }
@@ -366,6 +399,7 @@ async fn handle_key(
                 app.screen = Screen::Code;
                 app.code_input = app.code.clone();
                 app.pin_input.clear();
+                app.pin_purpose = PinPurpose::Unlock;
                 app.status = None;
             }
             KeyCode::Enter => {
@@ -539,6 +573,7 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
             app.status = Some(message);
             if code.as_deref().is_some_and(remote_error_requires_pin) {
                 app.screen = Screen::Pin;
+                app.pin_purpose = PinPurpose::Unlock;
                 app.pin_input.clear();
                 app.connection = ConnectionState::Connecting;
                 return true;
@@ -847,13 +882,16 @@ fn render_code(frame: &mut Frame<'_>, app: &App<'_>) {
         rows[1],
     );
     frame.render_widget(
-        Paragraph::new(app.status.as_deref().unwrap_or("Enter open · Esc quit")).style(
-            Style::default().fg(if app.status.is_some() {
-                app.color(Color::Red)
-            } else {
-                Color::Reset
-            }),
-        ),
+        Paragraph::new(
+            app.status
+                .as_deref()
+                .unwrap_or("Enter open/public create · Ctrl+P create with PIN · Esc quit"),
+        )
+        .style(Style::default().fg(if app.status.is_some() {
+            app.color(Color::Red)
+        } else {
+            Color::Reset
+        })),
         rows[3],
     );
 }
@@ -861,8 +899,12 @@ fn render_code(frame: &mut Frame<'_>, app: &App<'_>) {
 fn render_pin(frame: &mut Frame<'_>, app: &App<'_>) {
     let area = centered_rect(52, 9, frame.area());
     frame.render_widget(Clear, area);
+    let title = match app.pin_purpose {
+        PinPurpose::Unlock => format!(" Unlock {} ", app.code),
+        PinPurpose::Create => format!(" Create protected {} ", app.code),
+    };
     let block = Block::default()
-        .title(format!(" Unlock {} ", app.code))
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.color(Color::Cyan)));
     let inner = block.inner(area);
@@ -883,13 +925,15 @@ fn render_pin(frame: &mut Frame<'_>, app: &App<'_>) {
         rows[1],
     );
     frame.render_widget(
-        Paragraph::new(app.status.as_deref().unwrap_or("Enter unlock · Esc back")).style(
-            Style::default().fg(if app.status.is_some() {
-                app.color(Color::Red)
-            } else {
-                Color::Reset
-            }),
-        ),
+        Paragraph::new(app.status.as_deref().unwrap_or(match app.pin_purpose {
+            PinPurpose::Unlock => "Enter unlock · Esc back",
+            PinPurpose::Create => "Enter create protected clipboard · Esc back",
+        }))
+        .style(Style::default().fg(if app.status.is_some() {
+            app.color(Color::Red)
+        } else {
+            Color::Reset
+        })),
         rows[3],
     );
 }
@@ -1316,6 +1360,7 @@ mod tests {
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.screen = Screen::Timeline;
         app.connection = ConnectionState::Connected;
+
         app.composer.insert_str("existing draft");
         app.replace_drops(vec![drop("selected", "original", "2026-01-01T11:00:00Z")]);
         let (actions, mut received) = mpsc::channel(1);
@@ -1357,6 +1402,62 @@ mod tests {
         assert_eq!(app.composer_content(), "existing draft");
         assert!(app.editing_drop_id.is_none());
         assert_eq!(app.focus, Focus::Timeline);
+    }
+    #[tokio::test]
+    async fn ctrl_p_requests_a_pin_before_creating_a_protected_room() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, None);
+        for character in "secure".chars() {
+            handle_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Pin);
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+        assert_eq!(app.code, "SECURE");
+
+        for character in "1234".chars() {
+            handle_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Timeline);
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+        assert_eq!(app.pin_input, "1234");
+        app.screen = Screen::Code;
+        app.code_input = "PUBLIC".to_owned();
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Timeline);
+        assert_eq!(app.pin_purpose, PinPurpose::Unlock);
     }
 
     #[tokio::test]
