@@ -229,7 +229,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, runs both Cargo checks, commits the version, and atomically pushes `main` with the annotated tag. GitHub Actions then builds Linux and Windows in parallel with Rust caches and publishes the desktop binaries, Windows installer, CLI/TUI binaries, and checksums. Use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the cached Windows Actions job, which adds the Windows installer and CLI/TUI assets when ready. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
 
 ### End-user installation
 

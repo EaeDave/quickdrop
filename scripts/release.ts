@@ -112,6 +112,9 @@ async function main(): Promise<void> {
     return;
   }
   if (!requested) throw new Error("Usage: bun run release <patch|minor|major|X.Y.Z>");
+  if (process.platform !== "linux") {
+    throw new Error("QuickDrop releases must be started from Linux; Windows assets are built in GitHub Actions");
+  }
 
   const next = nextVersion(current, requested);
   if (next === current) throw new Error(`Version is already ${current}`);
@@ -121,11 +124,39 @@ async function main(): Promise<void> {
   for (const path of VERSION_FILES) await replaceVersion(path, current, next);
   await run(["cargo", "check", "--manifest-path", "cli/Cargo.toml"]);
   await run(["cargo", "check", "--manifest-path", "src-tauri/Cargo.toml"]);
+  await run(["bun", "tauri", "build", "--ci", "--no-bundle"]);
+  await run([
+    "cargo",
+    "build",
+    "--release",
+    "--target",
+    "x86_64-unknown-linux-gnu",
+    "--manifest-path",
+    "cli/Cargo.toml",
+  ]);
+  await run(["bun", "run", "scripts/package-linux-release.ts"]);
+
+  const linuxAssets = [
+    `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
+    `cli/target/release/qd_${next}_x86_64-linux`,
+    `cli/target/release/qd_${next}_x86_64-linux.sha256`,
+  ];
   await run(["git", "add", ...VERSION_FILES]);
   await run(["git", "commit", "-m", `chore: release ${tag}`]);
   await run(["git", "tag", "-a", tag, "-m", `QuickDrop ${tag}`]);
   await run(["git", "push", "--atomic", "origin", "main", tag]);
-  console.log(`Published ${tag}; GitHub Actions is building the release assets.`);
+  await run([
+    "gh",
+    "release",
+    "create",
+    tag,
+    ...linuxAssets,
+    "--verify-tag",
+    "--generate-notes",
+    "--title",
+    tag,
+  ]);
+  console.log(`Published ${tag} with Linux assets; GitHub Actions is building the Windows assets.`);
 }
 
 if (import.meta.main) {
