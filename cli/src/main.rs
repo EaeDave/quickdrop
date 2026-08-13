@@ -207,6 +207,11 @@ pub(crate) fn parse_server_url(server: &str) -> Result<Url, QdError> {
             "the server URL must start with http:// or https://.".to_owned(),
         ));
     }
+    if !server.username().is_empty() || server.password().is_some() {
+        return Err(QdError::Usage(
+            "the server URL must not contain credentials.".to_owned(),
+        ));
+    }
     server.set_query(None);
     server.set_fragment(None);
     if server.path().ends_with('/') && server.path() != "/" {
@@ -562,6 +567,12 @@ mod tests {
             endpoint(&server, "api/text/A").unwrap().as_str(),
             "https://quickdrop.example/base/api/text/A"
         );
+    }
+
+    #[test]
+    fn rejects_credentials_in_server_urls() {
+        let error = parse_server_url("https://user:secret@quickdrop.example").unwrap_err();
+        assert!(matches!(error, QdError::Usage(message) if message.contains("credentials")));
     }
 
     #[test]

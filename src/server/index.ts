@@ -192,7 +192,7 @@ export function redactTextCodeFromUrl(rawUrl: string): string {
 }
 
 function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {
-  const rawSegment = rawUrl.match(/^\/([^/?#]+)(?:[?#]|$)/)?.[1];
+  const rawSegment = rawUrl.match(/^\/([^/?#]+)(?=\/?(?:[?#]|$))/)?.[1];
   if (!rawSegment) {
     return null;
   }

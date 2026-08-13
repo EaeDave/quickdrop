@@ -519,6 +519,7 @@ describe("redactTextCodeFromUrl", () => {
     expect(redactTextCodeFromUrl("/%53ECRET?source=test")).toBe(
       "/[code]?source=test",
     );
+    expect(redactTextCodeFromUrl("/SECRET/")).toBe("/[code]/");
     expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
       "/?c=[code]&source=test&c=[code]",
     );
