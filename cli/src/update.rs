@@ -49,6 +49,28 @@ pub fn is_newer(remote: &str, current: &str) -> Result<bool, QdError> {
     Ok(parse_version(remote)? > parse_version(current)?)
 }
 
+pub fn assert_supported_update_platform() -> Result<(), QdError> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") | ("windows", "x86_64") => Ok(()),
+        (os, arch) => Err(QdError::Runtime(format!(
+            "qd update is only available on x86_64 Linux and Windows, not {os}/{arch}."
+        ))),
+    }
+}
+
+pub fn assert_update_origin(server: &Url) -> Result<(), QdError> {
+    if server.scheme() == "https" {
+        return Ok(());
+    }
+    if server.scheme() == "http" && matches!(server.host_str(), Some("127.0.0.1" | "localhost")) {
+        return Ok(());
+    }
+    Err(QdError::Runtime(
+        "qd update requires an https:// server, or http://127.0.0.1 for local development."
+            .to_owned(),
+    ))
+}
+
 pub fn parse_checksum_asset(body: &str) -> Result<ChecksumAsset, QdError> {
     let line = body
         .lines()
@@ -82,6 +104,8 @@ pub fn cleanup_previous_update() {
 }
 
 pub async fn check_for_update(server: &Url) -> Result<Option<AvailableUpdate>, QdError> {
+    assert_supported_update_platform()?;
+    assert_update_origin(server)?;
     let client = update_client()?;
     let asset = fetch_checksum_asset(&client, server).await?;
     if is_newer(&asset.version, CURRENT_VERSION)? {
@@ -98,6 +122,8 @@ pub async fn apply_update(
     server: &Url,
     expected: Option<&AvailableUpdate>,
 ) -> Result<String, QdError> {
+    assert_supported_update_platform()?;
+    assert_update_origin(server)?;
     let client = update_client()?;
     let asset = fetch_checksum_asset(&client, server).await?;
     if !is_newer(&asset.version, CURRENT_VERSION)? {
@@ -233,15 +259,23 @@ fn update_client() -> Result<Client, QdError> {
 
 fn replace_executable(current: &Path, bytes: &[u8]) -> Result<(), QdError> {
     let tmp = temp_path(current);
-    fs::write(&tmp, bytes)
+    let result = install_temporary_binary(current, &tmp, bytes);
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn install_temporary_binary(current: &Path, tmp: &Path, bytes: &[u8]) -> Result<(), QdError> {
+    fs::write(tmp, bytes)
         .map_err(|error| QdError::Runtime(format!("could not write the qd update: {error}")))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).map_err(|error| {
+        fs::set_permissions(tmp, fs::Permissions::from_mode(0o755)).map_err(|error| {
             QdError::Runtime(format!("could not make the qd update executable: {error}"))
         })?;
-        fs::rename(&tmp, current).map_err(|error| {
+        fs::rename(tmp, current).map_err(|error| {
             QdError::Runtime(format!("could not install the qd update: {error}"))
         })?;
     }
@@ -252,7 +286,7 @@ fn replace_executable(current: &Path, bytes: &[u8]) -> Result<(), QdError> {
         fs::rename(current, &backup).map_err(|error| {
             QdError::Runtime(format!("could not replace the running qd binary: {error}"))
         })?;
-        if let Err(error) = fs::rename(&tmp, current) {
+        if let Err(error) = fs::rename(tmp, current) {
             let _ = fs::rename(&backup, current);
             return Err(QdError::Runtime(format!(
                 "could not install the qd update: {error}"
@@ -328,6 +362,13 @@ mod tests {
         assert!(!is_newer("0.1.3", "0.1.3").unwrap());
         assert!(!is_newer("0.1.2", "0.1.3").unwrap());
         assert!(is_newer("v1.0.0", "0.9.9").unwrap());
+    }
+
+    #[test]
+    fn rejects_insecure_remote_update_origins() {
+        assert_update_origin(&Url::parse("https://quickdrop.example").unwrap()).unwrap();
+        assert_update_origin(&Url::parse("http://127.0.0.1:3000").unwrap()).unwrap();
+        assert!(assert_update_origin(&Url::parse("http://quickdrop.example").unwrap()).is_err());
     }
 
     #[test]

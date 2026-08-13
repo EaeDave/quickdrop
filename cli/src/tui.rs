@@ -84,6 +84,154 @@ enum NetEvent {
     },
 }
 
+#[derive(Debug)]
+enum UpdateEvent {
+    Check(Result<Option<update::AvailableUpdate>, QdError>),
+    Applied(Result<String, QdError>),
+}
+pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
+    let mut terminal = TerminalGuard::enter()?;
+    let mut events = EventStream::new();
+    let mut app = App::new(server, initial_code);
+    let mut connection = None;
+    let (update_tx, mut update_rx) = mpsc::channel(2);
+    tokio::spawn({
+        let server = app.server.clone();
+        let update_tx = update_tx.clone();
+        async move {
+            let _ = update_tx
+                .send(UpdateEvent::Check(update::check_for_update(&server).await))
+                .await;
+        }
+    });
+
+    loop {
+        terminal
+            .draw(|frame| render(frame, &mut app))
+            .map_err(terminal_error)?;
+        if app.update_requested {
+            app.update_requested = false;
+            if let Some(available) = app.available_update.clone() {
+                let server = app.server.clone();
+                let update_tx = update_tx.clone();
+                tokio::spawn(async move {
+                    let _ = update_tx
+                        .send(UpdateEvent::Applied(
+                            update::apply_update(&server, Some(&available)).await,
+                        ))
+                        .await;
+                });
+            }
+        }
+        if app.quit {
+            if app.restart_after_update {
+                drop(terminal);
+                return update::restart_current_process();
+            }
+            return Ok(());
+        }
+
+        if app.screen == Screen::Timeline && connection.is_none() {
+            let command = QdCommand {
+                code: app.code.clone(),
+                copy: false,
+                server: app.server.clone(),
+            };
+            let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
+            let room = match http_client() {
+                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
+                Err(error) => Err(error),
+            };
+            let room = match room {
+                Ok(room) => room,
+                Err(QdError::Remote {
+                    code: Some(code),
+                    message,
+                }) if code == "pin_required"
+                    || code == "pin_invalid"
+                    || code == "invalid_token" =>
+                {
+                    if code == "pin_required" || code == "invalid_token" {
+                        app.pin_purpose = PinPurpose::Unlock;
+                    }
+                    app.screen = Screen::Pin;
+                    app.pin_input.clear();
+                    app.status = Some(message);
+                    continue;
+                }
+                Err(error) => {
+                    app.screen = Screen::Code;
+                    app.code_input = app.code.clone();
+                    app.status = Some(error_message(error));
+                    app.code.clear();
+                    app.pin_input.clear();
+                    continue;
+                }
+            };
+            let creating_protected = app.pin_purpose == PinPurpose::Create;
+            if creating_protected && !room.protected {
+                app.screen = Screen::Code;
+                app.code_input = app.code.clone();
+                app.status = Some("This clipboard already exists without a PIN".to_owned());
+                app.code.clear();
+                app.pin_input.clear();
+                continue;
+            }
+            app.pin_purpose = PinPurpose::Unlock;
+            app.pin_input.clear();
+            app.code = room.code;
+            let (actions_tx, actions_rx) = mpsc::channel(32);
+            let (network_tx, network_rx) = mpsc::channel(64);
+            tokio::spawn(realtime_client(
+                app.server.clone(),
+                app.code.clone(),
+                room.access_cookie,
+                actions_rx,
+                network_tx,
+            ));
+            connection = Some((actions_tx, network_rx));
+        }
+
+        if let Some((actions, network)) = connection.as_mut() {
+            let reset_connection = tokio::select! {
+                terminal_event = events.next() => {
+                    match terminal_event {
+                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => return Err(terminal_error(error)),
+                        None => return Ok(()),
+                    }
+                    false
+                },
+                update_event = update_rx.recv() => {
+                    apply_update_event(&mut app, update_event);
+                    false
+                },
+                network_event = network.recv() => match network_event {
+                    Some(event) => apply_network_event(&mut app, event),
+                    None => {
+                        app.connection = ConnectionState::Reconnecting;
+                        false
+                    }
+                }
+            };
+            if reset_connection {
+                connection = None;
+            }
+        } else {
+            tokio::select! {
+                terminal_event = events.next() => match terminal_event {
+                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => return Err(terminal_error(error)),
+                    None => return Ok(()),
+                },
+                update_event = update_rx.recv() => apply_update_event(&mut app, update_event),
+            }
+        }
+    }
+}
+
 struct App<'a> {
     screen: Screen,
     focus: Focus,
@@ -274,149 +422,6 @@ impl<'a> App<'a> {
                 self.status = Some("Edited".to_owned());
             } else {
                 self.status = Some("Edited on another device".to_owned());
-            }
-        }
-    }
-}
-
-pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
-    let mut terminal = TerminalGuard::enter()?;
-    let mut events = EventStream::new();
-    let mut app = App::new(server, initial_code);
-    let mut connection = None;
-    let (update_tx, mut update_rx) = mpsc::channel(1);
-    tokio::spawn({
-        let server = app.server.clone();
-        async move {
-            let _ = update_tx
-                .send(update::check_for_update(&server).await)
-                .await;
-        }
-    });
-
-    loop {
-        terminal
-            .draw(|frame| render(frame, &mut app))
-            .map_err(terminal_error)?;
-        if app.update_requested {
-            app.update_requested = false;
-            if let Some(available) = app.available_update.clone() {
-                match update::apply_update(&app.server, Some(&available)).await {
-                    Ok(_) => {
-                        app.restart_after_update = true;
-                        app.quit = true;
-                    }
-                    Err(error) => {
-                        app.update_busy = false;
-                        app.status = Some(error_message(error));
-                    }
-                }
-            }
-        }
-        if app.quit {
-            if app.restart_after_update {
-                drop(terminal);
-                return update::restart_current_process();
-            }
-            return Ok(());
-        }
-
-        if app.screen == Screen::Timeline && connection.is_none() {
-            let command = QdCommand {
-                code: app.code.clone(),
-                copy: false,
-                server: app.server.clone(),
-            };
-            let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
-            let room = match http_client() {
-                Ok(client) => open_room(&client, &command, pin.as_deref()).await,
-                Err(error) => Err(error),
-            };
-            let room = match room {
-                Ok(room) => room,
-                Err(QdError::Remote {
-                    code: Some(code),
-                    message,
-                }) if code == "pin_required"
-                    || code == "pin_invalid"
-                    || code == "invalid_token" =>
-                {
-                    if code == "pin_required" || code == "invalid_token" {
-                        app.pin_purpose = PinPurpose::Unlock;
-                    }
-                    app.screen = Screen::Pin;
-                    app.pin_input.clear();
-                    app.status = Some(message);
-                    continue;
-                }
-                Err(error) => {
-                    app.screen = Screen::Code;
-                    app.code_input = app.code.clone();
-                    app.status = Some(error_message(error));
-                    app.code.clear();
-                    app.pin_input.clear();
-                    continue;
-                }
-            };
-            let creating_protected = app.pin_purpose == PinPurpose::Create;
-            if creating_protected && !room.protected {
-                app.screen = Screen::Code;
-                app.code_input = app.code.clone();
-                app.status = Some("This clipboard already exists without a PIN".to_owned());
-                app.code.clear();
-                app.pin_input.clear();
-                continue;
-            }
-            app.pin_purpose = PinPurpose::Unlock;
-            app.pin_input.clear();
-            app.code = room.code;
-            let (actions_tx, actions_rx) = mpsc::channel(32);
-            let (network_tx, network_rx) = mpsc::channel(64);
-            tokio::spawn(realtime_client(
-                app.server.clone(),
-                app.code.clone(),
-                room.access_cookie,
-                actions_rx,
-                network_tx,
-            ));
-            connection = Some((actions_tx, network_rx));
-        }
-
-        if let Some((actions, network)) = connection.as_mut() {
-            let reset_connection = tokio::select! {
-                terminal_event = events.next() => {
-                    match terminal_event {
-                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
-                        Some(Ok(_)) => {}
-                        Some(Err(error)) => return Err(terminal_error(error)),
-                        None => return Ok(()),
-                    }
-                    false
-                },
-                update_result = update_rx.recv() => {
-                    apply_update_check(&mut app, update_result);
-                    false
-                },
-                network_event = network.recv() => match network_event {
-                    Some(event) => apply_network_event(&mut app, event),
-                    None => {
-                        app.connection = ConnectionState::Reconnecting;
-                        false
-                    }
-                }
-            };
-            if reset_connection {
-                connection = None;
-            }
-        } else {
-            tokio::select! {
-                terminal_event = events.next() => match terminal_event {
-                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
-                    Some(Ok(_)) => {}
-                    Some(Err(error)) => return Err(terminal_error(error)),
-                    None => return Ok(()),
-                },
-                update_result = update_rx.recv() => apply_update_check(&mut app, update_result),
             }
         }
     }
@@ -657,12 +662,9 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
     false
 }
 
-fn apply_update_check(
-    app: &mut App<'_>,
-    result: Option<Result<Option<update::AvailableUpdate>, QdError>>,
-) {
-    match result {
-        Some(Ok(Some(available))) => {
+fn apply_update_event(app: &mut App<'_>, event: Option<UpdateEvent>) {
+    match event {
+        Some(UpdateEvent::Check(Ok(Some(available)))) => {
             app.available_update = Some(available);
             if app.status.is_none() {
                 if let Some(update) = &app.available_update {
@@ -673,12 +675,20 @@ fn apply_update_check(
                 }
             }
         }
-        Some(Err(error)) => {
+        Some(UpdateEvent::Check(Ok(None))) | None => {}
+        Some(UpdateEvent::Check(Err(error))) => {
             if app.status.is_none() {
                 app.status = Some(error_message(error));
             }
         }
-        Some(Ok(None)) | None => {}
+        Some(UpdateEvent::Applied(Ok(_))) => {
+            app.restart_after_update = true;
+            app.quit = true;
+        }
+        Some(UpdateEvent::Applied(Err(error))) => {
+            app.update_busy = false;
+            app.status = Some(error_message(error));
+        }
     }
 }
 
@@ -1128,7 +1138,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         if app.editing_drop_id.is_some() {
             "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear".to_owned()
         } else {
-            "Ctrl+S/Enter send · Esc timeline · Ctrl+U clear".to_owned()
+            "Ctrl+S/Ctrl+Enter send · Esc timeline · Ctrl+U clear".to_owned()
         }
     } else if let Some(update) = &app.available_update {
         format!(
@@ -1651,12 +1661,12 @@ mod tests {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.screen = Screen::Timeline;
-        apply_update_check(
+        apply_update_event(
             &mut app,
-            Some(Ok(Some(update::AvailableUpdate {
+            Some(UpdateEvent::Check(Ok(Some(update::AvailableUpdate {
                 version: "9.9.9".to_owned(),
                 checksum: "aa".repeat(32),
-            }))),
+            })))),
         );
         assert!(app
             .status
