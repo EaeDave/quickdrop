@@ -63,6 +63,6 @@
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "^7.0.2"
   }
 }

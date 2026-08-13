@@ -152,7 +152,7 @@ Keyboard shortcuts:
 | Editor | `Enter`, `Ctrl+Enter`/`Shift+Enter` | Save changes or insert a line break |
 | Editor | `Esc` | Cancel editing |
 
-Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hold `Shift` while dragging to use the terminal's native text selection.
+Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hovering highlights clickable controls, timeline rows, and the composer; completed mouse actions report concise feedback in the footer. Hold `Shift` while dragging to use the terminal's native text selection.
 
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
@@ -166,7 +166,7 @@ qd update --check
 ```
 
 
-The TUI header shows the canonical room URL. Clicking it copies the URL to the system clipboard and opens it in the default browser.
+The TUI header shows the canonical room URL. Hovering highlights it as an interactive control; clicking copies the URL to the system clipboard, opens it in the default browser, and reports both results in the footer.
 The TUI checks for a newer release on launch. If one is available, press `Ctrl+U` from any screen to download it, verify the published SHA-256 checksum, replace the running binary, and restart the TUI.
 
 

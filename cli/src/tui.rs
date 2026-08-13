@@ -115,6 +115,13 @@ enum MouseAction {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HoverTarget {
+    Action(MouseAction),
+    TimelineItem(usize),
+    Composer,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ActionRegion {
     area: Rect,
@@ -313,6 +320,7 @@ struct App<'a> {
     switch_room_requested: bool,
     restart_after_update: bool,
     ui: UiRegions,
+    hover: Option<HoverTarget>,
     no_color: bool,
     server: Url,
     quit: bool,
@@ -352,6 +360,7 @@ impl<'a> App<'a> {
             update_requested: false,
             switch_room_requested: false,
             restart_after_update: false,
+            hover: None,
             ui: UiRegions::default(),
             no_color: env::var_os("NO_COLOR").is_some(),
             server,
@@ -657,6 +666,7 @@ async fn handle_mouse(
     mouse: MouseEvent,
     actions: Option<&mpsc::Sender<Action>>,
 ) -> Result<(), QdError> {
+    update_hover(app, mouse.column, mouse.row);
     if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
         if let Some(action) = app
             .ui
@@ -709,6 +719,30 @@ async fn handle_mouse(
     Ok(())
 }
 
+fn update_hover(app: &mut App<'_>, column: u16, row: u16) {
+    if let Some(action) = app
+        .ui
+        .actions
+        .iter()
+        .find(|region| point_in_rect(column, row, region.area))
+        .map(|region| region.action)
+    {
+        app.hover = Some(HoverTarget::Action(action));
+        return;
+    }
+    if app.screen != Screen::Timeline {
+        app.hover = None;
+        return;
+    }
+    app.hover = app
+        .ui
+        .timeline_items
+        .iter()
+        .find(|region| point_in_rect(column, row, region.area))
+        .map(|region| HoverTarget::TimelineItem(region.index))
+        .or_else(|| point_in_rect(column, row, app.ui.composer).then_some(HoverTarget::Composer));
+}
+
 async fn run_mouse_action(
     app: &mut App<'_>,
     action: MouseAction,
@@ -722,7 +756,10 @@ async fn run_mouse_action(
                 app.composer.insert_newline();
             }
         }
-        MouseAction::Clear => app.clear_composer(),
+        MouseAction::Clear => {
+            app.clear_composer();
+            app.status = Some("Composer cleared".to_owned());
+        }
         MouseAction::Cancel => cancel_composer(app),
         MouseAction::Edit => app.begin_edit(),
         MouseAction::Copy => copy_selected(app),
@@ -783,8 +820,10 @@ async fn submit_composer(
 fn cancel_composer(app: &mut App<'_>) {
     if app.editing_drop_id.is_some() {
         app.finish_edit();
+        app.status = Some("Edit cancelled".to_owned());
     } else {
         app.focus = Focus::Timeline;
+        app.status = Some("Composer closed".to_owned());
     }
 }
 
@@ -1541,7 +1580,14 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                 room_url.as_str(),
                 Style::default()
                     .fg(app.color(Color::Cyan))
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                    .add_modifier(
+                        if app.hover == Some(HoverTarget::Action(MouseAction::OpenRoom)) {
+                            Modifier::REVERSED
+                        } else {
+                            Modifier::empty()
+                        },
+                    ),
             ),
             Span::styled(
                 format!("  {connection_label}"),
@@ -1573,7 +1619,8 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
     let items: Vec<ListItem<'_>> = app
         .drops
         .iter()
-        .map(|drop| {
+        .enumerate()
+        .map(|(index, drop)| {
             let mut lines = Vec::with_capacity(timeline_item_height(drop, compact));
             lines.push(Line::styled(
                 format!(
@@ -1592,7 +1639,13 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                 lines.extend(drop.content.split('\n').map(Line::raw));
             }
             lines.push(Line::raw(""));
-            ListItem::new(Text::from(lines))
+            ListItem::new(Text::from(lines)).style(Style::default().add_modifier(
+                if app.hover == Some(HoverTarget::TimelineItem(index)) {
+                    Modifier::REVERSED
+                } else {
+                    Modifier::empty()
+                },
+            ))
         })
         .collect();
     let mut state =
@@ -1635,11 +1688,22 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         Block::default()
             .title(composer_title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(if app.focus == Focus::Composer {
-                app.color(Color::Cyan)
-            } else {
-                Color::Reset
-            })),
+            .border_style(
+                Style::default()
+                    .fg(
+                        if app.focus == Focus::Composer || app.hover == Some(HoverTarget::Composer)
+                        {
+                            app.color(Color::Cyan)
+                        } else {
+                            Color::Reset
+                        },
+                    )
+                    .add_modifier(if app.hover == Some(HoverTarget::Composer) {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
     );
     frame.render_widget(&app.composer, rows[2]);
     let (default_footer, actions) = if app.focus == Focus::Composer {
@@ -1705,7 +1769,7 @@ fn render_help(frame: &mut Frame<'_>, app: &mut App<'_>) {
     app.ui.actions.clear();
     let area = centered_rect(62, 19, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete\n  Ctrl+O switch room · Ctrl+U update\n\nComposer / editor\n  Enter send/save · Ctrl+Enter or Shift+Enter new line · Esc cancel\n\nShift+drag selects terminal text";
+    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n  Hover            Highlight interactive regions\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete\n  Ctrl+O switch room · Ctrl+U update\n\nComposer / editor\n  Enter send/save · Ctrl+Enter or Shift+Enter new line · Esc cancel\n\nShift+drag selects terminal text";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1720,11 +1784,7 @@ fn render_help(frame: &mut Frame<'_>, app: &mut App<'_>) {
         ("[Quit]".to_owned(), MouseAction::Quit),
     ];
     let action_area = Rect::new(area.x, area.bottom().saturating_sub(2), area.width, 1);
-    frame.render_widget(
-        Paragraph::new("[Close] · [Quit]").alignment(Alignment::Center),
-        action_area,
-    );
-    register_centered_actions(app, action_area, &actions);
+    render_centered_actions(frame, app, action_area, &actions);
 }
 
 fn render_confirmation(frame: &mut Frame<'_>, app: &mut App<'_>) {
@@ -1732,20 +1792,19 @@ fn render_confirmation(frame: &mut Frame<'_>, app: &mut App<'_>) {
     let area = centered_rect(48, 7, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(
-            "Delete the selected drop for every connected device?\n\n[Yes, delete]  [Cancel]",
-        )
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true })
-        .block(
-            Block::default()
-                .title(" Confirm delete ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.color(Color::Red))),
-        ),
+        Paragraph::new("Delete the selected drop for every connected device?")
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .title(" Confirm delete ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(app.color(Color::Red))),
+            ),
         area,
     );
-    register_centered_actions(
+    render_centered_actions(
+        frame,
         app,
         Rect::new(area.x, area.y.saturating_add(4), area.width, 1),
         &[
@@ -1763,7 +1822,12 @@ fn render_action_footer(
     actions: Vec<(String, MouseAction)>,
 ) {
     if let Some(status) = app.status.as_deref() {
-        frame.render_widget(Paragraph::new(status).alignment(Alignment::Center), area);
+        frame.render_widget(
+            Paragraph::new(status)
+                .alignment(Alignment::Center)
+                .style(Style::default().add_modifier(Modifier::BOLD)),
+            area,
+        );
         return;
     }
     let action_text = actions
@@ -1772,14 +1836,37 @@ fn render_action_footer(
         .collect::<Vec<_>>()
         .join(" · ");
     if action_text.chars().count() <= usize::from(area.width) {
-        frame.render_widget(
-            Paragraph::new(action_text).alignment(Alignment::Center),
-            area,
-        );
-        register_centered_actions(app, area, &actions);
+        render_centered_actions(frame, app, area, &actions);
     } else {
         frame.render_widget(Paragraph::new(fallback).alignment(Alignment::Center), area);
     }
+}
+
+fn render_centered_actions(
+    frame: &mut Frame<'_>,
+    app: &mut App<'_>,
+    area: Rect,
+    actions: &[(String, MouseAction)],
+) {
+    let mut spans = Vec::with_capacity(actions.len().saturating_mul(2).saturating_sub(1));
+    for (index, (label, action)) in actions.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" · "));
+        }
+        spans.push(Span::styled(
+            label.as_str(),
+            Style::default().add_modifier(if app.hover == Some(HoverTarget::Action(*action)) {
+                Modifier::REVERSED
+            } else {
+                Modifier::empty()
+            }),
+        ));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
+        area,
+    );
+    register_centered_actions(app, area, actions);
 }
 
 fn register_centered_actions(app: &mut App<'_>, area: Rect, actions: &[(String, MouseAction)]) {
@@ -2411,6 +2498,150 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(app.screen, Screen::Help);
+    }
+
+    #[tokio::test]
+    async fn mouse_hover_visually_tracks_every_interactive_region() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.replace_drops(vec![drop("new", "hover me", "2026-01-01T11:00:00Z")]);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+
+        let room_link = app
+            .ui
+            .actions
+            .iter()
+            .find(|region| region.action == MouseAction::OpenRoom)
+            .copied()
+            .unwrap();
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, room_link.area.x, room_link.area.y),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.hover, Some(HoverTarget::Action(MouseAction::OpenRoom)));
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        assert!(terminal
+            .backend()
+            .buffer()
+            .cell((room_link.area.x, room_link.area.y))
+            .unwrap()
+            .modifier
+            .contains(Modifier::REVERSED));
+
+        let item = app.ui.timeline_items[0];
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, item.area.x, item.area.y),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.hover, Some(HoverTarget::TimelineItem(0)));
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        assert!(terminal
+            .backend()
+            .buffer()
+            .cell((item.area.x, item.area.y))
+            .unwrap()
+            .modifier
+            .contains(Modifier::REVERSED));
+
+        let composer = app.ui.composer;
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, composer.x, composer.y),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.hover, Some(HoverTarget::Composer));
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        assert!(terminal
+            .backend()
+            .buffer()
+            .cell((composer.x, composer.y))
+            .unwrap()
+            .modifier
+            .contains(Modifier::BOLD));
+
+        let copy = app
+            .ui
+            .actions
+            .iter()
+            .find(|region| region.action == MouseAction::Copy)
+            .copied()
+            .unwrap();
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, copy.area.x, copy.area.y),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.hover, Some(HoverTarget::Action(MouseAction::Copy)));
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        assert!((copy.area.x..copy.area.right()).any(|x| {
+            terminal
+                .backend()
+                .buffer()
+                .cell((x, copy.area.y))
+                .is_some_and(|cell| cell.modifier.contains(Modifier::REVERSED))
+        }));
+
+        handle_mouse(&mut app, mouse_event(MouseEventKind::Moved, 0, 0), None)
+            .await
+            .unwrap();
+        assert_eq!(app.hover, None);
+    }
+
+    #[tokio::test]
+    async fn overlays_do_not_hover_inactive_timeline_regions() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.replace_drops(vec![drop("new", "background", "2026-01-01T11:00:00Z")]);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let item = app.ui.timeline_items[0];
+
+        app.screen = Screen::Help;
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        handle_mouse(
+            &mut app,
+            mouse_event(MouseEventKind::Moved, item.area.x, item.area.y),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(app.hover, None);
+    }
+
+    #[tokio::test]
+    async fn mouse_clear_and_cancel_report_immediate_feedback() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.focus = Focus::Composer;
+        app.composer.insert_str("draft");
+
+        run_mouse_action(&mut app, MouseAction::Clear, None)
+            .await
+            .unwrap();
+        assert!(app.composer_content().is_empty());
+        assert_eq!(app.status.as_deref(), Some("Composer cleared"));
+
+        run_mouse_action(&mut app, MouseAction::Cancel, None)
+            .await
+            .unwrap();
+        assert_eq!(app.focus, Focus::Timeline);
+        assert_eq!(app.status.as_deref(), Some("Composer closed"));
     }
 
     #[tokio::test]
