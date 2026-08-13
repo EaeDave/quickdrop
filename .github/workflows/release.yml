@@ -1,0 +1,70 @@
+name: Build Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to rebuild
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cli
+            src-tauri
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Windows desktop installer and qd
+        run: |
+          bun tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis
+          cargo build --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml
+
+      - name: Package Windows qd assets
+        run: bun run scripts/package-windows-qd-release.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe
+            cli/target/release/qd_*_x86_64-windows.exe
+            cli/target/release/qd_*_x86_64-windows.exe.sha256
+          if-no-files-found: error
+
+      - name: Upload Windows assets to release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe" | Select-Object -First 1 -ExpandProperty FullName
+          gh release upload $env:RELEASE_TAG `
+            $installer `
+            "cli/target/release/qd_${version}_x86_64-windows.exe" `
+            "cli/target/release/qd_${version}_x86_64-windows.exe.sha256" `
+            --clobber
