@@ -11,7 +11,11 @@ import { startCleanupJob } from "./cleanup";
 import { handleDownload } from "./download-service";
 import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
-import { handleLinuxInstallerDownload } from "./linux-installer-service";
+import {
+  handleLinuxInstallerDownload,
+  handleLinuxQdChecksumDownload,
+  handleLinuxQdDownload,
+} from "./linux-installer-service";
 import { handleWindowsInstallerDownload } from "./windows-installer-service";
 import { TextSessionHub } from "./text-session-hub";
 import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
@@ -100,6 +104,12 @@ export function buildApp() {
   );
   app.get("/linux/latest", async (_request, reply) =>
     handleLinuxInstallerDownload(reply, { config }),
+  );
+  app.get("/linux/qd/latest", async (_request, reply) =>
+    handleLinuxQdDownload(reply, { config }),
+  );
+  app.get("/linux/qd/latest.sha256", async (_request, reply) =>
+    handleLinuxQdChecksumDownload(reply, { config }),
   );
   app.register(fastifyStatic, {
     root: join(process.cwd(), "dist"),

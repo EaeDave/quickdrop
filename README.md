@@ -1,302 +1,309 @@
 # QuickDrop
 
-<!-- business-readme:business-rules:start -->
-## Regras de negócio
+QuickDrop is a self-hosted, cross-platform tool for moving files and short text snippets between machines. It combines temporary public file links, real-time text clipboards, native desktop clients, and the `qd` command-line client behind one backend.
 
-- QuickDrop é um app de envio de arquivos com interface desktop Linux/Wayland (aberta pela OmarchyBar ou Waybar), cliente Windows com ícone residente na system tray e uma página web na raiz do servidor (`GET /`) com upload e comandos copiáveis de instalação para Windows (PowerShell) e Linux (Bash). Fonte: UI `src/desktop/App.tsx`, comandos Tauri `src-tauri/src/lib.rs`, integrações em `scripts/install-bar-integration.sh`, config Windows `src-tauri/tauri.windows.conf.json` e `@fastify/static` em `src/server/index.ts`.
-- No Windows, o executável empacotado usa `https://quickdrop.eaedave.xyz` como backend padrão quando `QUICKDROP_API_BASE_URL` não está definido; no Linux/Wayland, o launcher genérico lê o mesmo backend remoto de `~/.config/quickdrop/config.env`, independentemente da barra utilizada. Fonte: `DesktopConfig::from_env` em `src-tauri/src/lib.rs`, `scripts/quickdrop-launcher` e `scripts/install-linux.sh`.
-- Tanto o cliente desktop quanto o cliente web aceitam 1 ou vários arquivos por ação (drag-and-drop, clique para selecionar ou `Ctrl+V`). Com múltiplos arquivos, a compactação ZIP é feita no lado do cliente (no Rust/Tauri para caminhos locais; usando `fflate` no navegador/clipboard para arquivos em memória) antes do envio, gerando apenas 1 link público. Fonte: `src/desktop/App.tsx`, `src/desktop/tauri.ts` e `upload_files` no Rust.
-- Ao colar com `Ctrl+V`, imagens/arquivos do clipboard são enviados como arquivo normal; texto do clipboard vira automaticamente `quickdrop-paste.txt` (`text/plain`) antes do upload. No desktop Wayland, o atalho usa `wl-paste` nativo para contornar limitações do paste event do WebView com imagens; no Windows, o paste event padrão do WebView2 é usado. Fonte: `src/desktop/App.tsx` e `src-tauri/src/lib.rs`.
-- O backend aceita 1 arquivo por requisição multipart, de qualquer tipo, e valida multipart, arquivo vazio e tamanho máximo. Para múltiplos arquivos, esse arquivo é o ZIP gerado pelo desktop/web; o limite padrão de 100 MB se aplica ao pacote final e pode ser alterado por `MAX_FILE_SIZE_MB`. Fonte: Endpoint interno `POST /api/upload` em `src/server/upload-service.ts`.
-- Uploads são públicos e não exigem autenticação no MVP, mas têm barreiras anti-abuso: limite padrão de 5 uploads por hora por IP (`UPLOAD_RATE_LIMIT_MAX`) e kill switch `UPLOADS_ENABLED=false` para bloquear uploads sem derrubar downloads/instaladores. Fonte: Endpoint interno `POST /api/upload` em `src/server/index.ts` e `src/server/config.ts`.
-- O servidor mantém uma quota global de armazenamento antes de gravar no R2: por padrão `R2_STORAGE_HARD_LIMIT_GB=8`. Cada upload reserva bytes em PostgreSQL (`storage_reservations`/`storage_quota`) e só prossegue se `active_bytes + reserved_bytes + novo_arquivo` couber no hard cap; quando a quota estoura, o upload responde `507 storage_quota_exceeded`. Fonte: Endpoint interno `POST /api/upload`, `src/server/storage-quota.ts` e migração `migrations/003_create_storage_quota.sql`.
-- Upload válido é registrado no PostgreSQL, enviado ao Cloudflare R2 e retorna `{ id, url, expiresAt }`. A URL pública tem formato `${PUBLIC_BASE_URL}/f/:shortId`. Fonte: Endpoint interno `POST /api/upload` e tabela `uploads`.
-- Links públicos são acessíveis sem autenticação. `GET /f/:shortId` busca o registro, verifica expiração, incrementa `download_count` e redireciona para uma URL assinada temporária do R2. Fonte: Endpoint interno `GET /f/:shortId` em `src/server/download-service.ts`.
-- Arquivos expiram por padrão após 6 horas, configurável por `FILE_EXPIRATION_HOURS`. O job `cleanupExpiredUploads` roda a cada 5 minutos, libera reservas vencidas, remove uploads expirados do R2 e marca `deleted_at`; depois disso o link retorna expirado ou não encontrado. Fonte: Job interno `cleanupExpiredUploads`, `src/server/cleanup.ts` e Endpoint interno `GET /f/:shortId`.
-- Ao concluir o upload no desktop, o app copia o link único e exibe notificação de sucesso. No Linux/Wayland usa `wl-copy` e `notify-send`; no Windows usa os plugins nativos de clipboard e notification do Tauri. Se a cópia falhar, a UI mostra o link para cópia manual; se a notificação falhar, o upload continua como sucesso com aviso. Fonte: comandos desktop `copy_link` e `notify_success`.
-- A janela do MVP exibe progresso, estados de sucesso/erro e pode ser fechada pelo botão visível ou pela tecla `Esc`. No Linux/Wayland, o launcher compartilhado pela OmarchyBar e Waybar abre a janela flutuante compacta em cerca de `432x272` no compositor (`380x220` de área interna Tauri) e fechar encerra a janela como antes; no Windows, a janela usa a mesma área interna compacta, fechar oculta a janela, mantém o app vivo na tray até o usuário escolher `Sair`, abre posicionada acima da área da tray e pode ser arrastada pela barra superior customizada. No primeiro start no Windows, o app ativa `Iniciar com Windows` automaticamente e grava um marcador local; se o usuário desativar o autostart no menu da tray, o app não reativa sozinho em starts futuros. Fonte: launcher `scripts/quickdrop-launcher`, configuração Tauri `src-tauri/tauri.conf.json`, tray/posicionamento/autostart em `src-tauri/src/lib.rs` e UI `src/desktop/App.tsx`.
-- A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
-- A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 e escolhe automaticamente OmarchyBar ou Waybar, com override `QUICKDROP_BAR=auto|omarchy|waybar|both|none`. Ele baixa o binário pré-compilado por `GET /linux/latest`, instala `~/.local/bin/quickdrop`, o launcher genérico `~/.local/bin/quickdrop-launcher` e o alias compatível `quickdrop-waybar`. Para OmarchyBar instala o plugin `quickdrop.bar` em `~/.config/omarchy/plugins/`; para Waybar mantém o módulo idempotente `custom/quickdrop` com backup do JSONC. Fonte: `scripts/install-linux.sh`, `scripts/install-bar-integration.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
-- O QuickDrop tem um clipboard de texto em tempo real para transferir snippets entre máquinas sem clipboard compartilhado (ex.: máquinas Guacamole). Pela web, o usuário digita um código próprio de 1 a 16 caracteres e abre ou cria o clipboard em uma única ação. Cada envio vira um drop independente e imutável na timeline, portanto snippets simultâneos não se sobrescrevem. A timeline mantém no máximo 10 itens por sala por padrão (`TEXT_DROP_MAX_ITEMS`), remove de forma permanente o mais antigo ao ultrapassar o limite e expira cada item após 12 horas por padrão (`TEXT_DROP_TTL_HOURS`). Texto legado existente é migrado para o primeiro drop sem perda; o documento e os eventos WebSocket antigos continuam disponíveis para clientes anteriores, refletindo o item mais recente. A interface classifica visualmente URL, comando, JSON e texto comum sem executar conteúdo, sincroniza novos drops, exclusões e limpeza entre dispositivos, e oferece copiar, reenviar e excluir por item, além de limpar todos. `Ctrl/⌘ + Enter` envia um item e `Esc` sai do clipboard. Clipboards com código personalizado expiram 30 minutos por padrão depois que o último cliente sai; salas com código aleatório mantêm 12 horas, e nenhuma expira enquanto houver cliente conectado. PIN opcional continua usando cookie HttpOnly por sala. A URL canônica é `/t/CÓDIGO`, com compatibilidade para `?c=CÓDIGO`. Fontes: `text_rooms`, `text_drops`, `src/server/text-drops-repository.ts`, `src/server/text-session-service.ts`, `src/desktop/text-client.ts` e `src/desktop/TextSession.tsx`.
-- Métricas do funil de texto são opcionais e desligadas por padrão (`TEXT_METRICS_ENABLED=false`). Quando habilitadas, o PostgreSQL recebe somente contadores diários agregados de abertura da tela, abrir/criar, primeira publicação, conexão do segundo dispositivo, cópia e categoria fechada de erro. A tabela de métricas não possui código, PIN, conteúdo, ID de sala/cliente, IP ou user agent; payloads com campos extras são rejeitados. Os agregados expiram após 90 dias por padrão e podem ser consultados localmente por CLI. Esses números representam eventos, não usuários únicos. Fonte: `src/server/text-funnel-metrics.ts`, `src/server/text-funnel-metrics-route.ts`, migração `009_text_funnel_metrics.sql` e `scripts/text-metrics-report.ts`.
-<!-- business-readme:business-rules:end -->
+## Features
 
-<!-- business-readme:technical:start -->
-## Guia técnico
+- Temporary file uploads backed by Cloudflare R2 and PostgreSQL
+- Public download links with configurable expiration and storage limits
+- Real-time text clipboards addressed by short, human-readable codes
+- Immutable text-drop timeline with per-item copy, resend, and delete actions
+- Native Rust CLI for SSH, remote desktops, Linux, and Windows
+- Linux desktop integration for OmarchyBar and Waybar
+- Windows desktop client with system tray and autostart support
+- Optional privacy-preserving aggregate funnel metrics
 
-### Requisitos
+## Architecture
 
-- Bun 1.3+
-- Docker/Compose para PostgreSQL local e backend local opcional
-- Rust e dependências Linux do Tauri v2
-- `wl-copy`, `wl-paste` e `notify-send` para o fluxo desktop Wayland
-- Windows 10/11 com WebView2 Runtime para o cliente Tauri/tray
-- Credenciais Cloudflare R2 reais para uploads de ponta a ponta
+| Component | Technology | Location |
+|---|---|---|
+| HTTP and WebSocket backend | Bun, Fastify, PostgreSQL, Drizzle | `src/server/` |
+| Web and desktop interface | React, Tailwind CSS | `src/desktop/` |
+| Desktop shell | Rust, Tauri 2 | `src-tauri/` |
+| Native text CLI | Rust | `cli/` |
+| Database migrations | SQL, Drizzle | `migrations/` |
+| Linux and Windows installers | Bash, PowerShell | `scripts/` |
 
-### Configuração
+## Requirements
+
+- [Bun](https://bun.sh/) 1.3 or newer
+- Docker with Compose for local PostgreSQL
+- Rust stable for the desktop application and `qd` CLI
+- Cloudflare R2 credentials for production file uploads
+- Linux desktop builds: GTK 3, WebKitGTK 4.1, `wl-clipboard`, and `libnotify`
+- Windows desktop builds: Windows 10/11 and WebView2 Runtime
+
+This repository uses [mise](https://mise.jdx.dev/) for local toolchain selection. Install the configured tools before building:
+
+```bash
+mise install
+```
+
+## Quick start
 
 ```bash
 bun install
 cp .env.example .env
 docker compose up -d db
+bun run db:migrate
+bun run server:dev
 ```
 
-Variáveis principais:
+The backend listens on `http://127.0.0.1:3000` by default. Verify it with:
+
+```bash
+curl -fsS http://127.0.0.1:3000/api/health
+```
+
+Build the web interface with:
+
+```bash
+bun run desktop:build:web
+```
+
+## Configuration
+
+The main environment variables are:
 
 ```env
 PORT=3000
 DATABASE_URL=postgres://quickdrop:quickdrop@127.0.0.1:5432/quickdrop
+
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=quickdrop
 PUBLIC_BASE_URL=https://files.example.com
-QUICKDROP_LOCAL_PUBLIC_BASE_URL=http://127.0.0.1:3000
+R2_STORAGE_HARD_LIMIT_GB=8
+
 FILE_EXPIRATION_HOURS=6
 MAX_FILE_SIZE_MB=100
 UPLOAD_RATE_LIMIT_MAX=5
 UPLOADS_ENABLED=true
-R2_STORAGE_HARD_LIMIT_GB=8
 UPLOAD_RESERVATION_TTL_MINUTES=30
+
 TEXT_SESSION_TTL_HOURS=12
 TEXT_CUSTOM_SESSION_TTL_MINUTES=30
 TEXT_DROP_MAX_ITEMS=10
 TEXT_DROP_TTL_HOURS=12
+TEXT_SESSION_MAX_KB=256
+TEXT_SESSION_CODE_LENGTH=6
+TEXT_SESSION_MAX_SESSIONS=500
+TEXT_SESSION_MAX_CLIENTS=20
+
 TEXT_METRICS_ENABLED=false
 TEXT_METRICS_RETENTION_DAYS=90
-TEXT_SESSION_MAX_KB=256
-TEXT_SESSION_CODE_LENGTH=6
-TEXT_SESSION_MAX_SESSIONS=500
-TEXT_SESSION_MAX_CLIENTS=20
-QUICKDROP_API_BASE_URL=http://127.0.0.1:3000
 RUN_MIGRATIONS_ON_START=true
-QUICKDROP_GITHUB_TOKEN=
-QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop
 ```
 
-Preencha `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` e `PUBLIC_BASE_URL` antes de iniciar um backend real. Para uso diário na máquina local, o launcher compartilhado pelas barras aponta por padrão para `https://quickdrop.eaedave.xyz`; assim o QuickDrop continua funcionando após reiniciar o computador sem depender de um processo local.
+See [`.env.example`](.env.example) for the complete development template.
 
-O backend aceita preflight CORS para o cliente desktop Tauri/WebView enviar arquivos em memória ao backend remoto, incluindo o header `x-quickdrop-file-size` usado para R2/Cloudflare receber `Content-Length` correto.
+## Text clipboard
 
-### Banco de dados
+Open `/t` in the web application and enter a code containing 1–16 ASCII letters, numbers, `_`, or `-`. The same operation opens an active clipboard or creates it when it does not exist.
 
-O projeto usa PostgreSQL com Drizzle ORM sobre `Bun.SQL`. A configuração do Drizzle Kit fica em `drizzle.config.ts`, o schema tipado em `src/server/schema.ts`, e a migração SQL versionada em `migrations/`.
+Each publication creates an immutable drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards remain available through the web interface.
+
+Canonical URLs use this form:
+
+```text
+https://quickdrop.example/t/MYCODE
+```
+
+### Native CLI
+
+The `qd` client is a standalone Rust binary and does not require Bun or Node.js at runtime.
+
+Install it from the repository:
 
 ```bash
-bun run db:generate
-bun run db:check
-bun run db:migrate
+mise exec rust@stable -- cargo install --path cli
 ```
-
-A migração `010_text_drops.sql` é aditiva: cria `text_drops`, adiciona apenas o marcador não sensível `text_rooms.drops_started_at` e converte o documento legado atual em um drop idempotente. Um rollback para uma versão anterior ignora a nova tabela; escritas feitas por essa versão permanecem apenas em `text_rooms.text/version` e reaparecem como um item virtual ao retornar à aplicação nova, sem serem incorporadas retroativamente ao histórico imutável. Só remova `text_drops` e `drops_started_at` depois de confirmar que nenhum deploy novo depende da timeline; essa remoção perde o histórico de itens.
-
-### Backend
+Run `qd` in an interactive terminal to open the Ratatui interface:
 
 ```bash
-bun run server:dev
-# ou
-bun run server:start
+qd
 ```
 
-Health check:
+The TUI opens or creates a clipboard by code, displays its drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports copying, resending, and deleting the selected drop.
+
+Open a code directly in the TUI:
 
 ```bash
-curl -sS http://127.0.0.1:3000/api/health
+qd --tui MYCODE
 ```
 
-### Sessões de texto (relay de texto)
+Keyboard shortcuts:
 
-Relay de texto em tempo real entre máquinas, no mesmo backend:
+| Context | Keys | Action |
+|---|---|---|
+| Timeline | `j`/`↓`, `k`/`↑` | Select the next or previous drop |
+| Timeline | `g`/`Home`, `G`/`End` | Select the first or last drop |
+| Timeline | `Enter`, `i`, `Tab` | Focus the composer |
+| Timeline | `y`, `r`, `d` | Copy, resend, or delete the selected drop |
+| Timeline | `?`, `q` | Open help or quit |
+| Composer | `Ctrl+S` or `Ctrl+Enter` | Publish a new drop |
+| Composer | `Ctrl+U`, `Esc` | Clear the composer or return to the timeline |
 
-- `POST /api/text` — cria uma sala aleatória e retorna `{ code, protected, kind, expiresAfterMinutes }` (6 caracteres base32 sem caracteres ambíguos), com rate limit; `pin` opcional no body cria uma sala protegida e já concede o acesso inicial ao criador por cookie HttpOnly.
-- `POST /api/text/:code/open` — abre ou cria atomicamente um clipboard com código escolhido pelo usuário (1 a 16 letras, números, `_` ou `-`) e retorna `{ code, created, protected, kind, expiresAfterMinutes }`; o índice parcial no PostgreSQL garante somente uma sala ativa por código, e o endpoint também valida PIN de uma sala protegida.
-- `POST /api/text/:code/access` — endpoint compatível que valida o PIN da sala protegida (ou reaproveita um cookie ainda válido), define/renova o cookie HttpOnly por sala e libera a entrada. Sala pública responde sem exigir PIN.
-- `GET /api/text/:code` — snapshot atual com os campos legados `{ text, version }` e a timeline `{ drops, maxDrops, dropExpiresAfterMinutes, protected, kind, expiresAfterMinutes }` (404 se a sala não existe, 401 se for protegida e o acesso não estiver autorizado).
-- `WS /api/text/:code/ws` — além de `snapshot` e `presence`, o cliente novo envia `drop_add`, `drop_delete` e `drops_clear`; o servidor sincroniza `drop_added`, `drops_removed`, `drop_deleted` e `drops_cleared`. `drops_removed` informa itens removidos automaticamente pelo limite. Eventos legados `write`, `update`, `ack`, `typing`, `pointer` e `peer_left` continuam aceitos/transmitidos para compatibilidade. Heartbeat ping/pong derruba conexões mortas.
-- Drops são imutáveis: não existe operação de edição. Excluir, limpar, expirar ou ultrapassar o limite remove o conteúdo permanentemente do PostgreSQL. Cada nova publicação também atualiza o documento legado com o item mais recente para clientes anteriores.
+The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
-```env
-TEXT_SESSION_TTL_HOURS=12
-TEXT_CUSTOM_SESSION_TTL_MINUTES=30
-TEXT_DROP_MAX_ITEMS=10
-TEXT_DROP_TTL_HOURS=12
-TEXT_SESSION_MAX_KB=256
-TEXT_SESSION_CODE_LENGTH=6
-TEXT_SESSION_MAX_SESSIONS=500
-TEXT_SESSION_MAX_CLIENTS=20
-```
+Non-interactive commands remain suitable for pipes and scripts.
 
-Rotas de texto usam `Cache-Control: no-store`, bloqueiam framing, removem referrer e mascaram o código nos logs HTTP. A página web é servida pela mesma SPA: abre direto quando o host começa com `texto.`, em `/t` e na URL canônica `/t/CÓDIGO`. Links legados com `?c=CÓDIGO` na raiz continuam aceitos e são substituídos pela URL canônica depois que o clipboard abre. Para usar o subdomínio, aponte `texto.<seu-domínio>` para a mesma service no Coolify.
 
-### Métricas privadas do funil de texto
-
-A coleta usa armazenamento agregado próprio no PostgreSQL, sem provedor externo. Ela fica desativada até o operador definir:
-
-```env
-TEXT_METRICS_ENABLED=true
-TEXT_METRICS_RETENTION_DAYS=90
-```
-
-O endpoint `POST /api/text/metrics` aceita somente os eventos públicos `screen_opened`, `text_copied` e `client_error`, com enums fechados. Eventos de abrir/criar, primeira publicação e segundo dispositivo são gerados internamente pelo servidor. O schema rejeita qualquer dimensão fora das listas permitidas e o endpoint rejeita campos extras, impedindo o envio de código, PIN, conteúdo ou identificadores. Falhas na coleta nunca interrompem o clipboard.
-
-Painel textual dos últimos 30 dias:
+Publish stdin as a new drop:
 
 ```bash
-bun run metrics:text --days 30
+echo "text from SSH" | qd MYCODE
 ```
 
-O relatório mostra contagens e conversão relativa a aberturas da tela, mais o detalhamento agregado por dia UTC, tipo de sala, resultado e categoria técnica de erro. Para opt-out, mantenha `TEXT_METRICS_ENABLED=false`; nenhum contador é gravado.
+Print the newest drop:
 
-### Deploy Coolify / Dockerfile
-
-O `Dockerfile` publica somente o backend HTTP. No Coolify, use build por Dockerfile, exponha a porta `3000` ou a porta injetada em `PORT`, e configure estas variáveis no app:
-
-```env
-PORT=3000
-DATABASE_URL=postgres://...
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET_NAME=quickdrop
-PUBLIC_BASE_URL=https://files.seu-dominio.com
-FILE_EXPIRATION_HOURS=6
-MAX_FILE_SIZE_MB=100
-UPLOAD_RATE_LIMIT_MAX=5
-UPLOADS_ENABLED=true
-R2_STORAGE_HARD_LIMIT_GB=8
-UPLOAD_RESERVATION_TTL_MINUTES=30
-TEXT_SESSION_TTL_HOURS=12
-TEXT_CUSTOM_SESSION_TTL_MINUTES=30
-TEXT_DROP_MAX_ITEMS=10
-TEXT_DROP_TTL_HOURS=12
-TEXT_METRICS_ENABLED=false
-TEXT_METRICS_RETENTION_DAYS=90
-TEXT_SESSION_MAX_KB=256
-TEXT_SESSION_CODE_LENGTH=6
-TEXT_SESSION_MAX_SESSIONS=500
-TEXT_SESSION_MAX_CLIENTS=20
-RUN_MIGRATIONS_ON_START=true
-QUICKDROP_GITHUB_TOKEN=github_pat_...
-QUICKDROP_GITHUB_REPOSITORY=EaeDave/quickdrop
+```bash
+qd MYCODE
 ```
 
-`PUBLIC_BASE_URL` deve ser o domínio público do backend no Coolify, não o bucket R2 direto. A URL copiada pelo desktop será `${PUBLIC_BASE_URL}/f/:shortId`, e esse endpoint redireciona para uma URL assinada temporária do R2. Para o instalador Windows funcionar com o repositório GitHub privado, configure `QUICKDROP_GITHUB_TOKEN` no ambiente do servidor com permissão de leitura do repositório; `GITHUB_TOKEN` também é aceito como fallback, mas não deve ser embutido no script público.
+Print and copy it to the local clipboard:
 
-Na inicialização, o container executa `bun run db:migrate` antes de `bun run server:start`. Se quiser rodar migrações fora do container, defina `RUN_MIGRATIONS_ON_START=false`. Health check: `/api/health`.
+```bash
+qd MYCODE --copy
+```
 
-### Backend local opcional com Docker
+Use another QuickDrop backend in interactive or non-interactive mode:
 
-O `compose.yml` também tem um serviço `server` opcional para rodar o backend localmente. Ele usa o mesmo `Dockerfile`, expõe `127.0.0.1:3000`, depende do Postgres do Compose e usa `restart: unless-stopped` para subir de novo junto com o Docker após reboot.
+```bash
+qd --tui MYCODE --server http://127.0.0.1:3000
+qd MYCODE --server http://127.0.0.1:3000
+QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 qd
+```
+
+On Linux, `--copy` tries `wl-copy`, `xclip`, then `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. PIN-protected clipboards are deliberately rejected by the CLI until an interactive credential flow is implemented.
+
+Build release binaries:
+
+```bash
+bun run qd:build          # current platform
+bun run qd:build:linux    # x86_64 Linux
+bun run qd:build:windows  # x86_64 Windows, from a Windows runner
+```
+
+Artifacts are written below `cli/target/`.
+
+## Desktop clients
+
+Run the Tauri application in development:
+
+```bash
+bun run desktop:dev
+```
+
+Build for the current platform:
+
+```bash
+bun run desktop:build
+```
+
+Build the Windows client from Windows or a configured Windows CI runner:
+
+```bash
+bun run desktop:build:windows
+```
+
+Package the Linux release:
+
+```bash
+bun run desktop:package:linux
+```
+
+### End-user installation
+
+Windows PowerShell:
+
+```powershell
+irm https://quickdrop.eaedave.xyz/install.ps1 | iex
+```
+
+Linux full installation:
+
+```bash
+curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
+```
+
+The installer is idempotent and always installs or updates the complete Linux experience: the desktop/tray client, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
+
+## Local backend with Docker
+
+Start the optional backend service together with PostgreSQL:
 
 ```bash
 bun run local:server:up
-curl -sS http://127.0.0.1:3000/api/health
 ```
 
-Para instalar o desktop e configurar a barra detectada para esse backend local em um comando:
-
-```bash
-bun run quickdrop:install:local
-```
-
-Para voltar a usar o backend remoto depois:
-
-```bash
-QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run quickdrop:install
-```
-
-Logs/parada:
+View logs or stop it:
 
 ```bash
 bun run local:server:logs
 bun run local:server:stop
 ```
 
-Limpeza manual de expirados:
+The local service is exposed only on `127.0.0.1:3000`.
+
+## API overview
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/upload` | Upload one file or one client-generated ZIP |
+| `GET` | `/f/:shortId` | Redirect to a temporary signed R2 download URL |
+| `POST` | `/api/text` | Create a generated clipboard |
+| `POST` | `/api/text/:code/open` | Atomically open or create a custom clipboard |
+| `POST` | `/api/text/:code/access` | Validate access to a PIN-protected clipboard |
+| `GET` | `/api/text/:code` | Read the current text-drop timeline |
+| `GET` | `/api/text/:code/ws` | WebSocket synchronization endpoint |
+| `POST` | `/api/text/metrics` | Record an allowed aggregate funnel event |
+
+Text routes use `Cache-Control: no-store`. Clipboard codes are redacted from HTTP logs, and analytics never store clipboard codes, PINs, text content, client identifiers, IP addresses, or user agents.
+
+## Database
+
+Run migrations:
 
 ```bash
-bun run cleanup:run
+bun run db:migrate
 ```
 
-### Desktop
+Check the Drizzle schema and migrations:
 
 ```bash
-bun run desktop:dev
+bun run db:check
 ```
 
-Na janela desktop ou web, o usuário pode arrastar 1 ou vários arquivos para a caixa, clicar na seta para selecionar arquivos locais ou usar `Ctrl+V` para colar imagem/arquivo/texto do clipboard. Texto colado vira `quickdrop-paste.txt`; no desktop Wayland o `Ctrl+V` lê o clipboard via `wl-paste`; no Windows o WebView2 entrega o paste event padrão; múltiplos arquivos são compactados em um ZIP temporário antes do envio e geram um único link.
+The container entrypoint runs migrations before starting the server when `RUN_MIGRATIONS_ON_START=true`.
 
-Build web/Tauri:
+## Deployment
 
-```bash
-bun run desktop:build:web
-bun run desktop:build
-```
+The included [`Dockerfile`](Dockerfile) builds the web interface and runs the Bun backend. A production deployment needs:
 
-Página principal:
+1. A PostgreSQL database
+2. A Cloudflare R2 bucket and API credentials
+3. `PUBLIC_BASE_URL` set to the public QuickDrop backend URL
+4. Port `3000`, or the value supplied through `PORT`, exposed by the platform
+5. `QUICKDROP_GITHUB_TOKEN` when the backend must proxy private desktop release assets
 
-- `GET /` serve a landing page web com hero, abas Windows/Linux para copiar o comando de instalação (`irm https://quickdrop.eaedave.xyz/install.ps1 | iex` no Windows, `curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash` no Linux), link “Ver script” para `GET /install.ps1` ou `GET /install.sh` conforme a aba, e a área de upload web.
+The application is designed to run directly from the Dockerfile on platforms such as Coolify.
 
-Instalação Windows via PowerShell:
-
-```powershell
-irm https://quickdrop.eaedave.xyz/install.ps1 | iex
-```
-
-O endpoint interno `GET /install.ps1` serve `scripts/install-windows.ps1`. O script baixa o instalador em `GET /windows/latest.exe` (ou `QUICKDROP_WINDOWS_INSTALLER_URL`, se definido); o backend usa `QUICKDROP_GITHUB_TOKEN`/`GITHUB_TOKEN` server-side para buscar o asset privado `QuickDrop_*_x64-setup.exe` do último GitHub Release, repassa o binário ao Windows, roda o NSIS em modo silencioso para o usuário atual, espera apenas o instalador terminar e então abre o `QuickDrop.exe` instalado sem `--tray-start` para mostrar a janela no canto direito.
-
-Instalação Linux via Bash (Hyprland + OmarchyBar ou Waybar):
-
-```bash
-curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
-```
-
-O endpoint `GET /install.sh` serve `scripts/install-linux.sh`. O script detecta Linux x86_64 e a barra realmente ativa: consulta o plugin `omarchy.bar` pelo IPC do `omarchy-shell` antes de procurar um processo Waybar, evitando escolher uma instalação Waybar obsoleta. O override `QUICKDROP_BAR` aceita `auto`, `omarchy`, `waybar`, `both` ou `none`. O binário vem de `GET /linux/latest`; o launcher genérico vem de `GET /linux/quickdrop-launcher` e lê o backend persistido em `~/.config/quickdrop/config.env`. O adapter Omarchy instala e habilita `quickdrop.bar` em `~/.config/omarchy/plugins/`; o adapter Waybar aplica `custom/quickdrop` de forma idempotente e cria backup do JSONC. Variáveis úteis: `QUICKDROP_API_BASE_URL`, `QUICKDROP_BAR`, `QUICKDROP_BIN_DIR`, `QUICKDROP_WAYBAR_CONFIG` e `QUICKDROP_BAR_NO_RESTART`. O endpoint e executável `quickdrop-waybar` continuam disponíveis por compatibilidade.
-
-Para gerar e publicar o binário Linux da release:
-
-```bash
-bun run desktop:package:linux
-gh release upload <tag> src-tauri/target/release/quickdrop_<versão>_x86_64-linux --clobber
-```
-
-Build Windows (em Windows local/CI; o CI do GitHub Actions pode ser religado depois quando houver cota):
-
-```bash
-bun run desktop:build:windows
-```
-
-No Windows, o app cria um ícone na system tray. Clique esquerdo abre/foca a janela QuickDrop posicionada acima da tray; a barra superior customizada permite arrastar a janela; botão fechar/Esc apenas ocultam a janela; no primeiro start o autostart é ativado automaticamente; o menu da tray tem `Abrir QuickDrop`, `Iniciar com Windows` e `Sair`.
-
-O executável Windows gerado aponta para produção por padrão: se `QUICKDROP_API_BASE_URL` não estiver definido no ambiente do usuário, o app usa `https://quickdrop.eaedave.xyz`. Defina `QUICKDROP_API_BASE_URL` apenas para testar outro backend.
-
-Instalar o binário e integrar automaticamente com a barra ativa usando o backend remoto persistente:
-
-```bash
-bun run quickdrop:install
-test -x "$HOME/.local/bin/quickdrop"
-test -x "$HOME/.local/bin/quickdrop-launcher"
-```
-
-`quickdrop:install` instala dependências, compila o desktop, copia o binário e instala o adapter escolhido. O launcher usa o tamanho compacto padrão de cerca de `432x272`; `QUICKDROP_WINDOW_WIDTH` e `QUICKDROP_WINDOW_HEIGHT` permitem testar outro tamanho. Para reaplicar apenas uma integração:
-
-```bash
-bun run bar:install                 # detecção automática
-bun run omarchy-bar:install         # força OmarchyBar
-bun run waybar:install              # força Waybar
-```
-
-O adapter Omarchy usa o contrato oficial de plugin `bar-widget`, valida o manifesto, solicita rescan e habilita o widget na seção direita. O adapter Waybar mantém o snippet `custom/quickdrop`; seu `on-click` chama somente `~/.local/bin/quickdrop-launcher`, pois o backend agora é configuração compartilhada e não pertence à barra. Instalações antigas continuam funcionando por meio de `~/.local/bin/quickdrop-waybar` e `GET /linux/quickdrop-waybar`.
-
-### Verificação
+## Development checks
 
 ```bash
 bun run typecheck
 bun test
+mise exec rust@stable -- cargo test --manifest-path cli/Cargo.toml
+mise exec rust@stable -- cargo clippy --manifest-path cli/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 bun run desktop:build:web
-bun run desktop:build
 ```
 
-O teste de upload/download de ponta a ponta exige PostgreSQL e R2 reais configurados no `.env`.
-<!-- business-readme:technical:end -->
+File upload and download integration tests require working PostgreSQL and R2 credentials.
+
+## License
+
+No license file is currently included. Add one before distributing QuickDrop outside its intended private environment.

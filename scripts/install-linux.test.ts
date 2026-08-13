@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
@@ -36,17 +36,20 @@ type Sandbox = {
   configDir: string;
   binaryPath: string;
   launcherPath: string;
+  qdPath: string;
   legacyLauncherPath: string;
   configPath: string;
   fakeBinary: string;
+  fakeQd: string;
 };
 
 async function createSandbox(options: { config?: string; configDir?: string } = {}): Promise<Sandbox> {
   const root = await mkdtemp(join(tmpdir(), "quickdrop-linux-install-"));
   const binDir = join(root, "bin");
   const fakeBinary = join(root, "quickdrop-fake-binary");
+  const fakeQd = join(root, "qd-fake-binary");
   await writeFile(fakeBinary, "#!/bin/sh\necho quickdrop\n");
-
+  await writeFile(fakeQd, "#!/bin/sh\necho qd-v1\n");
   const configPath = join(root, options.configDir ?? ".", "config.jsonc");
   if (options.config !== undefined) {
     await writeFile(configPath, options.config);
@@ -58,10 +61,12 @@ async function createSandbox(options: { config?: string; configDir?: string } = 
     shareDir: join(root, "share"),
     configDir: join(root, "quickdrop-config"),
     binaryPath: join(binDir, "quickdrop"),
+    qdPath: join(binDir, "qd"),
     launcherPath: join(binDir, "quickdrop-launcher"),
     legacyLauncherPath: join(binDir, "quickdrop-waybar"),
     configPath,
     fakeBinary,
+    fakeQd,
   };
 }
 
@@ -74,6 +79,7 @@ async function runInstaller(
     ...process.env,
     HOME: sandbox.root,
     QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
+    QUICKDROP_QD_BINARY: sandbox.fakeQd,
     QUICKDROP_LAUNCHER_FILE: launcherSource,
     QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
     QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
@@ -98,15 +104,17 @@ async function isExecutable(path: string): Promise<boolean> {
 }
 
 describe.skipIf(!hasToolchain)("install-linux.sh", () => {
-  test("installs the binary, generic launcher, compatibility launcher, and Waybar module", async () => {
+  test("installs the desktop, qd CLI/TUI, launchers, and Waybar module", async () => {
     const sandbox = await createSandbox({ config: WAYBAR_CONFIG });
 
     await runInstaller(sandbox);
 
     expect(await Bun.file(sandbox.binaryPath).exists()).toBe(true);
+    expect(await Bun.file(sandbox.qdPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.launcherPath).exists()).toBe(true);
     expect(await Bun.file(sandbox.legacyLauncherPath).exists()).toBe(true);
     expect(await isExecutable(sandbox.binaryPath)).toBe(true);
+    expect(await isExecutable(sandbox.qdPath)).toBe(true);
     expect(await isExecutable(sandbox.launcherPath)).toBe(true);
 
     const installedLauncher = await readFile(sandbox.launcherPath, "utf8");
@@ -133,6 +141,18 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     expect(afterSecond).toBe(afterFirst);
   });
 
+  test("updates both binaries on a repeated full installation", async () => {
+    const sandbox = await createSandbox({ config: WAYBAR_CONFIG });
+    await runInstaller(sandbox);
+    await writeFile(sandbox.fakeBinary, "#!/bin/sh\necho quickdrop-v2\n");
+    await writeFile(sandbox.fakeQd, "#!/bin/sh\necho qd-v2\n");
+
+    await runInstaller(sandbox);
+
+    expect(await readFile(sandbox.binaryPath, "utf8")).toContain("quickdrop-v2");
+    expect(await readFile(sandbox.qdPath, "utf8")).toContain("qd-v2");
+  });
+
   test("installs without a supported bar without failing", async () => {
     const sandbox = await createSandbox({ configDir: "missing" });
 
@@ -152,6 +172,63 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     await runInstaller(sandbox, "none", {});
 
     expect(await readFile(configPath, "utf8")).toBe("QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+  });
+
+  test("rejects a downloaded qd binary whose checksum does not match", async () => {
+    const sandbox = await createSandbox();
+    const fakeBinDir = join(sandbox.root, "fake-bin");
+    const fakeCurl = join(fakeBinDir, "curl");
+    const remoteQd = join(sandbox.root, "remote-qd");
+    const checksum = join(sandbox.root, "remote-qd.sha256");
+    await mkdir(fakeBinDir);
+    await writeFile(remoteQd, Buffer.alloc(1_048_576, "q"));
+    await writeFile(checksum, `${"0".repeat(64)}  qd\n`);
+    await writeFile(
+      fakeCurl,
+      `#!/bin/sh
+url=
+output=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  *.sha256) cp "$QD_CHECKSUM_SOURCE" "$output" ;;
+  *) cp "$QD_BINARY_SOURCE" "$output" ;;
+esac
+`,
+    );
+    await chmod(fakeCurl, 0o755);
+
+    const result = await $`bash ${scriptPath}`
+      .env({
+        ...process.env,
+        PATH: `${fakeBinDir}:${process.env.PATH}`,
+        HOME: sandbox.root,
+        QUICKDROP_LINUX_BINARY: sandbox.fakeBinary,
+        QUICKDROP_LAUNCHER_FILE: launcherSource,
+        QUICKDROP_BAR_INTEGRATION_FILE: barInstallerSource,
+        QUICKDROP_WAYBAR_PATCHER_FILE: waybarPatcherSource,
+        QUICKDROP_OMARCHY_PLUGIN_SOURCE: omarchyPluginSource,
+        QUICKDROP_BIN_DIR: sandbox.binDir,
+        QUICKDROP_SHARE_DIR: sandbox.shareDir,
+        QUICKDROP_CONFIG_DIR: sandbox.configDir,
+        QUICKDROP_BAR: "none",
+        QUICKDROP_BAR_NO_RESTART: "1",
+        QUICKDROP_QD_URL: "https://example.test/qd",
+        QUICKDROP_QD_CHECKSUM_URL: "https://example.test/qd.sha256",
+        QD_BINARY_SOURCE: remoteQd,
+        QD_CHECKSUM_SOURCE: checksum,
+      })
+      .quiet()
+      .nothrow();
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("checksum verification failed");
+    expect(await Bun.file(sandbox.qdPath).exists()).toBe(false);
   });
 
   test("does not rewrite backend configuration during an integration-only install", async () => {

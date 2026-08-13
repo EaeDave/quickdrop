@@ -297,6 +297,7 @@ describe("buildApp", () => {
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
       expect(response.body).toContain("/linux/latest");
+      expect(response.body).toContain("/linux/qd/latest");
       expect(response.body).toContain("/linux/quickdrop-launcher");
       expect(response.body).toContain("/linux/install-bar-integration");
       expect(response.body).toContain("QUICKDROP_BAR");
@@ -370,6 +371,61 @@ describe("buildApp", () => {
       expect(calls[0]?.headers.accept).toBe("application/vnd.github+json");
       expect(calls[1]?.headers.authorization).toBe("Bearer github-token");
       expect(calls[1]?.headers.accept).toBe("application/octet-stream");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("proxies the latest qd binary and checksum through the server GitHub token", async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+        return Response.json({
+          assets: [
+            {
+              name: "qd_0.1.1_x86_64-linux",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8",
+            },
+            {
+              name: "qd_0.1.1_x86_64-linux.sha256",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9",
+            },
+          ],
+        });
+      }
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer github-token",
+      );
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8") {
+        return new Response("qd-binary", {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9") {
+        return new Response(`${"a".repeat(64)}  qd_0.1.1_x86_64-linux\n`, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const { app } = buildApp();
+    try {
+      const binary = await app.inject({ method: "GET", url: "/linux/qd/latest" });
+      expect(binary.statusCode).toBe(200);
+      expect(binary.headers["content-disposition"]).toContain("qd_0.1.1_x86_64-linux");
+      expect(binary.headers["cache-control"]).toBe("public, max-age=300");
+      expect(binary.body).toBe("qd-binary");
+
+      const checksum = await app.inject({
+        method: "GET",
+        url: "/linux/qd/latest.sha256",
+      });
+      expect(checksum.statusCode).toBe(200);
+      expect(checksum.headers["content-disposition"]).toContain(
+        "qd_0.1.1_x86_64-linux.sha256",
+      );
+      expect(checksum.body).toContain("qd_0.1.1_x86_64-linux");
     } finally {
       await app.close();
     }
