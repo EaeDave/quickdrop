@@ -107,6 +107,7 @@ enum MouseAction {
     Resend,
     Delete,
     Update,
+    SwitchRoom,
     Help,
     Quit,
     ConfirmDelete,
@@ -170,6 +171,10 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
         }
         if app.quit {
             return Ok(app.restart_after_update);
+        }
+        if app.switch_room_requested {
+            app.switch_room_requested = false;
+            connection = None;
         }
 
         if app.screen == Screen::Timeline && connection.is_none() {
@@ -304,6 +309,7 @@ struct App<'a> {
     update_check_error: Option<String>,
     update_busy: bool,
     update_requested: bool,
+    switch_room_requested: bool,
     restart_after_update: bool,
     ui: UiRegions,
     no_color: bool,
@@ -343,6 +349,7 @@ impl<'a> App<'a> {
             update_check_error: None,
             update_busy: false,
             update_requested: false,
+            switch_room_requested: false,
             restart_after_update: false,
             ui: UiRegions::default(),
             no_color: env::var_os("NO_COLOR").is_some(),
@@ -376,6 +383,26 @@ impl<'a> App<'a> {
             }
             Err(message) => self.status = Some(message),
         }
+    }
+    fn switch_room(&mut self) {
+        self.screen = Screen::Code;
+        self.focus = Focus::Timeline;
+        self.code_input.clear();
+        self.pin_input.clear();
+        self.pin_purpose = PinPurpose::Unlock;
+        self.code.clear();
+        self.drops.clear();
+        self.selected = 0;
+        self.clear_composer();
+        self.composer_draft_before_edit = None;
+        self.editing_drop_id = None;
+        self.edit_saving = false;
+        self.connection = ConnectionState::Connecting;
+        self.status = None;
+        self.idle_ttl_minutes = None;
+        self.room_expires_at = None;
+        self.presence = 0;
+        self.switch_room_requested = true;
     }
     fn color(&self, color: Color) -> Color {
         if self.no_color {
@@ -502,6 +529,10 @@ async fn handle_key(
         request_update(app);
         return Ok(());
     }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && command_code == KeyCode::Char('o') {
+        app.switch_room();
+        return Ok(());
+    }
     if app.screen == Screen::Timeline {
         app.status = None;
     }
@@ -581,7 +612,11 @@ async fn handle_timeline_key(
     if app.focus == Focus::Composer {
         if key.code == KeyCode::Esc {
             cancel_composer(app);
-        } else if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+        } else if key.code == KeyCode::Enter
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::SHIFT)
+        {
             if !app.edit_saving {
                 app.composer.insert_newline();
             }
@@ -697,6 +732,7 @@ async fn run_mouse_action(
             }
         }
         MouseAction::Update => request_update(app),
+        MouseAction::SwitchRoom => app.switch_room(),
         MouseAction::Help => app.screen = Screen::Help,
         MouseAction::Quit => app.quit = true,
         MouseAction::ConfirmDelete => confirm_delete(app, actions).await?,
@@ -1562,7 +1598,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         (
             if compact {
                 format!(
-                    "{} · Ctrl+Enter newline · Esc {}",
+                    "{} · Ctrl/Shift+Enter newline · Esc {}",
                     submit_label.trim_matches(['[', ']']),
                     if app.editing_drop_id.is_some() {
                         "cancel"
@@ -1572,7 +1608,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                 )
             } else {
                 format!(
-                    "{} · Ctrl+Enter new line · Esc {}",
+                    "{} · Ctrl/Shift+Enter new line · Esc {}",
                     submit_label.trim_matches(['[', ']']),
                     if app.editing_drop_id.is_some() {
                         "cancel"
@@ -1594,17 +1630,18 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             ("[c Copy]".to_owned(), MouseAction::Copy),
             ("[r Resend]".to_owned(), MouseAction::Resend),
             ("[d Delete]".to_owned(), MouseAction::Delete),
+            ("[Ctrl+O Switch]".to_owned(), MouseAction::SwitchRoom),
             ("[? Help]".to_owned(), MouseAction::Help),
             ("[q Quit]".to_owned(), MouseAction::Quit),
         ];
         let fallback = if let Some(update) = &app.available_update {
             actions.insert(0, ("[Ctrl+U Update]".to_owned(), MouseAction::Update));
             format!(
-                "Ctrl+U update to {} · e edit · c copy · r resend · d delete · ? help · q quit",
+                "Ctrl+O switch · Ctrl+U update to {} · e edit · c copy · r resend · d delete · ? help · q quit",
                 update.version
             )
         } else {
-            "e edit · c copy · r resend · d delete · ? help · q quit".to_owned()
+            "Ctrl+O switch · e edit · c copy · r resend · d delete · ? help · q quit".to_owned()
         };
         (fallback, actions)
     };
@@ -1615,7 +1652,7 @@ fn render_help(frame: &mut Frame<'_>, app: &mut App<'_>) {
     app.ui.actions.clear();
     let area = centered_rect(62, 19, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete\n  Ctrl+U update from any screen\n\nComposer / editor\n  Enter send/save · Ctrl+Enter new line · Esc cancel\n\nShift+drag selects terminal text";
+    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete\n  Ctrl+O switch room · Ctrl+U update\n\nComposer / editor\n  Enter send/save · Ctrl+Enter or Shift+Enter new line · Esc cancel\n\nShift+drag selects terminal text";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1992,27 +2029,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ctrl_enter_inserts_a_newline_without_publishing() {
-        let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
-        app.screen = Screen::Timeline;
-        app.focus = Focus::Composer;
-        app.connection = ConnectionState::Connected;
-        app.composer.insert_str("first");
-        let (actions, mut received) = mpsc::channel(1);
+    async fn ctrl_or_shift_enter_inserts_a_newline_without_publishing() {
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::SHIFT] {
+            let server = Url::parse("https://quickdrop.example").unwrap();
+            let mut app = App::new(server, Some("DEV".to_owned()));
+            app.screen = Screen::Timeline;
+            app.focus = Focus::Composer;
+            app.connection = ConnectionState::Connected;
+            app.composer.insert_str("first");
+            let (actions, mut received) = mpsc::channel(1);
 
-        handle_timeline_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
-            Some(&actions),
-        )
-        .await
-        .unwrap();
-        app.composer.insert_str("second");
+            handle_timeline_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Enter, modifiers),
+                Some(&actions),
+            )
+            .await
+            .unwrap();
+            app.composer.insert_str("second");
 
-        assert_eq!(app.composer_content(), "first\nsecond");
-        assert!(received.try_recv().is_err());
-        assert_eq!(app.focus, Focus::Composer);
+            assert_eq!(app.composer_content(), "first\nsecond");
+            assert!(received.try_recv().is_err());
+            assert_eq!(app.focus, Focus::Composer);
+        }
     }
 
     #[tokio::test]
@@ -2403,6 +2442,36 @@ mod tests {
         apply_update_event(&mut app, Some(UpdateEvent::Applied(Ok("9.9.9".to_owned()))));
         assert!(app.quit);
         assert!(app.restart_after_update);
+    }
+
+    #[tokio::test]
+    async fn ctrl_o_leaves_the_current_room_without_quitting() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("OLD".to_owned()));
+        app.screen = Screen::Timeline;
+        app.focus = Focus::Composer;
+        app.connection = ConnectionState::Connected;
+        app.drops
+            .push(drop("old", "room content", "2026-01-01T11:00:00Z"));
+        app.composer.insert_str("draft");
+        app.presence = 2;
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(app.screen, Screen::Code);
+        assert!(app.code.is_empty());
+        assert!(app.code_input.is_empty());
+        assert!(app.drops.is_empty());
+        assert!(app.composer_content().is_empty());
+        assert_eq!(app.presence, 0);
+        assert!(app.switch_room_requested);
+        assert!(!app.quit);
     }
 
     #[tokio::test]
