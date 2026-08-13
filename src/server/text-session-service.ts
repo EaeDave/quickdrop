@@ -884,8 +884,13 @@ async function sweepExpiredRooms(repository: TextRoomsRepository, currentTime: D
 }
 
 async function sweepExpiredDrops(repository: TextDropsRepository, currentTime: Date): Promise<void> {
-  const expiredDrops = await repository.findExpiredDrops(currentTime, EXPIRED_DROP_SWEEP_LIMIT);
-  await repository.markDropsDeleted(expiredDrops.map((drop) => drop.id), currentTime);
+  while (true) {
+    const expiredDrops = await repository.findExpiredDrops(currentTime, EXPIRED_DROP_SWEEP_LIMIT);
+    await repository.markDropsDeleted(expiredDrops.map((drop) => drop.id), currentTime);
+    if (expiredDrops.length < EXPIRED_DROP_SWEEP_LIMIT) {
+      return;
+    }
+  }
 }
 
 export function startTextSessionHeartbeat(app: FastifyInstance, intervalMs = 30 * 1000): NodeJS.Timeout {

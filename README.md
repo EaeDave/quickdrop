@@ -88,7 +88,7 @@ bun run db:check
 bun run db:migrate
 ```
 
-A migração `010_text_drops.sql` é aditiva: cria `text_drops`, adiciona apenas o marcador não sensível `text_rooms.drops_started_at` e converte o documento legado atual em um drop idempotente. Durante rollback de aplicação, versões anteriores podem ignorar a nova tabela porque cada publicação nova continua espelhando o item mais recente em `text_rooms.text/version`. Só remova `text_drops` e `drops_started_at` manualmente depois de confirmar que nenhum deploy novo depende da timeline; o conteúdo mais recente permanecerá no documento legado, mas o histórico de itens será perdido.
+A migração `010_text_drops.sql` é aditiva: cria `text_drops`, adiciona apenas o marcador não sensível `text_rooms.drops_started_at` e converte o documento legado atual em um drop idempotente. Um rollback para uma versão anterior ignora a nova tabela; escritas feitas por essa versão permanecem apenas em `text_rooms.text/version` e reaparecem como um item virtual ao retornar à aplicação nova, sem serem incorporadas retroativamente ao histórico imutável. Só remova `text_drops` e `drops_started_at` depois de confirmar que nenhum deploy novo depende da timeline; essa remoção perde o histórico de itens.
 
 ### Backend
 

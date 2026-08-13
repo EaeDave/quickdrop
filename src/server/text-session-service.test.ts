@@ -677,8 +677,9 @@ describe("text session routes", () => {
         '{"ok":true}',
       ]);
 
-      viewer.send(JSON.stringify({ type: "drop_delete", dropId: second.drop?.id }));
-      expect((await nextMessageOfType(author, "drop_deleted")).dropId).toBe(second.drop?.id);
+      const secondId = second.drop!.id;
+      viewer.send(JSON.stringify({ type: "drop_delete", dropId: secondId }));
+      expect((await nextMessageOfType(author, "drop_deleted")).dropId).toBe(secondId);
 
       author.send(JSON.stringify({ type: "drops_clear" }));
       expect((await nextMessageOfType(author, "drops_cleared")).type).toBe("drops_cleared");
@@ -1157,7 +1158,7 @@ describe("text session routes", () => {
     expect((await repository.findTextRoomByCode("ROOM01"))?.text).toBe("new room");
   });
 
-  test("hard-deletes expired drops and clears the legacy document during the sweep", async () => {
+  test("drains the expired-drop backlog and clears the legacy document during one sweep", async () => {
     const clock = { current: new Date("2026-06-23T20:00:00Z") };
     const repository = new InMemoryTextRoomsRepository();
     const creation = await repository.createTextRoomWithinLimit({
@@ -1173,13 +1174,15 @@ describe("text session routes", () => {
       throw new Error("expected room to be created");
     }
     const dropsRepository = new InMemoryTextDropsRepository(repository);
-    await dropsRepository.createDrop({
-      roomId: creation.room.id,
-      content: "temporary",
-      contentType: "text",
-      createdAt: clock.current,
-      expiresAt: new Date(clock.current.getTime() + 30 * 1000),
-    }, 10);
+    for (let index = 0; index < 205; index += 1) {
+      await dropsRepository.createDrop({
+        roomId: creation.room.id,
+        content: `temporary ${index}`,
+        contentType: "text",
+        createdAt: new Date(clock.current.getTime() + index),
+        expiresAt: new Date(clock.current.getTime() + 30 * 1000),
+      }, 300);
+    }
 
     clock.current = new Date("2026-06-23T20:01:00Z");
     const timer = startTextDropSweep(dropsRepository, 5, () => new Date(clock.current));
@@ -1187,6 +1190,7 @@ describe("text session routes", () => {
     clearInterval(timer);
 
     expect(await dropsRepository.listActiveDrops(creation.room.id, clock.current, 10)).toEqual([]);
+    expect(await dropsRepository.findExpiredDrops(clock.current, 300)).toEqual([]);
     expect((await repository.findTextRoomByCode("DROP01"))?.text).toBe("");
   });
 });

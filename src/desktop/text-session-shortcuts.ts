@@ -1,3 +1,5 @@
+import type { TextDropContentType } from "./text-client";
+
 export type TextShortcutEvent = {
   key: string;
   ctrlKey: boolean;
@@ -17,7 +19,7 @@ export function isPublishDropShortcut(event: TextShortcutEvent): boolean {
   );
 }
 
-export function dropContentTypeLabel(contentType: "text" | "url" | "command" | "json"): string {
+export function dropContentTypeLabel(contentType: TextDropContentType): string {
   switch (contentType) {
     case "url":
       return "URL";

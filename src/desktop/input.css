@@ -659,6 +659,8 @@ html.quickdrop-text-page a {
 .quickdrop-drop-composer-input:focus-visible {
   border-color: rgb(56 189 248 / 0.7);
   box-shadow: 0 0 0 4px rgb(56 189 248 / 0.14);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }
 
 .quickdrop-drop-composer-footer,

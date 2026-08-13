@@ -231,7 +231,7 @@ async function updateLegacyRoomFromLatestDrop(
   const latestRows = await tx
     .select({ content: textDrops.content })
     .from(textDrops)
-    .where(eq(textDrops.roomId, roomId))
+    .where(and(eq(textDrops.roomId, roomId), gt(textDrops.expiresAt, updatedAt)))
     .orderBy(desc(textDrops.createdAt), desc(textDrops.id))
     .limit(1);
   const latestText = latestRows[0]?.content ?? "";

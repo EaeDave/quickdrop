@@ -98,6 +98,7 @@ export default function TextSession() {
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
+  const dropsRef = useRef<TextDrop[]>([]);
   const roomCodeRef = useRef<string | null>(null);
   const roomKindRef = useRef<RoomKind | null>(null);
   const dropTtlMinutesRef = useRef(720);
@@ -112,6 +113,12 @@ export default function TextSession() {
   const remoteHighlightTimerRef = useRef<number | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const clearComposerAfterPublishRef = useRef(true);
+
+  const replaceDrops = useCallback((update: TextDrop[] | ((current: TextDrop[]) => TextDrop[])) => {
+    const next = typeof update === "function" ? update(dropsRef.current) : update;
+    dropsRef.current = next;
+    setDrops(next);
+  }, []);
 
   const clearRemoteHighlight = useCallback(() => {
     if (remoteHighlightTimerRef.current !== null) {
@@ -141,7 +148,7 @@ export default function TextSession() {
     clearRemoteHighlight();
     setSnapshotReady(false);
     setComposer("");
-    setDrops([]);
+    replaceDrops([]);
     setPresenceCount(null);
     setRoomNotice(null);
     setRoomKind(null);
@@ -151,7 +158,7 @@ export default function TextSession() {
     setIsPublishing(false);
     setIsClearing(false);
     setExportState({ status: "idle" });
-  }, [clearRemoteHighlight]);
+  }, [clearRemoteHighlight, replaceDrops]);
 
   const clearRoomUrl = useCallback(() => {
     history.replaceState(history.state, "", "/t");
@@ -429,13 +436,13 @@ export default function TextSession() {
         const snapshotDrops = payload.text && payload.drops[0]?.content !== payload.text
           ? [legacyLiveDrop(payload.text, payload.version, payload.dropExpiresAfterMinutes), ...payload.drops]
           : payload.drops;
-        setDrops(sortDrops(snapshotDrops));
+        replaceDrops(sortDrops(snapshotDrops));
         setIsPublishing(false);
         setIsClearing(false);
         setErrorMessage(null);
       },
       onDropAdded(payload) {
-        setDrops((current) => sortDrops([
+        replaceDrops((current) => sortDrops([
           payload.drop,
           ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
         ]));
@@ -454,15 +461,15 @@ export default function TextSession() {
       },
       onDropsRemoved(payload) {
         const removed = new Set(payload.dropIds);
-        setDrops((current) => current.filter((drop) => !removed.has(drop.id)));
+        replaceDrops((current) => current.filter((drop) => !removed.has(drop.id)));
       },
       onDropDeleted(payload) {
-        setDrops((current) => current.filter((drop) => drop.id !== payload.dropId));
+        replaceDrops((current) => current.filter((drop) => drop.id !== payload.dropId));
         setRoomNotice("Item excluído.");
       },
       onDropsCleared() {
         clearRemoteHighlight();
-        setDrops([]);
+        replaceDrops([]);
         setIsClearing(false);
         setRoomNotice("Clipboard limpo.");
       },
@@ -476,23 +483,26 @@ export default function TextSession() {
         }
 
         const virtualPrefix = "legacy-live-";
-        setDrops((current) => {
-          const legacy = current.find((drop) => drop.id.startsWith(virtualPrefix));
-          const withoutLegacy = current.filter((drop) => !drop.id.startsWith(virtualPrefix));
-          if (!payload.text) {
-            if (legacy) {
-              setRoomNotice("Texto legado limpo.");
-            }
-            return withoutLegacy;
+        const current = dropsRef.current;
+        const hadLegacy = current.some((drop) => drop.id.startsWith(virtualPrefix));
+        const withoutLegacy = current.filter((drop) => !drop.id.startsWith(virtualPrefix));
+        if (!payload.text) {
+          replaceDrops(withoutLegacy);
+          if (hadLegacy) {
+            setRoomNotice("Texto legado limpo.");
           }
-          if (withoutLegacy[0]?.content === payload.text) {
-            return withoutLegacy;
-          }
-          const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
-          highlightRemoteDrop(virtual.id);
-          setRoomNotice("Texto recebido de um cliente anterior.");
-          return sortDrops([virtual, ...withoutLegacy]);
-        });
+          return;
+        }
+        if (withoutLegacy[0]?.content === payload.text) {
+          replaceDrops(withoutLegacy);
+          return;
+        }
+
+        const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
+        const nextDrops = sortDrops([virtual, ...withoutLegacy]);
+        replaceDrops(nextDrops);
+        highlightRemoteDrop(virtual.id);
+        setRoomNotice("Texto recebido de um cliente anterior.");
       },
       onTyping() {},
       onPointer() {},
@@ -565,7 +575,7 @@ export default function TextSession() {
         controllerRef.current = null;
       }
     };
-  }, [clearRemoteHighlight, clearRoomUrl, highlightRemoteDrop, resetRoomData, roomCode]);
+  }, [clearRemoteHighlight, clearRoomUrl, highlightRemoteDrop, replaceDrops, resetRoomData, roomCode]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

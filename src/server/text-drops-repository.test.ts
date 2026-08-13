@@ -14,6 +14,52 @@ afterEach(async () => {
 });
 
 describe("text drops repository", () => {
+  test("does not restore expired content when deleting the newest active drop", async () => {
+    const now = new Date();
+    const code = `T${crypto.randomUUID().replaceAll("-", "").slice(0, 15)}`.toUpperCase();
+    const creation = await createTextRoomWithinLimit({
+      code,
+      kind: "custom",
+      text: "",
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+    }, 500, now);
+    if (creation.status !== "created") {
+      throw new Error(`expected room creation, got ${creation.status}`);
+    }
+    createdRoomIds.push(creation.room.id);
+
+    await createDrop({
+      roomId: creation.room.id,
+      content: "expired secret",
+      contentType: "text",
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 5_000),
+    }, 10);
+    const latest = await createDrop({
+      roomId: creation.room.id,
+      content: "active item",
+      contentType: "text",
+      createdAt: new Date(now.getTime() + 1_000),
+      expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+    }, 10);
+    if (!latest) {
+      throw new Error("expected latest drop creation");
+    }
+
+    const deletedAt = new Date(now.getTime() + 10_000);
+    const deleted = await deleteDrop(creation.room.id, latest.drop.id, deletedAt);
+    expect(deleted).toMatchObject({ deleted: true, legacyText: "" });
+    expect(await listActiveDrops(creation.room.id, deletedAt, 10)).toEqual([]);
+    const roomRows = await db
+      .select({ text: textRooms.text })
+      .from(textRooms)
+      .where(eq(textRooms.id, creation.room.id));
+    expect(roomRows[0]?.text).toBe("");
+  });
+
   test("serializes concurrent inserts and enforces the hard 10-item limit", async () => {
     const now = new Date();
     const code = `T${crypto.randomUUID().replaceAll("-", "").slice(0, 15)}`.toUpperCase();

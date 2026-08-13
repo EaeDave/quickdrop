@@ -441,11 +441,13 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const dropExpiresAfterMinutes = "dropExpiresAfterMinutes" in payload ? parseNumber(payload.dropExpiresAfterMinutes) : expiresAfterMinutes;
         const maxDrops = "maxDrops" in payload ? parseNumber(payload.maxDrops) : 10;
         const rawDrops = "drops" in payload && Array.isArray(payload.drops) ? payload.drops : [];
-        const drops = rawDrops.map(parseTextDrop);
+        const drops = rawDrops
+          .map(parseTextDrop)
+          .filter((drop): drop is TextDrop => drop !== null);
         if (text === null || version === null || clientId === null || kind === null || expiresAfterMinutes === null) {
           return;
         }
-        if (dropExpiresAfterMinutes === null || maxDrops === null || drops.some((drop) => drop === null)) {
+        if (dropExpiresAfterMinutes === null || maxDrops === null) {
           return;
         }
 
@@ -455,7 +457,7 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         handlers.onSnapshot({
           text,
           version,
-          drops: drops as TextDrop[],
+          drops,
           clientId,
           kind,
           expiresAfterMinutes,
