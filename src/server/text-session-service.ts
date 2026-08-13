@@ -379,9 +379,9 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         drops: (await dropsRepository.listActiveDrops(room.id, now(), deps.maxDrops)).map(dropPayload),
         protected: room.pin_hash !== null,
         kind: room.kind,
-        expiresAfterMinutes: roomExpiryMinutes(room, deps),
         dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
         maxDrops: deps.maxDrops,
+        ...roomExpiryState(room, deps),
       };
     },
   );
@@ -455,6 +455,13 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
           const closedAt = now();
           lifecycleTargets.set(code, { closedAt, expiryMs: roomExpiryMs(room, deps) });
           reconcileLifecycle(code);
+        } else {
+          deps.hub.broadcast(code, JSON.stringify({
+            type: "lifecycle",
+            expiresAfterMinutes: roomExpiryMinutes(room, deps),
+            expiresAt: null,
+            presence: remaining,
+          }));
         }
       };
 
@@ -485,11 +492,17 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         drops: drops.map(dropPayload),
         clientId,
         kind: room.kind,
-        expiresAfterMinutes: roomExpiryMinutes(room, deps),
         dropExpiresAfterMinutes: Math.round(deps.dropTtlMs / (60 * 1000)),
         maxDrops: deps.maxDrops,
+        ...roomExpiryState(room, deps),
       }));
       deps.hub.broadcast(code, JSON.stringify({ type: "presence", count: joined.clientCount }));
+      if (joined.clientCount > 1) {
+        deps.hub.broadcast(code, JSON.stringify({
+          type: "lifecycle",
+          ...roomExpiryState(room, deps),
+        }), clientId);
+      }
 
       if (access.expiresAt) {
         const delayMs = access.expiresAt.getTime() - now().getTime();
@@ -804,12 +817,21 @@ function roomExpiryMinutes(room: TextRoomRow, deps: TextSessionRouteDeps): numbe
   return Math.round(roomExpiryMs(room, deps) / (60 * 1000));
 }
 
+function roomExpiryState(room: TextRoomRow, deps: TextSessionRouteDeps) {
+  const presence = deps.hub.clientCount(room.code);
+  return {
+    expiresAfterMinutes: roomExpiryMinutes(room, deps),
+    expiresAt: presence > 0 ? null : room.expires_at?.toISOString() ?? null,
+    presence,
+  };
+}
+
 function roomAccessPayload(room: TextRoomRow, created: boolean | undefined, deps: TextSessionRouteDeps) {
   return {
     code: room.code,
     protected: room.pin_hash !== null,
     kind: room.kind,
-    expiresAfterMinutes: roomExpiryMinutes(room, deps),
+    ...roomExpiryState(room, deps),
     ...(created === undefined ? {} : { created }),
   };
 }
