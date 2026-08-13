@@ -69,7 +69,10 @@ enum NetEvent {
     Deleted(String),
     PublishFailed(Vec<String>),
     Cleared,
-    Error(String),
+    Error {
+        code: Option<String>,
+        message: String,
+    },
 }
 
 struct App<'a> {
@@ -293,17 +296,26 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
         }
 
         if let Some((actions, network)) = connection.as_mut() {
-            tokio::select! {
-                terminal_event = events.next() => match terminal_event {
-                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
-                    Some(Ok(_)) => {}
-                    Some(Err(error)) => return Err(terminal_error(error)),
-                    None => return Ok(()),
+            let reset_connection = tokio::select! {
+                terminal_event = events.next() => {
+                    match terminal_event {
+                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => return Err(terminal_error(error)),
+                        None => return Ok(()),
+                    }
+                    false
                 },
                 network_event = network.recv() => match network_event {
                     Some(event) => apply_network_event(&mut app, event),
-                    None => app.connection = ConnectionState::Reconnecting,
+                    None => {
+                        app.connection = ConnectionState::Reconnecting;
+                        false
+                    }
                 }
+            };
+            if reset_connection {
+                connection = None;
             }
         } else {
             match events.next().await {
@@ -487,10 +499,18 @@ async fn handle_timeline_key(
     Ok(())
 }
 
-fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
+fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
     match event {
-        NetEvent::State(state) => app.connection = state,
-        NetEvent::Snapshot(drops) => app.replace_drops(drops),
+        NetEvent::State(state) => {
+            app.connection = state;
+            if state == ConnectionState::Reconnecting {
+                app.edit_saving = false;
+            }
+        }
+        NetEvent::Snapshot(drops) => {
+            app.edit_saving = false;
+            app.replace_drops(drops);
+        }
         NetEvent::Added(drop, local) => app.add_drop(drop, local),
         NetEvent::Updated(drop, local) => app.update_drop(drop, local),
         NetEvent::Deleted(id) => {
@@ -511,11 +531,18 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
             app.restore_composer(contents);
             app.status = Some("Unconfirmed text was restored to the composer".to_owned());
         }
-        NetEvent::Error(message) => {
+        NetEvent::Error { code, message } => {
             app.edit_saving = false;
             app.status = Some(message);
+            if code.as_deref().is_some_and(remote_error_requires_pin) {
+                app.screen = Screen::Pin;
+                app.pin_input.clear();
+                app.connection = ConnectionState::Connecting;
+                return true;
+            }
         }
     }
+    false
 }
 
 async fn realtime_client(
@@ -550,9 +577,10 @@ async fn realtime_client(
         if let Some(cookie) = access_cookie.as_deref() {
             let Ok(cookie) = HeaderValue::from_str(cookie) else {
                 let _ = events
-                    .send(NetEvent::Error(
-                        "The room access cookie is invalid".to_owned(),
-                    ))
+                    .send(NetEvent::Error {
+                        code: None,
+                        message: "The room access cookie is invalid".to_owned(),
+                    })
                     .await;
                 return;
             };
@@ -606,9 +634,10 @@ async fn realtime_client(
                         );
                         if socket.send(message).await.is_err() {
                             if events
-                                .send(NetEvent::Error(
-                                    "Edit was not sent; reconnecting".to_owned(),
-                                ))
+                                .send(NetEvent::Error {
+                                    code: None,
+                                    message: "Edit was not sent; reconnecting".to_owned(),
+                                })
                                 .await
                                 .is_err()
                             {
@@ -623,9 +652,10 @@ async fn realtime_client(
                         );
                         if socket.send(message).await.is_err() {
                             if events
-                                .send(NetEvent::Error(
-                                    "Delete was not sent; reconnecting".to_owned(),
-                                ))
+                                .send(NetEvent::Error {
+                                    code: None,
+                                    message: "Delete was not sent; reconnecting".to_owned(),
+                                })
                                 .await
                                 .is_err()
                             {
@@ -638,20 +668,29 @@ async fn realtime_client(
                 },
                 message = socket.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(mut event) = parse_server_event(&text, &mut client_id) {
+                        if let Some(event) = parse_server_event(&text, &mut client_id) {
+                            let auth_failed = matches!(
+                                &event,
+                                NetEvent::Error { code: Some(code), .. }
+                                    if remote_error_requires_pin(code)
+                            );
                             if matches!(event, NetEvent::Added(_, true)) {
                                 pending_publishes.pop_front();
-                            } else if matches!(event, NetEvent::Error(_))
+                            } else if matches!(event, NetEvent::Error { .. })
                                 && !pending_publishes.is_empty()
                             {
-                                event = NetEvent::PublishFailed(
-                                    pending_publishes
-                                        .drain(..)
-                                        .map(|(content, _)| content)
-                                        .collect(),
-                                );
+                                let unresolved = pending_publishes
+                                    .drain(..)
+                                    .map(|(content, _)| content)
+                                    .collect();
+                                if events.send(NetEvent::PublishFailed(unresolved)).await.is_err() {
+                                    return;
+                                }
                             }
                             if events.send(event).await.is_err() {
+                                return;
+                            }
+                            if auth_failed {
                                 return;
                             }
                         }
@@ -729,15 +768,23 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
             .ok()
             .map(NetEvent::Removed),
         "drops_cleared" => Some(NetEvent::Cleared),
-        "error" => Some(NetEvent::Error(
-            payload
+        "error" => Some(NetEvent::Error {
+            code: payload
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            message: payload
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("The server rejected the action")
                 .to_owned(),
-        )),
+        }),
         _ => None,
     }
+}
+
+fn remote_error_requires_pin(code: &str) -> bool {
+    matches!(code, "pin_required" | "pin_invalid" | "invalid_token")
 }
 
 fn sort_drops(drops: &mut [TextDrop]) {
@@ -931,7 +978,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .as_deref()
         .unwrap_or(if app.focus == Focus::Composer {
             if app.editing_drop_id.is_some() {
-                "Ctrl+S/Enter save · Esc cancel · Ctrl+U clear"
+                "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear"
             } else {
                 "Ctrl+S/Enter send · Esc timeline · Ctrl+U clear"
             }
@@ -944,7 +991,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
 fn render_help(frame: &mut Frame<'_>, app: &App<'_>) {
     let area = centered_rect(58, 18, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete\n\nComposer / editor\n  Ctrl+S/Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
+    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete\n\nComposer / editor\n  Ctrl+S/Ctrl+Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1117,6 +1164,32 @@ mod tests {
             panic!("expected local updated event")
         };
         assert_eq!(drop.content, "edited");
+    }
+
+    #[test]
+    fn expired_access_returns_to_pin_and_reconnect_releases_the_editor() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("SECRET".to_owned()));
+        app.screen = Screen::Timeline;
+        app.editing_drop_id = Some("drop-1".to_owned());
+        app.edit_saving = true;
+
+        assert!(!apply_network_event(
+            &mut app,
+            NetEvent::State(ConnectionState::Reconnecting),
+        ));
+        assert!(!app.edit_saving);
+
+        let mut client_id = Some("local-client".to_owned());
+        let event = parse_server_event(
+            r#"{"type":"error","error":"invalid_token","message":"Access expired"}"#,
+            &mut client_id,
+        )
+        .unwrap();
+        assert!(apply_network_event(&mut app, event));
+        assert_eq!(app.screen, Screen::Pin);
+        assert!(app.pin_input.is_empty());
+        assert_eq!(app.status.as_deref(), Some("Access expired"));
     }
 
     #[test]

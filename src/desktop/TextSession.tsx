@@ -460,9 +460,10 @@ export default function TextSession() {
         }
       },
       onDropUpdated(payload) {
-        replaceDrops((current) => sortDrops(
-          current.map((drop) => drop.id === payload.drop.id ? payload.drop : drop),
-        ));
+        replaceDrops((current) => sortDrops([
+          payload.drop,
+          ...current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
+        ]));
         if (payload.by === clientIdRef.current) {
           setRoomNotice("Item editado.");
         } else {
