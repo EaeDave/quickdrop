@@ -137,6 +137,13 @@ describe("buildApp", () => {
       expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
       expect(response.headers["referrer-policy"]).toBe("no-referrer");
       expect(response.headers["x-frame-options"]).toBe("DENY");
+
+      const encodedResponse = await app.inject({
+        method: "GET",
+        url: "/%61bc123",
+      });
+      expect(encodedResponse.statusCode).toBe(200);
+      expect(encodedResponse.headers["cache-control"]).toBe("no-store, max-age=0");
     } finally {
       await app.close();
     }
@@ -509,6 +516,9 @@ describe("redactTextCodeFromUrl", () => {
   test("removes clipboard codes from request-log URLs", () => {
     expect(redactTextCodeFromUrl("/api/text/SECRET/open")).toBe("/api/text/[code]/open");
     expect(redactTextCodeFromUrl("/SECRET")).toBe("/[code]");
+    expect(redactTextCodeFromUrl("/%53ECRET?source=test")).toBe(
+      "/[code]?source=test",
+    );
     expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
       "/?c=[code]&source=test&c=[code]",
     );

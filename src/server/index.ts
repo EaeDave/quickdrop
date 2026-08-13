@@ -183,14 +183,29 @@ export async function startServer(): Promise<void> {
 }
 
 export function redactTextCodeFromUrl(rawUrl: string): string {
-  return rawUrl
+  const redactedRoomUrl = canonicalRoomCodeFromRawUrl(rawUrl)
+    ? rawUrl.replace(/^\/[^/?#]+/, "/[code]")
+    : rawUrl;
+  return redactedRoomUrl
     .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
-    .replace(/^\/([A-Za-z0-9_-]{1,16})(?=\/?(?:[?#]|$))/, "/[code]")
     .replace(/([?&]c=)[^&]*/gi, "$1[code]");
 }
 
+function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {
+  const rawSegment = rawUrl.match(/^\/([^/?#]+)(?:[?#]|$)/)?.[1];
+  if (!rawSegment) {
+    return null;
+  }
+  try {
+    const code = decodeURIComponent(rawSegment);
+    return /^[A-Za-z0-9_-]{1,16}$/.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 function isSensitiveTextRoute(rawUrl: string): boolean {
-  return /^\/[A-Za-z0-9_-]{1,16}(?:[?#]|$)/.test(rawUrl) || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
+  return canonicalRoomCodeFromRawUrl(rawUrl) !== null || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
 }
 
 if (import.meta.main) {

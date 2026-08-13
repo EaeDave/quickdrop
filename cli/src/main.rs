@@ -498,18 +498,21 @@ pub(crate) fn open_in_browser(url: &Url) -> Result<(), QdError> {
         command.arg(url.as_str());
         command
     };
-    let mut child = command
+    let status = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .status()
         .map_err(|error| {
             QdError::Runtime(format!("could not open the room in a browser: {error}"))
         })?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
+    if status.success() {
+        Ok(())
+    } else {
+        Err(QdError::Runtime(format!(
+            "could not open the room in a browser: opener exited with {status}"
+        )))
+    }
 }
 
 #[derive(Debug)]
