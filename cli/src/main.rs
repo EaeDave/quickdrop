@@ -138,13 +138,16 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
         ));
     }
 
-    let piped_content = if io::stdin().is_terminal() {
-        None
+    let stdin_is_piped = !io::stdin().is_terminal();
+    let piped_content = if stdin_is_piped {
+        Some(read_piped_stdin()?)
     } else {
-        Some(read_piped_stdin()?).filter(|content| !content.is_empty())
+        None
     };
-    let command = parse_command(args, piped_content.is_some())?;
-    let content = piped_content.or_else(|| command.content.clone());
+    let command = parse_command(args, stdin_is_piped)?;
+    let content = piped_content
+        .filter(|content| !content.is_empty())
+        .or_else(|| command.content.clone());
     let client = http_client()?;
     let room = match open_room(&client, &command, command.pin.as_deref()).await {
         Err(QdError::Remote {
@@ -678,6 +681,9 @@ mod tests {
         assert!(piped.content.is_none());
         assert_eq!(piped.code, "DEV");
         assert_eq!(piped.pin.as_deref(), Some("1234"));
+
+        let empty_piped_content = Some(String::new()).filter(|content| !content.is_empty());
+        assert!(empty_piped_content.is_none());
     }
 
     #[test]
