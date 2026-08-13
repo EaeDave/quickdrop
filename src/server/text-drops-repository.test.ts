@@ -31,13 +31,14 @@ describe("text drops repository", () => {
     }
     createdRoomIds.push(creation.room.id);
 
-    await createDrop({
+    const expired = await createDrop({
       roomId: creation.room.id,
       content: "expired secret",
       contentType: "text",
       createdAt: now,
       expiresAt: new Date(now.getTime() + 5_000),
     }, 10);
+    expect(expired).toMatchObject({ drop: { content: "expired secret" } });
     const latest = await createDrop({
       roomId: creation.room.id,
       content: "active item",
@@ -88,8 +89,13 @@ describe("text drops repository", () => {
     );
 
     const timeline = await listActiveDrops(creation.room.id, now, 20);
+    const timelineContents = new Set(timeline.map((drop) => drop.content));
     expect(timeline).toHaveLength(10);
-    expect(new Set(timeline.map((drop) => drop.content)).size).toBe(10);
+    expect(results.every((result) => result !== null)).toBe(true);
+    expect(timelineContents.size).toBe(10);
+    expect(timelineContents).toEqual(
+      new Set(Array.from({ length: 10 }, (_, index) => `concurrent item ${index + 1}`)),
+    );
     expect(results.filter((result) => result?.firstDrop)).toHaveLength(1);
 
     const deleted = await deleteDrop(creation.room.id, timeline[0]!.id, new Date(now.getTime() + 20));
