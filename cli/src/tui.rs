@@ -944,7 +944,6 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
             .ok()
             .map(NetEvent::Removed),
         "drops_cleared" => Some(NetEvent::Cleared),
-        "lifecycle" => parse_lifecycle_event(text),
         "error" => Some(NetEvent::Error {
             code: payload
                 .get("error")
@@ -1018,6 +1017,9 @@ fn parse_rfc3339_unix_ms(value: &str) -> Option<u64> {
     let year: i32 = date_parts.next()?.parse().ok()?;
     let month: u32 = date_parts.next()?.parse().ok()?;
     let day: u32 = date_parts.next()?.parse().ok()?;
+    if !(1970..=2100).contains(&year) {
+        return None;
+    }
     let (hms, fraction) = clock
         .split_once('.')
         .map_or((clock, "0"), |(hours, rest)| (hours, rest));
@@ -1025,29 +1027,58 @@ fn parse_rfc3339_unix_ms(value: &str) -> Option<u64> {
     let hour: u32 = time_parts.next()?.parse().ok()?;
     let minute: u32 = time_parts.next()?.parse().ok()?;
     let second: u32 = time_parts.next()?.parse().ok()?;
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
     let millis: u32 = fraction.chars().take(3).collect::<String>().parse().ok()?;
     let days = days_from_civil(year, month, day)?;
-    Some(
-        (i64::from(days) * 86_400
-            + i64::from(hour) * 3600
-            + i64::from(minute) * 60
-            + i64::from(second)) as u64
-            * 1000
-            + u64::from(millis),
-    )
+    let seconds = i64::from(days)
+        .checked_mul(86_400)?
+        .checked_add(i64::from(hour) * 3600)?
+        .checked_add(i64::from(minute) * 60)?
+        .checked_add(i64::from(second))?;
+    u64::try_from(seconds)
+        .ok()?
+        .checked_mul(1000)?
+        .checked_add(u64::from(millis))
 }
 
 fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i32> {
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    const MONTH_DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if !(1..=12).contains(&month) {
         return None;
     }
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = if month == 2 && leap {
+        29
+    } else {
+        MONTH_DAYS[(month - 1) as usize]
+    };
+    if !(1..=max_day).contains(&day) {
+        return None;
+    }
+    let year = if month <= 2 {
+        year.checked_sub(1)?
+    } else {
+        year
+    };
+    let era = if year >= 0 {
+        year
+    } else {
+        year.checked_sub(399)?
+    } / 400;
+    let year_of_era = year.checked_sub(era.checked_mul(400)?)?;
+    let month_shift = i32::try_from(month).ok()? + if month > 2 { -3 } else { 9 };
     let day_of_year =
-        (153 * (month as i32 + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i32 - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    Some(era * 146_097 + day_of_era - 719_468)
+        month_shift.checked_mul(153)?.checked_add(2)? / 5 + i32::try_from(day).ok()? - 1;
+    let day_of_era = year_of_era
+        .checked_mul(365)?
+        .checked_add(year_of_era / 4)?
+        .checked_sub(year_of_era / 100)?
+        .checked_add(day_of_year)?;
+    era.checked_mul(146_097)?
+        .checked_add(day_of_era)?
+        .checked_sub(719_468)
 }
 
 fn format_remaining_clock(ms: u64) -> String {
@@ -1908,5 +1939,6 @@ mod tests {
             parse_rfc3339_unix_ms("2026-06-23T20:30:00.000Z"),
             Some(1_782_246_600_000)
         );
+        assert_eq!(parse_rfc3339_unix_ms("2026-02-31T00:00:00.000Z"), None);
     }
 }

@@ -156,6 +156,7 @@ export default function TextSession() {
     setRoomNotice(null);
     setRoomKind(null);
     setExpiresAfterMinutes(null);
+    setRoomExpiresAt(null);
     setDropExpiresAfterMinutes(null);
     setMaxDrops(null);
     setIsPublishing(false);
@@ -416,12 +417,12 @@ export default function TextSession() {
   }, []);
 
   useEffect(() => {
-    if (!roomExpiresAt || (presenceCount ?? 0) > 0) {
+    if (!roomCode || !roomExpiresAt || (presenceCount ?? 0) > 0) {
       return;
     }
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [presenceCount, roomExpiresAt]);
+  }, [presenceCount, roomCode, roomExpiresAt]);
 
   useEffect(() => {
     if (!initialCode || roomCode || autoJoinAttemptedRef.current) {
