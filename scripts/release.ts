@@ -190,16 +190,21 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
 
   const pending = new Map(endpoints);
   for (let attempt = 0; attempt < 36 && pending.size > 0; attempt += 1) {
-    for (const [endpoint, assetName] of pending) {
-      try {
-        const response = await fetch(`https://quickdrop.eaedave.xyz${endpoint}`, { cache: "no-store" });
-        if ((await responseDigest(response)) === assetsByName.get(assetName)!.digest) {
-          pending.delete(endpoint);
+    await Promise.all(
+      [...pending].map(async ([endpoint, assetName]) => {
+        try {
+          const response = await fetch(`https://quickdrop.eaedave.xyz${endpoint}`, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(15_000),
+          });
+          if ((await responseDigest(response)) === assetsByName.get(assetName)!.digest) {
+            pending.delete(endpoint);
+          }
+        } catch {
+          // The public proxy caches release metadata briefly; retry below.
         }
-      } catch {
-        // The public proxy caches release metadata briefly; retry below.
-      }
-    }
+      }),
+    );
     if (pending.size > 0) await Bun.sleep(10_000);
   }
   if (pending.size > 0) {
