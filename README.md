@@ -100,14 +100,14 @@ See [`.env.example`](.env.example) for the complete development template.
 
 ## Text clipboard
 
-Open `/t` in the web application and enter a code containing 1–16 ASCII letters, numbers, `_`, or `-`. The same operation opens an active clipboard or creates it when it does not exist.
+Open the web application and enter a code containing 1–16 ASCII letters, numbers, `_`, or `-`. The same operation opens an active clipboard or creates it when it does not exist.
 
 Each publication creates a drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards are available through the web interface and interactive TUI.
 
 Canonical URLs use this form:
 
 ```text
-https://quickdrop.example/t/MYCODE
+https://quickdrop.example/MYCODE
 ```
 
 ### Native CLI
@@ -165,6 +165,8 @@ qd update
 qd update --check
 ```
 
+
+The TUI header shows the canonical room URL. Clicking it copies the URL to the system clipboard and opens it in the default browser.
 The TUI checks for a newer release on launch. If one is available, press `Ctrl+U` from any screen to download it, verify the published SHA-256 checksum, replace the running binary, and restart the TUI.
 
 

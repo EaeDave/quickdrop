@@ -207,6 +207,11 @@ pub(crate) fn parse_server_url(server: &str) -> Result<Url, QdError> {
             "the server URL must start with http:// or https://.".to_owned(),
         ));
     }
+    if !server.username().is_empty() || server.password().is_some() {
+        return Err(QdError::Usage(
+            "the server URL must not contain credentials.".to_owned(),
+        ));
+    }
     server.set_query(None);
     server.set_fragment(None);
     if server.path().ends_with('/') && server.path() != "/" {
@@ -479,6 +484,42 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
     Err(QdError::Runtime(message.to_owned()))
 }
 
+pub(crate) fn open_in_browser(url: &Url) -> Result<(), QdError> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = ProcessCommand::new("rundll32.exe");
+        command.args(["url.dll,FileProtocolHandler", url.as_str()]);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = ProcessCommand::new("open");
+        command.arg(url.as_str());
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = ProcessCommand::new("xdg-open");
+        command.arg(url.as_str());
+        command
+    };
+    let status = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| {
+            QdError::Runtime(format!("could not open the room in a browser: {error}"))
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(QdError::Runtime(format!(
+            "could not open the room in a browser: opener exited with {status}"
+        )))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum QdError {
     Runtime(String),
@@ -526,6 +567,12 @@ mod tests {
             endpoint(&server, "api/text/A").unwrap().as_str(),
             "https://quickdrop.example/base/api/text/A"
         );
+    }
+
+    #[test]
+    fn rejects_credentials_in_server_urls() {
+        let error = parse_server_url("https://user:secret@quickdrop.example").unwrap_err();
+        assert!(matches!(error, QdError::Usage(message) if message.contains("credentials")));
     }
 
     #[test]

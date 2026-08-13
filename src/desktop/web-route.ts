@@ -1,23 +1,24 @@
 import { isTauri } from "./tauri";
 
 function normalizeRoomCode(value: string): string {
-  return value.trim().toUpperCase();
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z0-9_-]{1,16}$/.test(normalized) ? normalized : "";
 }
 
 export function textRoomPath(code: string): string {
-  return `/t/${encodeURIComponent(normalizeRoomCode(code))}`;
+  return `/${encodeURIComponent(normalizeRoomCode(code))}`;
 }
 
 export function roomCodeFromPathname(pathname: string): string | null {
-  const segment = pathname.split("/")[2] ?? "";
-  if (!segment) {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length !== 1) {
     return null;
   }
 
   try {
-    return normalizeRoomCode(decodeURIComponent(segment)) || null;
+    return normalizeRoomCode(decodeURIComponent(segments[0] ?? "")) || null;
   } catch {
-    return normalizeRoomCode(segment) || null;
+    return normalizeRoomCode(segments[0] ?? "") || null;
   }
 }
 
@@ -27,7 +28,7 @@ export function isTextRoute(): boolean {
   }
 
   const url = new URL(window.location.href);
-  return url.hostname.startsWith("texto.") || url.pathname === "/t" || url.pathname.startsWith("/t/") || url.searchParams.has("c");
+  return url.hostname.startsWith("texto.") || roomCodeFromPathname(url.pathname) !== null || url.searchParams.has("c");
 }
 
 export function initialRoomCode(): string | null {

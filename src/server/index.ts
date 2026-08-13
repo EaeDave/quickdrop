@@ -125,10 +125,7 @@ export function buildApp() {
     root: join(process.cwd(), "dist"),
     prefix: "/",
   });
-  app.get("/t", async (_request, reply) => reply.sendFile("index.html"));
-  app.get<{ Params: { code: string } }>("/t/:code", async (_request, reply) =>
-    reply.sendFile("index.html"),
-  );
+  app.get("/", async (_request, reply) => reply.sendFile("index.html"));
 
   app.get("/api/health", async () => ({ status: "ok" }));
 
@@ -160,6 +157,12 @@ export function buildApp() {
   app.get<{ Params: { shortId: string } }>("/f/:shortId", async (request, reply) => {
     await handleDownload(request.params.shortId, reply, { config, r2Client });
   });
+  app.get<{ Params: { code: string } }>("/:code", async (request, reply) => {
+    if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {
+      return reply.callNotFound();
+    }
+    return reply.sendFile("index.html");
+  });
 
   return { app, config, textHub };
 }
@@ -180,14 +183,29 @@ export async function startServer(): Promise<void> {
 }
 
 export function redactTextCodeFromUrl(rawUrl: string): string {
-  return rawUrl
+  const redactedRoomUrl = canonicalRoomCodeFromRawUrl(rawUrl)
+    ? rawUrl.replace(/^\/[^/?#]+/, "/[code]")
+    : rawUrl;
+  return redactedRoomUrl
     .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
-    .replace(/^(\/t\/)[^/?]+/, "$1[code]")
     .replace(/([?&]c=)[^&]*/gi, "$1[code]");
 }
 
+function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {
+  const rawSegment = rawUrl.match(/^\/([^/?#]+)(?=\/?(?:[?#]|$))/)?.[1];
+  if (!rawSegment) {
+    return null;
+  }
+  try {
+    const code = decodeURIComponent(rawSegment);
+    return /^[A-Za-z0-9_-]{1,16}$/.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 function isSensitiveTextRoute(rawUrl: string): boolean {
-  return rawUrl === "/t" || rawUrl.startsWith("/t?") || rawUrl.startsWith("/t/") || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
+  return canonicalRoomCodeFromRawUrl(rawUrl) !== null || rawUrl.startsWith("/api/text") || /[?&]c=/i.test(rawUrl);
 }
 
 if (import.meta.main) {
