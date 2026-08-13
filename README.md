@@ -143,13 +143,13 @@ Keyboard shortcuts:
 | Timeline | `g`/`G`/`Home`, `End` | Select the first or last drop |
 | Timeline | `Enter`, `i`/`I`, `Tab` | Focus the composer |
 | Timeline | `e`/`E`, `c`/`C`, `r`/`R`, `d`/`D` | Edit, copy, resend, or delete the selected drop |
-| Timeline | `u`/`U` | Install an available `qd` update and restart the TUI |
+| Any screen | `Ctrl+U` | Install an available `qd` update and restart the TUI |
 | Timeline | `?`, `q`/`Q` | Open help or quit |
 | Confirm delete | `y`/`Y`, `Enter`; `n`/`N`, `Esc` | Confirm or cancel the deletion |
 | Composer | `Enter`, `Ctrl+Enter` | Publish a new drop or insert a line break |
-| Composer | `Ctrl+U`, `Esc` | Clear the composer or return to the timeline |
+| Composer | `Esc` | Return to the timeline |
 | Editor | `Enter`, `Ctrl+Enter` | Save changes or insert a line break |
-| Editor | `Ctrl+U`, `Esc` | Clear the editor or cancel editing |
+| Editor | `Esc` | Cancel editing |
 
 Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hold `Shift` while dragging to use the terminal's native text selection.
 
@@ -164,7 +164,7 @@ qd update
 qd update --check
 ```
 
-The TUI checks for a newer release on launch. If one is available, press `u` to download it, verify the published SHA-256 checksum, replace the running binary, and reopen the TUI.
+The TUI checks for a newer release on launch. If one is available, press `Ctrl+U` from any screen to download it, verify the published SHA-256 checksum, replace the running binary, and restart the TUI.
 
 
 Publish stdin as a new drop:
