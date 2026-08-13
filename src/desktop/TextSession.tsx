@@ -1,8 +1,8 @@
-import { type ChangeEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { connectRoom, createRoom, openRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomKind, type RoomPointer } from "./text-client";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { connectRoom, createRoom, openRoom, RoomAccessError, type RoomController, type RoomErrorCode, type RoomKind } from "./text-client";
 import { uploadFiles } from "./tauri";
+import { isCopyTextShortcut, remoteContentNotice } from "./text-session-shortcuts";
 import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
-import { UserCursor } from "./UserCursor";
 
 type PendingRemoteUpdate = { text: string; version: number };
 type ConnectionPhase = "connecting" | "open" | "closed";
@@ -11,30 +11,8 @@ type ExportState =
   | { status: "uploading" }
   | { status: "success"; url: string; copied: boolean }
   | { status: "error"; message: string };
-type RemotePointerState = { by: string; x: number; y: number; color: string; label: string };
 
 const WRITE_DELAY_MS = 75;
-const TYPING_IDLE_MS = 1200;
-const POINTER_SEND_INTERVAL_MS = 33;
-const POINTER_STALE_MS = 1500;
-const POINTER_COLORS = [
-  { name: "Azul", color: "#38bdf8" },
-  { name: "Laranja", color: "#fb923c" },
-  { name: "Verde", color: "#4ade80" },
-  { name: "Rosa", color: "#f472b6" },
-  { name: "Roxo", color: "#a78bfa" },
-  { name: "Ciano", color: "#22d3ee" },
-];
-
-function getPeerAppearance(clientId: string): { color: string; label: string } {
-  let hash = 0;
-  for (let index = 0; index < clientId.length; index += 1) {
-    hash = (hash * 31 + clientId.charCodeAt(index)) >>> 0;
-  }
-
-  const entry = POINTER_COLORS[hash % POINTER_COLORS.length]!;
-  return { color: entry.color, label: entry.name };
-}
 
 export default function TextSession() {
   const initialCode = initialRoomCode();
@@ -46,7 +24,6 @@ export default function TextSession() {
   const [isJoining, setIsJoining] = useState(false);
   const [text, setText] = useState("");
   const [version, setVersion] = useState(0);
-  const [clientId, setClientId] = useState<string | null>(null);
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>("closed");
   const [snapshotReady, setSnapshotReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -56,14 +33,14 @@ export default function TextSession() {
   const [clearPending, setClearPending] = useState(false);
   const [pendingRemote, setPendingRemote] = useState<PendingRemoteUpdate | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
-  const [remoteTypers, setRemoteTypers] = useState<string[]>([]);
-  const [remotePointers, setRemotePointers] = useState<RemotePointerState[]>([]);
+  const [remoteNotice, setRemoteNotice] = useState<string | null>(null);
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
 
   const controllerRef = useRef<RoomController | null>(null);
   const roomCodeRef = useRef<string | null>(null);
   const connectionPhaseRef = useRef<ConnectionPhase>("closed");
   const hasOpenedRef = useRef(false);
+  const hasReceivedSnapshotRef = useRef(false);
   const snapshotReadyRef = useRef(false);
   const clearPendingRef = useRef(false);
   const debounceTimerRef = useRef<number | null>(null);
@@ -81,12 +58,6 @@ export default function TextSession() {
   const autoJoinAttemptedRef = useRef(false);
   const flushAfterNextChangeRef = useRef(false);
   const lastWriteDispatchAtRef = useRef(0);
-  const typingActiveRef = useRef(false);
-  const typingStopTimerRef = useRef<number | null>(null);
-  const pointerSendTimerRef = useRef<number | null>(null);
-  const pointerPendingRef = useRef<RoomPointer | null>(null);
-  const lastPointerSendAtRef = useRef(0);
-  const remotePointerTimersRef = useRef(new Map<string, number>());
 
   const clearDebounceTimer = useCallback(() => {
     if (debounceTimerRef.current !== null) {
@@ -106,93 +77,24 @@ export default function TextSession() {
     [clearDebounceTimer],
   );
 
-  const clearTypingStopTimer = useCallback(() => {
-    if (typingStopTimerRef.current !== null) {
-      window.clearTimeout(typingStopTimerRef.current);
-      typingStopTimerRef.current = null;
-    }
+  const dismissRemoteNotice = useCallback(() => {
+    setRemoteNotice(null);
   }, []);
 
-  const clearPointerSendTimer = useCallback(() => {
-    if (pointerSendTimerRef.current !== null) {
-      window.clearTimeout(pointerSendTimerRef.current);
-      pointerSendTimerRef.current = null;
-    }
+  const showRemoteNotice = useCallback((nextText: string) => {
+    setRemoteNotice(remoteContentNotice(nextText));
   }, []);
-
-  const clearRemotePointerTimer = useCallback((clientId: string) => {
-    const timer = remotePointerTimersRef.current.get(clientId);
-    if (timer !== undefined) {
-      window.clearTimeout(timer);
-      remotePointerTimersRef.current.delete(clientId);
-    }
-  }, []);
-
-  const removeRemotePeerState = useCallback(
-    (clientId: string) => {
-      clearRemotePointerTimer(clientId);
-      setRemoteTypers((current) => current.filter((entry) => entry !== clientId));
-      setRemotePointers((current) => current.filter((entry) => entry.by !== clientId));
-    },
-    [clearRemotePointerTimer],
-  );
-
-  const sendTypingInactive = useCallback(() => {
-    clearTypingStopTimer();
-    if (!typingActiveRef.current) {
-      return;
-    }
-
-    typingActiveRef.current = false;
-    controllerRef.current?.sendTyping(false);
-  }, [clearTypingStopTimer]);
-
-  const scheduleTypingStop = useCallback(() => {
-    clearTypingStopTimer();
-    typingStopTimerRef.current = window.setTimeout(() => {
-      typingStopTimerRef.current = null;
-      sendTypingInactive();
-    }, TYPING_IDLE_MS);
-  }, [clearTypingStopTimer, sendTypingInactive]);
-
-  const noteLocalTyping = useCallback(() => {
-    if (!typingActiveRef.current) {
-      typingActiveRef.current = true;
-      controllerRef.current?.sendTyping(true);
-    }
-
-    scheduleTypingStop();
-  }, [scheduleTypingStop]);
-
-  const dispatchPointer = useCallback((pointer: RoomPointer) => {
-    lastPointerSendAtRef.current = Date.now();
-    controllerRef.current?.sendPointer(pointer);
-  }, []);
-
-  const hideLocalPointer = useCallback(() => {
-    clearPointerSendTimer();
-    pointerPendingRef.current = null;
-    controllerRef.current?.sendPointer({ visible: false });
-  }, [clearPointerSendTimer]);
 
   const resetRoomData = useCallback(() => {
     snapshotReadyRef.current = false;
     setSnapshotReady(false);
     clearPendingRef.current = false;
     hasOpenedRef.current = false;
+    hasReceivedSnapshotRef.current = false;
     clearPendingWrites(false);
-    clearTypingStopTimer();
-    clearPointerSendTimer();
-    typingActiveRef.current = false;
-    pointerPendingRef.current = null;
-    for (const timer of remotePointerTimersRef.current.values()) {
-      window.clearTimeout(timer);
-    }
-    remotePointerTimersRef.current.clear();
     setPendingRemote(null);
     setPresenceCount(null);
-    setRemoteTypers([]);
-    setRemotePointers([]);
+    setRemoteNotice(null);
     setExportState({ status: "idle" });
     setRoomNotice(null);
     setRoomKind(null);
@@ -203,11 +105,9 @@ export default function TextSession() {
     syncedTextRef.current = "";
     versionRef.current = 0;
     lastWriteDispatchAtRef.current = 0;
-    lastPointerSendAtRef.current = 0;
     setVersion(0);
     clientIdRef.current = null;
-    setClientId(null);
-  }, [clearPendingWrites, clearPointerSendTimer, clearTypingStopTimer]);
+  }, [clearPendingWrites]);
 
   const clearRoomUrl = useCallback(() => {
     history.replaceState(history.state, "", "/t");
@@ -345,8 +245,6 @@ export default function TextSession() {
 
   const leaveRoom = useCallback(() => {
     leavingRoomRef.current = true;
-    sendTypingInactive();
-    hideLocalPointer();
     controllerRef.current?.close();
     controllerRef.current = null;
     roomCodeRef.current = null;
@@ -359,7 +257,7 @@ export default function TextSession() {
     setPendingRemote(null);
     setErrorMessage(null);
     setRoomNotice(null);
-  }, [clearRoomUrl, hideLocalPointer, resetRoomData, sendTypingInactive]);
+  }, [clearRoomUrl, resetRoomData]);
 
   const handleCopyCode = useCallback(async () => {
     if (!roomCode) {
@@ -381,12 +279,13 @@ export default function TextSession() {
 
     try {
       await copyText(text);
+      dismissRemoteNotice();
       setRoomNotice("Texto copiado.");
       setErrorMessage(null);
     } catch {
       setErrorMessage("Não foi possível copiar o texto agora.");
     }
-  }, [copyText, text]);
+  }, [copyText, dismissRemoteNotice, text]);
 
   const handleCopyRoomLink = useCallback(async () => {
     if (!roomCode) {
@@ -420,11 +319,11 @@ export default function TextSession() {
     setText("");
     draftTextRef.current = "";
     queuedTextRef.current = "";
-    sendTypingInactive();
+    dismissRemoteNotice();
     flushPendingWrite();
     setRoomNotice("Limpando clipboard...");
     setErrorMessage(null);
-  }, [clearDebounceTimer, flushPendingWrite, sendTypingInactive, text]);
+  }, [clearDebounceTimer, dismissRemoteNotice, flushPendingWrite, text]);
 
   const handleExportText = useCallback(async () => {
     if (!roomCode || text.trim().length === 0) {
@@ -461,12 +360,13 @@ export default function TextSession() {
     setClearPending(false);
     setPendingRemote(null);
     setRoomNotice(null);
+    showRemoteNotice(pendingRemote.text);
     setText(pendingRemote.text);
     draftTextRef.current = pendingRemote.text;
     syncedTextRef.current = pendingRemote.text;
     versionRef.current = pendingRemote.version;
     setVersion(pendingRemote.version);
-  }, [clearPendingWrites, pendingRemote]);
+  }, [clearPendingWrites, pendingRemote, showRemoteNotice]);
 
   const handleTextChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -476,10 +376,10 @@ export default function TextSession() {
         setClearPending(false);
         setRoomNotice(null);
       }
+      dismissRemoteNotice();
       draftTextRef.current = nextText;
       setText(nextText);
       queuedTextRef.current = nextText;
-      noteLocalTyping();
 
       if (flushAfterNextChangeRef.current) {
         flushAfterNextChangeRef.current = false;
@@ -501,92 +401,17 @@ export default function TextSession() {
 
       scheduleFlush();
     },
-    [clearDebounceTimer, flushPendingWrite, noteLocalTyping, scheduleFlush],
+    [clearDebounceTimer, dismissRemoteNotice, flushPendingWrite, scheduleFlush],
   );
 
   const handleTextPaste = useCallback(() => {
     flushAfterNextChangeRef.current = true;
-    noteLocalTyping();
-  }, [noteLocalTyping]);
+  }, []);
 
   const handleTextBlur = useCallback(() => {
     clearDebounceTimer();
     flushPendingWrite();
-    sendTypingInactive();
-    hideLocalPointer();
-  }, [clearDebounceTimer, flushPendingWrite, hideLocalPointer, sendTypingInactive]);
-
-  const handleEditorPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) {
-        return;
-      }
-
-      const pointer: RoomPointer = {
-        visible: true,
-        x: (event.clientX - rect.left) / rect.width,
-        y: (event.clientY - rect.top) / rect.height,
-      };
-      pointerPendingRef.current = pointer;
-
-      const elapsed = Date.now() - lastPointerSendAtRef.current;
-      if (elapsed >= POINTER_SEND_INTERVAL_MS && pointerSendTimerRef.current === null) {
-        dispatchPointer(pointer);
-        return;
-      }
-
-      if (pointerSendTimerRef.current !== null) {
-        return;
-      }
-
-      pointerSendTimerRef.current = window.setTimeout(() => {
-        pointerSendTimerRef.current = null;
-        const pending = pointerPendingRef.current;
-        pointerPendingRef.current = null;
-        if (pending) {
-          dispatchPointer(pending);
-        }
-      }, Math.max(0, POINTER_SEND_INTERVAL_MS - elapsed));
-    },
-    [dispatchPointer],
-  );
-
-  const handleEditorPointerLeave = useCallback(() => {
-    hideLocalPointer();
-  }, [hideLocalPointer]);
-
-  const updateRemotePointer = useCallback(
-    (clientId: string, pointer: RoomPointer) => {
-      clearRemotePointerTimer(clientId);
-
-      if (!pointer.visible) {
-        setRemotePointers((current) => current.filter((entry) => entry.by !== clientId));
-        return;
-      }
-
-      const x = pointer.x;
-      const y = pointer.y;
-      if (x === undefined || y === undefined) {
-        setRemotePointers((current) => current.filter((entry) => entry.by !== clientId));
-        return;
-      }
-
-      const appearance = getPeerAppearance(clientId);
-      setRemotePointers((current) => {
-        const next = current.filter((entry) => entry.by !== clientId);
-        next.push({ by: clientId, x, y, color: appearance.color, label: appearance.label });
-        return next;
-      });
-
-      const timer = window.setTimeout(() => {
-        remotePointerTimersRef.current.delete(clientId);
-        setRemotePointers((current) => current.filter((entry) => entry.by !== clientId));
-      }, POINTER_STALE_MS);
-      remotePointerTimersRef.current.set(clientId, timer);
-    },
-    [clearRemotePointerTimer],
-  );
+  }, [clearDebounceTimer, flushPendingWrite]);
 
   useEffect(() => {
     roomCodeRef.current = roomCode;
@@ -618,9 +443,15 @@ export default function TextSession() {
       onSnapshot(payload) {
         const shouldRetryClear = clearPendingRef.current && payload.text !== "";
         const clearConfirmed = clearPendingRef.current && payload.text === "";
+        const receivedChangedSnapshot =
+          hasReceivedSnapshotRef.current &&
+          payload.text !== syncedTextRef.current &&
+          !shouldRetryClear &&
+          !clearConfirmed;
 
         snapshotReadyRef.current = true;
         setSnapshotReady(true);
+        hasReceivedSnapshotRef.current = true;
         clearPendingWrites(false);
         hasOpenedRef.current = true;
         draftTextRef.current = shouldRetryClear ? "" : payload.text;
@@ -630,7 +461,6 @@ export default function TextSession() {
         clientIdRef.current = payload.clientId;
         setText(shouldRetryClear ? "" : payload.text);
         setVersion(payload.version);
-        setClientId(payload.clientId);
         setRoomKind(payload.kind);
         setExpiresAfterMinutes(payload.expiresAfterMinutes);
         setPendingRemote(null);
@@ -642,6 +472,8 @@ export default function TextSession() {
           setRoomNotice("Clipboard limpo.");
         } else if (shouldRetryClear) {
           setRoomNotice("Limpando clipboard...");
+        } else if (receivedChangedSnapshot) {
+          showRemoteNotice(payload.text);
         }
 
         flushPendingWrite();
@@ -662,6 +494,7 @@ export default function TextSession() {
           setText(payload.text);
           setVersion(payload.version);
           setPendingRemote(null);
+          showRemoteNotice(payload.text);
           return;
         }
 
@@ -670,33 +503,9 @@ export default function TextSession() {
       onPresence(payload) {
         setPresenceCount(payload.count);
       },
-      onTyping(payload) {
-        if (payload.by === clientIdRef.current) {
-          return;
-        }
-
-        setRemoteTypers((current) => {
-          if (payload.active) {
-            return current.includes(payload.by) ? current : [...current, payload.by];
-          }
-
-          return current.filter((entry) => entry !== payload.by);
-        });
-      },
-      onPointer(payload) {
-        if (payload.by === clientIdRef.current) {
-          return;
-        }
-
-        updateRemotePointer(payload.by, payload.pointer);
-      },
-      onPeerLeft(payload) {
-        if (payload.by === clientIdRef.current) {
-          return;
-        }
-
-        removeRemotePeerState(payload.by);
-      },
+      onTyping() {},
+      onPointer() {},
+      onPeerLeft() {},
       onAck(payload) {
         if (discardNextAckRef.current) {
           discardNextAckRef.current = false;
@@ -785,12 +594,6 @@ export default function TextSession() {
       if (!leavingRoomRef.current) {
         suppressNextClosedRef.current = true;
       }
-      sendTypingInactive();
-      hideLocalPointer();
-      for (const timer of remotePointerTimersRef.current.values()) {
-        window.clearTimeout(timer);
-      }
-      remotePointerTimersRef.current.clear();
       controller.close();
       if (controllerRef.current === controller) {
         controllerRef.current = null;
@@ -800,37 +603,36 @@ export default function TextSession() {
     clearPendingWrites,
     clearRoomUrl,
     flushPendingWrite,
-    hideLocalPointer,
     initialCode,
-    removeRemotePeerState,
     requestRoomOpen,
     resetRoomData,
     roomCode,
-    sendTypingInactive,
-    updateRemotePointer,
+    showRemoteNotice,
   ]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape" && roomCodeRef.current) {
         event.preventDefault();
         leaveRoom();
+        return;
+      }
+
+      if (roomCodeRef.current && draftTextRef.current && isCopyTextShortcut(event)) {
+        event.preventDefault();
+        void handleCopyRoomText();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [leaveRoom]);
+  }, [handleCopyRoomText, leaveRoom]);
 
   useEffect(() => {
     return () => {
       clearDebounceTimer();
-      clearTypingStopTimer();
-      clearPointerSendTimer();
-      sendTypingInactive();
-      hideLocalPointer();
       controllerRef.current?.close();
     };
-  }, [clearDebounceTimer, clearPointerSendTimer, clearTypingStopTimer, hideLocalPointer, sendTypingInactive]);
+  }, [clearDebounceTimer]);
 
   const badgeVariant = roomCode
     ? connectionPhase === "open"
@@ -849,16 +651,6 @@ export default function TextSession() {
         : badgeVariant === "reconnecting"
           ? "Reconectando"
           : "Conectando";
-  const remoteTypingLabels = useMemo(
-    () => remoteTypers.map((clientId) => getPeerAppearance(clientId).label),
-    [remoteTypers],
-  );
-  const typingLabel =
-    remoteTypingLabels.length === 0
-      ? null
-      : remoteTypingLabels.length === 1
-        ? `${remoteTypingLabels[0]} digitando...`
-        : `${remoteTypingLabels.join(", ")} digitando...`;
   const presenceLabel =
     presenceCount === null ? null : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
   const exportButtonLabel = exportState.status === "uploading" ? "Enviando..." : "Enviar como arquivo";
@@ -883,13 +675,14 @@ export default function TextSession() {
             </p>
           </div>
 
-          {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
+          {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{errorMessage}</p> : null}
 
           <label className="quickdrop-text-field">
             <span>Digite um código</span>
             <input
               className="quickdrop-text-input"
               autoComplete="off"
+              autoFocus
               inputMode="text"
               maxLength={16}
               placeholder="Ex.: A, DEV ou SERVER-1"
@@ -939,7 +732,13 @@ export default function TextSession() {
             <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim() || isJoining} onClick={handleJoin}>
               {primaryJoinLabel}
             </button>
-            <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={() => setShowPrivacyOptions((current) => !current)}>
+            <button
+              className="quickdrop-text-button"
+              type="button"
+              aria-expanded={showPrivacyOptions}
+              disabled={isJoining}
+              onClick={() => setShowPrivacyOptions((current) => !current)}
+            >
               {showPrivacyOptions ? "Ocultar privacidade" : "Opções de privacidade"}
             </button>
           </div>
@@ -963,8 +762,10 @@ export default function TextSession() {
                 <button
                   className="quickdrop-text-button quickdrop-text-button--primary"
                   type="button"
+                  aria-keyshortcuts="Control+Enter Meta+Enter"
                   disabled={text.length === 0}
                   onClick={handleCopyRoomText}
+                  title="Copiar texto (Ctrl/⌘ + Enter)"
                 >
                   Copiar texto
                 </button>
@@ -993,15 +794,26 @@ export default function TextSession() {
               </div>
               {presenceLabel ? <p className="quickdrop-text-room-presence">{presenceLabel}</p> : null}
               {expiryLabel ? <p className="quickdrop-text-room-presence">{expiryLabel}{roomKind === "custom" ? " Código público." : ""}</p> : null}
-              {typingLabel ? <p className="quickdrop-text-room-typing">{typingLabel}</p> : null}
             </div>
           </div>
 
-          <span className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}>{statusLabel}</span>
+          <span
+            className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}
+            role="status"
+            aria-live="polite"
+            aria-label={`Status da conexão: ${statusLabel}`}
+          >
+            {statusLabel}
+          </span>
         </header>
 
-        {roomNotice ? <p className="quickdrop-text-note quickdrop-text-note--success" aria-live="polite">{roomNotice}</p> : null}
-        {showExportError ? <p className="quickdrop-text-note quickdrop-text-note--error">{exportState.message}</p> : null}
+        {roomNotice ? <p className="quickdrop-text-note quickdrop-text-note--success" aria-live="polite" aria-atomic="true">{roomNotice}</p> : null}
+        {remoteNotice ? (
+          <p className="quickdrop-text-note quickdrop-text-note--remote" role="status" aria-live="polite" aria-atomic="true">
+            {remoteNotice}
+          </p>
+        ) : null}
+        {showExportError ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{exportState.message}</p> : null}
         {showExportSuccess ? (
           <p className="quickdrop-text-note quickdrop-text-note--success">
             {exportState.copied ? (
@@ -1013,9 +825,9 @@ export default function TextSession() {
             )}
           </p>
         ) : null}
-        {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error">{errorMessage}</p> : null}
+        {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{errorMessage}</p> : null}
         {pendingRemote ? (
-          <div className="quickdrop-text-banner">
+          <div className="quickdrop-text-banner" role="status" aria-live="polite">
             <p>Conteúdo atualizado em outra máquina</p>
             <button className="quickdrop-text-button quickdrop-text-button--banner" type="button" onClick={handleRemoteOverride}>
               Carregar
@@ -1023,21 +835,14 @@ export default function TextSession() {
           </div>
         ) : null}
 
-        <div className="quickdrop-text-editor" onPointerMove={handleEditorPointerMove} onPointerLeave={handleEditorPointerLeave}>
-          <span className="sr-only">Conteúdo da sala</span>
-          <div className="quickdrop-text-pointer-layer" aria-hidden="true">
-            {remotePointers.map((pointer) => (
-              <UserCursor
-                key={pointer.by}
-                color={pointer.color}
-                label={pointer.label}
-                target={{ current: { x: pointer.x, y: pointer.y } }}
-              />
-            ))}
-          </div>
+        <div className={`quickdrop-text-editor${remoteNotice ? " quickdrop-text-editor--remote" : ""}`}>
+          <label className="sr-only" htmlFor="quickdrop-shared-text">Texto compartilhado</label>
           <textarea
+            id="quickdrop-shared-text"
             className="quickdrop-text-textarea"
             value={text}
+            aria-describedby="quickdrop-text-shortcuts"
+            aria-keyshortcuts="Control+Enter Meta+Enter"
             onBlur={handleTextBlur}
             onChange={handleTextChange}
             onPaste={handleTextPaste}
@@ -1049,6 +854,9 @@ export default function TextSession() {
             placeholder="Digite ou cole algo aqui..."
           />
         </div>
+        <p id="quickdrop-text-shortcuts" className="quickdrop-text-shortcuts">
+          Ctrl/⌘ + Enter para copiar · Esc para sair
+        </p>
       </section>
     </main>
   );
