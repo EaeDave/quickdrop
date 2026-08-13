@@ -1,7 +1,10 @@
 use std::{collections::VecDeque, env, io, time::Duration};
 
 use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    event::{
+        Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -1072,15 +1075,28 @@ impl TerminalGuard {
     fn enter() -> Result<Self, QdError> {
         enable_raw_mode().map_err(terminal_error)?;
         let mut stdout = io::stdout();
-        if let Err(error) = execute!(stdout, EnterAlternateScreen) {
+        if let Err(error) = execute!(
+            stdout,
+            EnterAlternateScreen,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        ) {
+            let _ = execute!(
+                io::stdout(),
+                PopKeyboardEnhancementFlags,
+                LeaveAlternateScreen
+            );
             let _ = disable_raw_mode();
             return Err(terminal_error(error));
         }
         match Terminal::new(CrosstermBackend::new(stdout)) {
             Ok(terminal) => Ok(Self { terminal }),
             Err(error) => {
+                let _ = execute!(
+                    io::stdout(),
+                    PopKeyboardEnhancementFlags,
+                    LeaveAlternateScreen
+                );
                 let _ = disable_raw_mode();
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
                 Err(terminal_error(error))
             }
         }
@@ -1094,8 +1110,12 @@ impl TerminalGuard {
 }
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            PopKeyboardEnhancementFlags,
+            LeaveAlternateScreen
+        );
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
     }
 }
@@ -1248,6 +1268,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ctrl_enter_publishes_and_clears_the_composer() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.focus = Focus::Composer;
+        app.connection = ConnectionState::Connected;
+        app.composer.insert_str("hello with ctrl enter");
+        let (actions, mut received) = mpsc::channel(1);
+
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
+            Some(&actions),
+        )
+        .await
+        .unwrap();
+
+        let Some(Action::Publish(content)) = received.recv().await else {
+            panic!("expected publish action")
+        };
+        assert_eq!(content, "hello with ctrl enter");
+        assert!(app.composer_content().is_empty());
+        assert_eq!(app.focus, Focus::Timeline);
+    }
+
+    #[tokio::test]
     async fn e_edits_the_selected_drop_and_restores_the_composer_draft() {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, Some("DEV".to_owned()));
@@ -1271,7 +1317,7 @@ mod tests {
         app.composer.insert_str("edited");
         handle_timeline_key(
             &mut app,
-            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
             Some(&actions),
         )
         .await
