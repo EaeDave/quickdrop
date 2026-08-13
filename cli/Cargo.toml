@@ -1,6 +1,6 @@
 [package]
 name = "quickdrop-cli"
-version = "0.1.5"
+version = "0.1.6"
 description = "Native QuickDrop text clipboard CLI"
 edition = "2021"
 license = "MIT"
