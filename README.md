@@ -222,13 +222,13 @@ Windows PowerShell:
 irm https://quickdrop.eaedave.xyz/install.ps1 | iex
 ```
 
-Linux with automatic OmarchyBar or Waybar detection:
+Linux full installation:
 
 ```bash
 curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 ```
 
-The Linux installer supports `QUICKDROP_BAR=auto|omarchy|waybar|both|none` and stores the selected backend in `~/.config/quickdrop/config.env`.
+The installer is idempotent and always installs or updates the complete Linux experience: the desktop/tray client, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
 
 ## Local backend with Docker
 

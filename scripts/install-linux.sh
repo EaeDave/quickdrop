@@ -3,8 +3,8 @@
 #
 #   curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 #
-# Installs the prebuilt desktop binary, a bar-independent Hyprland launcher,
-# and the adapter selected by QUICKDROP_BAR=auto|omarchy|waybar|both|none.
+# Installs and updates the prebuilt desktop client, the qd CLI/TUI, a
+# bar-independent Hyprland launcher, and the detected OmarchyBar/Waybar integration.
 set -euo pipefail
 
 APP_NAME="QuickDrop"
@@ -14,6 +14,7 @@ MIN_BINARY_BYTES=1048576
 base_url="${QUICKDROP_API_BASE_URL:-$DEFAULT_BASE_URL}"
 base_url="${base_url%/}"
 installer_url="${QUICKDROP_LINUX_INSTALLER_URL:-$base_url/linux/latest}"
+qd_url="${QUICKDROP_QD_URL:-$base_url/linux/qd/latest}"
 launcher_url="${QUICKDROP_LAUNCHER_URL:-${QUICKDROP_WAYBAR_LAUNCHER_URL:-$base_url/linux/quickdrop-launcher}}"
 bar_installer_url="${QUICKDROP_BAR_INSTALLER_URL:-$base_url/linux/install-bar-integration}"
 waybar_patcher_url="${QUICKDROP_WAYBAR_PATCHER_URL:-$base_url/linux/install-waybar-module.py}"
@@ -24,6 +25,7 @@ bin_dir="${QUICKDROP_BIN_DIR:-$HOME/.local/bin}"
 share_dir="${QUICKDROP_SHARE_DIR:-$HOME/.local/share/quickdrop}"
 config_dir="${QUICKDROP_CONFIG_DIR:-$HOME/.config/quickdrop}"
 binary_path="$bin_dir/quickdrop"
+qd_path="$bin_dir/qd"
 launcher_path="$bin_dir/quickdrop-launcher"
 legacy_launcher_path="$bin_dir/quickdrop-waybar"
 bar_installer_path="$share_dir/install-bar-integration.sh"
@@ -33,6 +35,7 @@ config_path="$config_dir/config.env"
 
 # Offline/local-development overrides.
 local_binary="${QUICKDROP_LINUX_BINARY:-}"
+local_qd="${QUICKDROP_QD_BINARY:-}"
 local_launcher="${QUICKDROP_LAUNCHER_FILE:-${QUICKDROP_WAYBAR_LAUNCHER_FILE:-}}"
 local_bar_installer="${QUICKDROP_BAR_INTEGRATION_FILE:-}"
 local_waybar_patcher="${QUICKDROP_WAYBAR_PATCHER_FILE:-}"
@@ -66,7 +69,7 @@ detect_environment() {
   arch="$(uname -m)"
   [[ "$arch" == "x86_64" ]] || fail "Only x86_64 is supported by the prebuilt binary (detected: $arch)."
 
-  if [[ -z "$local_binary" || -z "$local_launcher" || -z "$local_bar_installer" || -z "$local_waybar_patcher" || -z "$local_omarchy_plugin" ]]; then
+  if [[ -z "$local_binary" || -z "$local_qd" || -z "$local_launcher" || -z "$local_bar_installer" || -z "$local_waybar_patcher" || -z "$local_omarchy_plugin" ]]; then
     require_command curl
   fi
 
@@ -133,6 +136,28 @@ install_binary() {
   info "Installed binary to $binary_path"
 }
 
+install_qd() {
+  ensure_tmp_dir
+  local download_path="$tmp_dir/qd"
+
+  if [[ -n "$local_qd" ]]; then
+    [[ -f "$local_qd" ]] || fail "QUICKDROP_QD_BINARY does not exist: $local_qd"
+    info "Installing qd from $local_qd"
+    install -m 0755 "$local_qd" "$qd_path"
+    return
+  fi
+
+  info "Downloading qd from $qd_url"
+  curl -fSL "$qd_url" -o "$download_path" || fail "Failed to download qd from $qd_url"
+
+  local size
+  size="$(wc -c < "$download_path")"
+  [[ "$size" -ge "$MIN_BINARY_BYTES" ]] || fail "Downloaded qd binary is unexpectedly small: $size bytes. The release asset may be missing."
+
+  install -m 0755 "$download_path" "$qd_path"
+  info "Installed qd to $qd_path"
+}
+
 install_integration_assets() {
   install_local_or_remote "$local_launcher" "$launcher_url" "$launcher_path" 0755 "QuickDrop launcher"
   # Keep the historical name working for existing Waybar configs.
@@ -187,6 +212,7 @@ main() {
   if [[ "${QUICKDROP_INTEGRATION_ONLY:-0}" != "1" ]]; then
     detect_environment
     install_binary
+    install_qd
   fi
   install_integration_assets
   [[ "${QUICKDROP_INTEGRATION_ONLY:-0}" == "1" ]] || write_config
@@ -194,10 +220,10 @@ main() {
 
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
-    *) warn "$bin_dir is not on your PATH. Add it so 'quickdrop' is runnable from a shell." ;;
+    *) warn "$bin_dir is not on your PATH. Add it so 'quickdrop' and 'qd' are runnable from a shell." ;;
   esac
 
-  info "Done. Use the bar icon or run $launcher_path to open QuickDrop."
+  info "Done. Use the bar icon or run $launcher_path for the desktop client; run qd for the terminal UI."
 }
 
 main "$@"
