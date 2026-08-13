@@ -1,0 +1,10 @@
+# Machine-local interpreter and scan root
+.graphify_python
+.graphify_root
+
+# Rebuild caches and temporary extraction artifacts
+cache/
+.needs_update
+.graphify_*.json
+!.graphify_labels.json
+.graphify_*.txt
