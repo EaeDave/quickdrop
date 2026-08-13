@@ -100,13 +100,17 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
     }
 
     if should_launch_tui(&args, io::stdin().is_terminal()) {
+        let restart = update::capture_restart_command()?;
         let tui_args = if args.first().is_some_and(|arg| arg == "--tui") {
             args.into_iter().skip(1).collect()
         } else {
             args
         };
         let (server, code) = parse_tui_command(tui_args)?;
-        return tui::run_tui(server, code).await;
+        if tui::run_tui(server, code).await? {
+            restart.execute()?;
+        }
+        return Ok(());
     }
     if args.first().is_some_and(|argument| argument == "--tui") {
         return Err(QdError::Usage(

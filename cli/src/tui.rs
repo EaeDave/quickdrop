@@ -132,7 +132,7 @@ struct UiRegions {
     timeline_items: Vec<TimelineItemRegion>,
     actions: Vec<ActionRegion>,
 }
-pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
+pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, QdError> {
     let mut terminal = TerminalGuard::enter()?;
     let mut events = EventStream::new();
     let mut app = App::new(server, initial_code);
@@ -169,11 +169,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
             }
         }
         if app.quit {
-            if app.restart_after_update {
-                drop(terminal);
-                return update::restart_current_process();
-            }
-            return Ok(());
+            return Ok(app.restart_after_update);
         }
 
         if app.screen == Screen::Timeline && connection.is_none() {
@@ -249,7 +245,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                         }
                         Some(Ok(_)) => {}
                         Some(Err(error)) => return Err(terminal_error(error)),
-                        None => return Ok(()),
+                        None => return Ok(false),
                     }
                     false
                 },
@@ -276,7 +272,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                     Some(Ok(Event::Mouse(mouse))) => handle_mouse(&mut app, mouse, None).await?,
                     Some(Ok(_)) => {}
                     Some(Err(error)) => return Err(terminal_error(error)),
-                    None => return Ok(()),
+                    None => return Ok(false),
                 },
                 update_event = update_rx.recv() => apply_update_event(&mut app, update_event),
                 _ = expiry_tick.tick() => {}
@@ -304,6 +300,8 @@ struct App<'a> {
     room_expires_at: Option<String>,
     presence: u64,
     available_update: Option<update::AvailableUpdate>,
+    update_checked: bool,
+    update_check_error: Option<String>,
     update_busy: bool,
     update_requested: bool,
     restart_after_update: bool,
@@ -341,6 +339,8 @@ impl<'a> App<'a> {
             room_expires_at: None,
             presence: 0,
             available_update: None,
+            update_checked: false,
+            update_check_error: None,
             update_busy: false,
             update_requested: false,
             restart_after_update: false,
@@ -496,10 +496,15 @@ async fn handle_key(
     if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
         return Ok(());
     }
+    let command_code = normalized_command_code(&key.code);
+    if key.modifiers.contains(KeyModifiers::CONTROL) && command_code == KeyCode::Char('u') {
+        app.status = None;
+        request_update(app);
+        return Ok(());
+    }
     if app.screen == Screen::Timeline {
         app.status = None;
     }
-    let command_code = normalized_command_code(&key.code);
     match app.screen {
         Screen::Code => {
             if key.modifiers.contains(KeyModifiers::CONTROL) && command_code == KeyCode::Char('p') {
@@ -582,10 +587,6 @@ async fn handle_timeline_key(
             }
         } else if key.code == KeyCode::Enter {
             submit_composer(app, actions).await?;
-        } else if key.modifiers.contains(KeyModifiers::CONTROL)
-            && command_code == KeyCode::Char('u')
-        {
-            app.clear_composer();
         } else if !app.edit_saving {
             app.composer.input(key);
         }
@@ -609,7 +610,7 @@ async fn handle_timeline_key(
         KeyCode::Char('c') => copy_selected(app),
         KeyCode::Char('r') => resend_selected(app, actions).await?,
         KeyCode::Char('d') if app.selected_drop().is_some() => app.screen = Screen::ConfirmDelete,
-        KeyCode::Char('u') if app.available_update.is_some() => request_update(app),
+        KeyCode::Char('u') => {}
         _ => {}
     }
     Ok(())
@@ -778,21 +779,18 @@ async fn resend_selected(
 }
 
 fn request_update(app: &mut App<'_>) {
-    if app.available_update.is_none() {
-        return;
-    }
     if app.update_busy {
         app.status = Some("Updating qd…".to_owned());
-    } else {
+    } else if let Some(update) = &app.available_update {
         app.update_busy = true;
         app.update_requested = true;
-        app.status = Some(format!(
-            "Updating to qd {}…",
-            app.available_update
-                .as_ref()
-                .map(|item| item.version.as_str())
-                .unwrap_or_default()
-        ));
+        app.status = Some(format!("Updating to qd {}…", update.version));
+    } else if !app.update_checked {
+        app.status = Some("Checking for qd updates…".to_owned());
+    } else if let Some(error) = &app.update_check_error {
+        app.status = Some(error.clone());
+    } else {
+        app.status = Some("qd is already up to date".to_owned());
     }
 }
 
@@ -888,20 +886,31 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
 fn apply_update_event(app: &mut App<'_>, event: Option<UpdateEvent>) {
     match event {
         Some(UpdateEvent::Check(Ok(Some(available)))) => {
+            app.update_checked = true;
+            app.update_check_error = None;
             app.available_update = Some(available);
-            if app.status.is_none() {
+            if app.status.is_none() || app.status.as_deref() == Some("Checking for qd updates…") {
                 if let Some(update) = &app.available_update {
                     app.status = Some(format!(
-                        "qd {} available · press u to update",
+                        "qd {} available · press Ctrl+U to update",
                         update.version
                     ));
                 }
             }
         }
-        Some(UpdateEvent::Check(Ok(None))) | None => {}
+        Some(UpdateEvent::Check(Ok(None))) => {
+            app.update_checked = true;
+            app.update_check_error = None;
+            if app.status.as_deref() == Some("Checking for qd updates…") {
+                app.status = Some("qd is already up to date".to_owned());
+            }
+        }
         Some(UpdateEvent::Check(Err(error))) => {
-            if app.status.is_none() {
-                app.status = Some(error_message(error));
+            app.update_checked = true;
+            let message = error_message(error);
+            app.update_check_error = Some(message.clone());
+            if app.status.is_none() || app.status.as_deref() == Some("Checking for qd updates…") {
+                app.status = Some(message);
             }
         }
         Some(UpdateEvent::Applied(Ok(_))) => {
@@ -912,6 +921,7 @@ fn apply_update_event(app: &mut App<'_>, event: Option<UpdateEvent>) {
             app.update_busy = false;
             app.status = Some(error_message(error));
         }
+        None => {}
     }
 }
 
@@ -1562,7 +1572,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
                 )
             } else {
                 format!(
-                    "{} · Ctrl+Enter new line · Ctrl+U clear · Esc {}",
+                    "{} · Ctrl+Enter new line · Esc {}",
                     submit_label.trim_matches(['[', ']']),
                     if app.editing_drop_id.is_some() {
                         "cancel"
@@ -1588,9 +1598,9 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             ("[q Quit]".to_owned(), MouseAction::Quit),
         ];
         let fallback = if let Some(update) = &app.available_update {
-            actions.insert(0, ("[u Update]".to_owned(), MouseAction::Update));
+            actions.insert(0, ("[Ctrl+U Update]".to_owned(), MouseAction::Update));
             format!(
-                "u update to {} · e edit · c copy · r resend · d delete · ? help · q quit",
+                "Ctrl+U update to {} · e edit · c copy · r resend · d delete · ? help · q quit",
                 update.version
             )
         } else {
@@ -1605,7 +1615,7 @@ fn render_help(frame: &mut Frame<'_>, app: &mut App<'_>) {
     app.ui.actions.clear();
     let area = centered_rect(62, 19, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete · u/U update\n\nComposer / editor\n  Enter send/save · Ctrl+Enter new line · Ctrl+U clear · Esc cancel\n\nShift+drag selects terminal text";
+    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete\n  Ctrl+U update from any screen\n\nComposer / editor\n  Enter send/save · Ctrl+Enter new line · Esc cancel\n\nShift+drag selects terminal text";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1801,6 +1811,7 @@ impl TerminalGuard {
 }
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let _ = disable_raw_mode();
         if self.keyboard_enhancement_enabled {
             let _ = execute!(self.terminal.backend_mut(), PopKeyboardEnhancementFlags);
         }
@@ -1809,7 +1820,6 @@ impl Drop for TerminalGuard {
             DisableMouseCapture,
             LeaveAlternateScreen
         );
-        let _ = disable_raw_mode();
         let _ = self.terminal.show_cursor();
     }
 }
@@ -2349,10 +2359,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn u_requests_an_available_qd_update() {
+    async fn ctrl_u_requests_an_available_update_from_every_screen() {
         let server = Url::parse("https://quickdrop.example").unwrap();
-        let mut app = App::new(server, Some("DEV".to_owned()));
-        app.screen = Screen::Timeline;
+        let mut app = App::new(server, None);
         apply_update_event(
             &mut app,
             Some(UpdateEvent::Check(Ok(Some(update::AvailableUpdate {
@@ -2363,11 +2372,21 @@ mod tests {
         assert!(app
             .status
             .as_deref()
-            .is_some_and(|status| status.contains("press u to update")));
+            .is_some_and(|status| status.contains("press Ctrl+U to update")));
 
-        handle_timeline_key(
+        handle_key(
             &mut app,
-            KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.code_input, "U");
+        assert!(!app.update_requested);
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
             None,
         )
         .await
@@ -2375,6 +2394,15 @@ mod tests {
         assert!(app.update_requested);
         assert!(app.update_busy);
         assert_eq!(app.status.as_deref(), Some("Updating to qd 9.9.9…"));
+    }
+
+    #[test]
+    fn successful_update_requests_a_clean_restart() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        apply_update_event(&mut app, Some(UpdateEvent::Applied(Ok("9.9.9".to_owned()))));
+        assert!(app.quit);
+        assert!(app.restart_after_update);
     }
 
     #[tokio::test]

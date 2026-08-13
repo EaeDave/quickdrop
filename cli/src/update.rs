@@ -1,5 +1,7 @@
 use std::{
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
 };
@@ -31,6 +33,43 @@ pub struct AvailableUpdate {
 pub struct ChecksumAsset {
     pub checksum: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestartCommand {
+    executable: PathBuf,
+    args: Vec<OsString>,
+}
+
+impl RestartCommand {
+    pub fn current() -> Result<Self, QdError> {
+        let executable = env::current_exe().map_err(|error| {
+            QdError::Runtime(format!("could not locate the current qd binary: {error}"))
+        })?;
+        Ok(Self {
+            executable,
+            args: env::args_os().skip(1).collect(),
+        })
+    }
+
+    pub fn execute(self) -> Result<(), QdError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let error = ProcessCommand::new(&self.executable)
+                .args(&self.args)
+                .exec();
+            Err(QdError::Runtime(format!("could not restart qd: {error}")))
+        }
+        #[cfg(windows)]
+        {
+            ProcessCommand::new(&self.executable)
+                .args(&self.args)
+                .spawn()
+                .map_err(|error| QdError::Runtime(format!("could not restart qd: {error}")))?;
+            Ok(())
+        }
+    }
 }
 
 pub fn parse_version(value: &str) -> Result<(u64, u64, u64), QdError> {
@@ -176,24 +215,8 @@ pub fn install_verified_binary(
     replace_executable(current_exe, bytes)
 }
 
-pub fn restart_current_process() -> Result<(), QdError> {
-    let exe = env::current_exe()
-        .map_err(|error| QdError::Runtime(format!("could not restart qd: {error}")))?;
-    let args: Vec<String> = env::args().skip(1).collect();
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let error = ProcessCommand::new(&exe).args(args).exec();
-        Err(QdError::Runtime(format!("could not restart qd: {error}")))
-    }
-    #[cfg(windows)]
-    {
-        ProcessCommand::new(&exe)
-            .args(args)
-            .spawn()
-            .map_err(|error| QdError::Runtime(format!("could not restart qd: {error}")))?;
-        std::process::exit(0);
-    }
+pub fn capture_restart_command() -> Result<RestartCommand, QdError> {
+    RestartCommand::current()
 }
 
 pub async fn run_update(args: Vec<String>) -> Result<(), QdError> {
