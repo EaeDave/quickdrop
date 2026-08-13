@@ -27,6 +27,8 @@ jobs:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || env.RELEASE_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:

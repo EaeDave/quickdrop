@@ -230,7 +230,7 @@ try {
   if ($QdBinary.Length -lt $MinimumBinaryBytes) {
     throw "Downloaded qd binary is unexpectedly small: $($QdBinary.Length) bytes."
   }
-  $ExpectedChecksum = ((Get-Content -LiteralPath $QdChecksumPath -Raw).Trim() -split "\\s+")[0]
+  $ExpectedChecksum = ((Get-Content -LiteralPath $QdChecksumPath -Raw).Trim() -split "\s+")[0]
   if ($ExpectedChecksum -notmatch "^[a-fA-F0-9]{64}$") {
     throw "Downloaded qd checksum is invalid."
   }

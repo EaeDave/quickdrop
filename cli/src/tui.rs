@@ -142,6 +142,7 @@ impl<'a> App<'a> {
                     self.pin_input.clear();
                     self.screen = Screen::Pin;
                 } else {
+                    self.pin_purpose = PinPurpose::Unlock;
                     self.screen = Screen::Timeline;
                 }
             }
@@ -1446,6 +1447,17 @@ mod tests {
         assert_eq!(app.screen, Screen::Timeline);
         assert_eq!(app.pin_purpose, PinPurpose::Create);
         assert_eq!(app.pin_input, "1234");
+        app.screen = Screen::Code;
+        app.code_input = "PUBLIC".to_owned();
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Timeline);
+        assert_eq!(app.pin_purpose, PinPurpose::Unlock);
     }
 
     #[tokio::test]
