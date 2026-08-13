@@ -6,6 +6,7 @@ out
 dist
 *.tgz
 src-tauri/target
+cli/target
 src-tauri/gen
 src/desktop/output.css
 
