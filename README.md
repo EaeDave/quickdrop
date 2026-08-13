@@ -125,7 +125,7 @@ Run `qd` in an interactive terminal to open the Ratatui interface:
 qd
 ```
 
-The TUI opens or creates a clipboard by code. `Ctrl+P` starts a PIN-protected create even with an empty code field: choose the name next, then Enter asks for the PIN. It also prompts for the PIN when opening an existing protected clipboard. It displays the drop timeline, receives real-time updates, reconnects automatically, and provides a multiline composer. It also supports editing, copying, resending, deleting the selected drop, and updating itself when a newer `qd` release is available.
+The TUI opens or creates a clipboard by code. `Ctrl+P` starts a PIN-protected create even with an empty code field: choose the name next, then Enter asks for the PIN. It also prompts for the PIN when opening an existing protected clipboard. The header shows the installed version, connection state, and number of connected people. The timeline uses local time and marks drops received during the current session as `NEW`. It reconnects automatically and provides a multiline composer, editing, copying, resending, deletion, and self-update support.
 
 Open a code directly in the TUI:
 
@@ -156,7 +156,7 @@ Mouse input can select timeline drops, focus the composer, scroll either region,
 
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 
-Non-interactive commands remain suitable for pipes and scripts.
+Non-interactive commands remain suitable for pipes and scripts. Diagnostics go to stderr; received content alone goes to stdout.
 
 Update the installed `qd` binary from the latest public release:
 
@@ -170,22 +170,32 @@ The TUI header shows the canonical room URL. Hovering highlights it as an intera
 The TUI checks for a newer release on launch. If one is available, press `Ctrl+U` from any screen to download it, verify the published SHA-256 checksum, replace the running binary, and restart the TUI.
 
 
-Publish stdin as a new drop:
+Publish a message directly or through stdin:
 
 ```bash
+qd "text from SSH" MYCODE
 echo "text from SSH" | qd MYCODE
 ```
 
-Print the newest drop:
+For a PIN-protected clipboard, pass the PIN as the third positional argument (or after the room when piping):
+
+```bash
+qd "secret text" MYCODE 1234
+echo "secret text" | qd MYCODE 1234
+```
+
+Print the newest drop and copy it to the local clipboard:
 
 ```bash
 qd MYCODE
 ```
 
-Print and copy it to the local clipboard:
+If the clipboard has no messages, `qd` prints `qd: No messages found.` to stderr and leaves the current local clipboard unchanged.
+
+Show the installed version:
 
 ```bash
-qd MYCODE --copy
+qd --version
 ```
 
 Use another QuickDrop backend in interactive or non-interactive mode:
@@ -196,7 +206,7 @@ qd MYCODE --server http://127.0.0.1:3000
 QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 qd
 ```
 
-On Linux, `--copy` tries `wl-copy`, `xclip`, then `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive commands still reject protected clipboards because they do not prompt for credentials.
+On Linux, received content is copied with `wl-copy`, `xclip`, or `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive publishing accepts a positional PIN.
 
 Build release binaries:
 

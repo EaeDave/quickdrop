@@ -1,5 +1,10 @@
-use std::{collections::VecDeque, env, io, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    env, io,
+    time::Duration,
+};
 
+use chrono::{DateTime, Local};
 use crossterm::{
     event::{
         DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent,
@@ -188,7 +193,8 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<bool, 
         if app.screen == Screen::Timeline && connection.is_none() {
             let command = QdCommand {
                 code: app.code.clone(),
-                copy: false,
+                content: None,
+                pin: None,
                 server: app.server.clone(),
             };
             let pin = (!app.pin_input.trim().is_empty()).then(|| app.pin_input.trim().to_owned());
@@ -302,6 +308,7 @@ struct App<'a> {
     pin_purpose: PinPurpose,
     code: String,
     drops: Vec<TextDrop>,
+    unread_drop_ids: HashSet<String>,
     selected: usize,
     composer: TextArea<'a>,
     composer_draft_before_edit: Option<String>,
@@ -343,6 +350,7 @@ impl<'a> App<'a> {
             pin_purpose: PinPurpose::Unlock,
             code: code.unwrap_or_default(),
             drops: Vec::new(),
+            unread_drop_ids: HashSet::new(),
             selected: 0,
             composer,
             connection: ConnectionState::Connecting,
@@ -402,6 +410,7 @@ impl<'a> App<'a> {
         self.pin_purpose = PinPurpose::Unlock;
         self.code.clear();
         self.drops.clear();
+        self.unread_drop_ids.clear();
         self.selected = 0;
         self.clear_composer();
         self.composer_draft_before_edit = None;
@@ -434,6 +443,8 @@ impl<'a> App<'a> {
         let fallback = self.selected;
         sort_drops(&mut drops);
         self.drops = drops;
+        self.unread_drop_ids
+            .retain(|id| self.drops.iter().any(|drop| drop.id == *id));
         self.selected = selected_id
             .and_then(|id| self.drops.iter().position(|drop| drop.id == id))
             .unwrap_or_else(|| fallback.min(self.drops.len().saturating_sub(1)));
@@ -445,22 +456,28 @@ impl<'a> App<'a> {
         self.drops.push(drop);
         sort_drops(&mut self.drops);
         if local {
+            self.unread_drop_ids.remove(&added_id);
             self.selected = self
                 .drops
                 .iter()
                 .position(|item| item.id == added_id)
                 .unwrap_or_default();
             self.status = Some("Sent".to_owned());
-        } else if let Some(selected_id) = selected_id {
-            self.selected = self
-                .drops
-                .iter()
-                .position(|item| item.id == selected_id)
-                .unwrap_or_else(|| self.selected.min(self.drops.len().saturating_sub(1)));
+        } else {
+            self.unread_drop_ids.insert(added_id);
+            self.status = Some("New drop received".to_owned());
+            if let Some(selected_id) = selected_id {
+                self.selected = self
+                    .drops
+                    .iter()
+                    .position(|item| item.id == selected_id)
+                    .unwrap_or_else(|| self.selected.min(self.drops.len().saturating_sub(1)));
+            }
         }
     }
     fn remove_drop(&mut self, id: &str) {
         self.drops.retain(|drop| drop.id != id);
+        self.unread_drop_ids.remove(id);
         self.selected = self.selected.min(self.drops.len().saturating_sub(1));
     }
     fn composer_content(&self) -> String {
@@ -960,6 +977,7 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
         }
         NetEvent::Cleared => {
             app.drops.clear();
+            app.unread_drop_ids.clear();
             app.selected = 0;
             app.status = Some("Cleared".to_owned());
         }
@@ -1560,22 +1578,37 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .split(frame.area());
     app.ui.timeline = rows[1];
     app.ui.composer = rows[2];
-    let (connection_label, connection_color) = match app.connection {
-        ConnectionState::Connected => ("● Connected", app.color(Color::Green)),
-        ConnectionState::Connecting => ("◌ Connecting", app.color(Color::Yellow)),
-        ConnectionState::Reconnecting => ("◌ Reconnecting", app.color(Color::Yellow)),
+    let (connection_label, connection_color) = match (app.connection, compact) {
+        (ConnectionState::Connected, false) => ("● Connected", app.color(Color::Green)),
+        (ConnectionState::Connecting, false) => ("◌ Connecting", app.color(Color::Yellow)),
+        (ConnectionState::Reconnecting, false) => ("◌ Reconnecting", app.color(Color::Yellow)),
+        (ConnectionState::Connected, true) => ("●", app.color(Color::Green)),
+        (ConnectionState::Connecting | ConnectionState::Reconnecting, true) => {
+            ("◌", app.color(Color::Yellow))
+        }
     };
-    let expiry_label = format_room_expiry(
-        app.idle_ttl_minutes,
-        app.room_expires_at.as_deref(),
-        app.presence,
-        compact,
-    );
+    let expiry_label = (!compact)
+        .then(|| {
+            format_room_expiry(
+                app.idle_ttl_minutes,
+                app.room_expires_at.as_deref(),
+                app.presence,
+                false,
+            )
+        })
+        .flatten();
     let room_url = room_url(app).to_string();
-    let prefix = " QuickDrop · ";
+    let prefix = if compact {
+        format!(" qd v{} · ", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!(" QuickDrop v{} · ", env!("CARGO_PKG_VERSION"))
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(prefix, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                prefix.as_str(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::styled(
                 room_url.as_str(),
                 Style::default()
@@ -1592,6 +1625,10 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             Span::styled(
                 format!("  {connection_label}"),
                 Style::default().fg(connection_color),
+            ),
+            Span::styled(
+                format!("  {} online", app.presence),
+                Style::default().fg(app.color(Color::Magenta)),
             ),
             Span::raw(
                 expiry_label
@@ -1622,14 +1659,23 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .enumerate()
         .map(|(index, drop)| {
             let mut lines = Vec::with_capacity(timeline_item_height(drop, compact));
-            lines.push(Line::styled(
-                format!(
-                    "{}  {}",
-                    content_kind(&drop.content),
-                    short_time(&drop.created_at)
+            let unread = app.unread_drop_ids.contains(&drop.id);
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(
+                        "{}  {}",
+                        content_kind(&drop.content),
+                        short_time(&drop.created_at)
+                    ),
+                    Style::default().add_modifier(Modifier::BOLD),
                 ),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
+                Span::styled(
+                    if unread { "  NEW" } else { "" },
+                    Style::default()
+                        .fg(app.color(Color::Green))
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
             if compact {
                 lines.push(Line::raw(truncate(
                     &drop.content.replace('\n', " "),
@@ -1924,8 +1970,10 @@ fn content_kind(content: &str) -> &'static str {
         "Text"
     }
 }
-fn short_time(timestamp: &str) -> &str {
-    timestamp.get(11..16).unwrap_or(timestamp)
+fn short_time(timestamp: &str) -> String {
+    DateTime::parse_from_rfc3339(timestamp)
+        .map(|value| value.with_timezone(&Local).format("%H:%M").to_string())
+        .unwrap_or_else(|_| timestamp.get(11..16).unwrap_or(timestamp).to_owned())
 }
 fn truncate(content: &str, width: usize) -> String {
     if content.chars().count() <= width {
@@ -2127,7 +2175,8 @@ mod tests {
             app.selected_drop().map(|drop| drop.id.as_str()),
             Some("selected")
         );
-        assert!(app.status.is_none());
+        assert_eq!(app.status.as_deref(), Some("New drop received"));
+        assert!(app.unread_drop_ids.contains("remote"));
         app.replace_drops(vec![
             drop("newest", "newest", "2026-01-01T12:00:00Z"),
             drop("selected", "selected", "2026-01-01T10:00:00Z"),
@@ -2140,6 +2189,7 @@ mod tests {
 
         apply_network_event(&mut app, NetEvent::Cleared);
         assert!(app.drops.is_empty());
+        assert!(app.unread_drop_ids.is_empty());
         assert_eq!(app.selected, 0);
     }
     #[tokio::test]
@@ -2829,7 +2879,7 @@ mod tests {
                 .iter()
                 .map(|cell| cell.symbol())
                 .collect();
-            assert!(rendered.contains("QuickDrop"));
+            assert!(rendered.contains(if width < 70 { "qd v" } else { "QuickDrop v" }));
             assert!(rendered.contains("https://quickdrop.example/DEV"));
             assert!(app
                 .ui
@@ -2837,6 +2887,8 @@ mod tests {
                 .iter()
                 .any(|region| region.action == MouseAction::OpenRoom));
             assert!(rendered.contains("hello from QuickDrop"));
+            assert!(rendered.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
+            assert!(rendered.contains("0 online"));
             let rendered_lower = rendered.to_ascii_lowercase();
             assert!(rendered_lower.contains("c copy"));
             assert!(!rendered_lower.contains("y copy"));
