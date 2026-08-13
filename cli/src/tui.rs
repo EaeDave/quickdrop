@@ -119,11 +119,17 @@ struct ActionRegion {
     action: MouseAction,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TimelineItemRegion {
+    area: Rect,
+    index: usize,
+}
+
 #[derive(Debug, Default)]
 struct UiRegions {
     timeline: Rect,
     composer: Rect,
-    timeline_offset: usize,
+    timeline_items: Vec<TimelineItemRegion>,
     actions: Vec<ActionRegion>,
 }
 pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
@@ -585,6 +591,12 @@ async fn handle_timeline_key(
         }
         return Ok(());
     }
+    if key
+        .modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
+        return Ok(());
+    }
     match command_code {
         KeyCode::Char('q') => app.quit = true,
         KeyCode::Char('?') => app.screen = Screen::Help,
@@ -627,17 +639,16 @@ async fn handle_mouse(
             if point_in_rect(mouse.column, mouse.row, app.ui.composer) {
                 app.focus = Focus::Composer;
                 app.status = None;
-            } else if point_in_rect(mouse.column, mouse.row, app.ui.timeline) {
-                let first_row = app.ui.timeline.y.saturating_add(1);
-                let index = app
-                    .ui
-                    .timeline_offset
-                    .saturating_add(usize::from(mouse.row.saturating_sub(first_row) / 3));
-                if index < app.drops.len() {
-                    app.selected = index;
-                    app.focus = Focus::Timeline;
-                    app.status = None;
-                }
+            } else if let Some(index) = app
+                .ui
+                .timeline_items
+                .iter()
+                .find(|region| point_in_rect(mouse.column, mouse.row, region.area))
+                .map(|region| region.index)
+            {
+                app.selected = index;
+                app.focus = Focus::Timeline;
+                app.status = None;
             }
         }
         MouseEventKind::ScrollDown => {
@@ -1317,6 +1328,7 @@ fn valid_code_char(character: char) -> bool {
 
 fn render(frame: &mut Frame<'_>, app: &mut App<'_>) {
     app.ui.actions.clear();
+    app.ui.timeline_items.clear();
     app.ui.timeline = Rect::default();
     app.ui.composer = Rect::default();
     match app.screen {
@@ -1463,26 +1475,25 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         .drops
         .iter()
         .map(|drop| {
-            let content = if compact {
-                truncate(
+            let mut lines = Vec::with_capacity(timeline_item_height(drop, compact));
+            lines.push(Line::styled(
+                format!(
+                    "{}  {}",
+                    content_kind(&drop.content),
+                    short_time(&drop.created_at)
+                ),
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            if compact {
+                lines.push(Line::raw(truncate(
                     &drop.content.replace('\n', " "),
                     rows[1].width.saturating_sub(8) as usize,
-                )
+                )));
             } else {
-                drop.content.clone()
-            };
-            ListItem::new(Text::from(vec![
-                Line::styled(
-                    format!(
-                        "{}  {}",
-                        content_kind(&drop.content),
-                        short_time(&drop.created_at)
-                    ),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-                Line::raw(content),
-                Line::raw(""),
-            ]))
+                lines.extend(drop.content.split('\n').map(Line::raw));
+            }
+            lines.push(Line::raw(""));
+            ListItem::new(Text::from(lines))
         })
         .collect();
     let mut state =
@@ -1496,7 +1507,26 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         )
         .block(Block::default().title(" Timeline ").borders(Borders::ALL));
     frame.render_stateful_widget(timeline, rows[1], &mut state);
-    app.ui.timeline_offset = state.offset();
+    let mut item_y = rows[1].y.saturating_add(1);
+    let items_bottom = rows[1].bottom().saturating_sub(1);
+    for (index, drop) in app.drops.iter().enumerate().skip(state.offset()) {
+        if item_y >= items_bottom {
+            break;
+        }
+        let height = u16::try_from(timeline_item_height(drop, compact))
+            .unwrap_or(u16::MAX)
+            .min(items_bottom.saturating_sub(item_y));
+        app.ui.timeline_items.push(TimelineItemRegion {
+            area: Rect::new(
+                rows[1].x.saturating_add(1),
+                item_y,
+                rows[1].width.saturating_sub(2),
+                height,
+            ),
+            index,
+        });
+        item_y = item_y.saturating_add(height);
+    }
     let composer_title = if app.editing_drop_id.is_some() {
         " Edit drop "
     } else {
@@ -1681,6 +1711,14 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
         height,
     )
 }
+fn timeline_item_height(drop: &TextDrop, compact: bool) -> usize {
+    if compact {
+        3
+    } else {
+        drop.content.split('\n').count().saturating_add(2)
+    }
+}
+
 fn content_kind(content: &str) -> &'static str {
     let text = content.trim();
     if (text.starts_with('{') || text.starts_with('['))
@@ -2134,6 +2172,18 @@ mod tests {
         assert_eq!(app.selected, 1);
         handle_timeline_key(
             &mut app,
+            KeyEvent::new(
+                KeyCode::Char('D'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Timeline);
+        assert!(!app.quit);
+        handle_timeline_key(
+            &mut app,
             KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
             None,
         )
@@ -2182,7 +2232,7 @@ mod tests {
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.screen = Screen::Timeline;
         app.replace_drops(vec![
-            drop("new", "new", "2026-01-01T11:00:00Z"),
+            drop("new", "new\nsecond line", "2026-01-01T11:00:00Z"),
             drop("old", "old", "2026-01-01T10:00:00Z"),
         ]);
         let backend = TestBackend::new(100, 30);
@@ -2195,7 +2245,7 @@ mod tests {
             mouse_event(
                 MouseEventKind::Down(MouseButton::Left),
                 timeline.x + 2,
-                timeline.y + 4,
+                timeline.y + 5,
             ),
             None,
         )
