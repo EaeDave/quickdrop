@@ -139,16 +139,18 @@ Keyboard shortcuts:
 |---|---|---|
 | Code | `Enter` | Open a clipboard or create a public one |
 | Code | `Ctrl+P` | Start a PIN-protected create; Enter then asks for the PIN |
-| Timeline | `j`/`↓`, `k`/`↑` | Select the next or previous drop |
-| Timeline | `g`/`Home`, `G`/`End` | Select the first or last drop |
-| Timeline | `Enter`, `i`, `Tab` | Focus the composer |
-| Timeline | `e`, `y`, `r`, `d` | Edit, copy, resend, or delete the selected drop |
-| Timeline | `u` | Install an available `qd` update and restart the TUI |
-| Timeline | `?`, `q` | Open help or quit |
-| Composer | `Ctrl+S` or `Ctrl+Enter` | Publish a new drop |
+| Timeline | `j`/`J`/`↓`, `k`/`K`/`↑` | Select the next or previous drop |
+| Timeline | `g`/`G`/`Home`, `End` | Select the first or last drop |
+| Timeline | `Enter`, `i`/`I`, `Tab` | Focus the composer |
+| Timeline | `e`/`E`, `c`/`C`, `r`/`R`, `d`/`D` | Edit, copy, resend, or delete the selected drop |
+| Timeline | `u`/`U` | Install an available `qd` update and restart the TUI |
+| Timeline | `?`, `q`/`Q` | Open help or quit |
+| Composer | `Enter`, `Ctrl+Enter` | Publish a new drop or insert a line break |
 | Composer | `Ctrl+U`, `Esc` | Clear the composer or return to the timeline |
-| Editor | `Ctrl+S` or `Ctrl+Enter` | Save changes to the selected drop |
+| Editor | `Enter`, `Ctrl+Enter` | Save changes or insert a line break |
 | Editor | `Ctrl+U`, `Esc` | Clear the editor or cancel editing |
+
+Mouse input can select timeline drops, focus the composer, scroll either region, and activate the visible action buttons. Hold `Shift` while dragging to use the terminal's native text selection.
 
 The layout adapts to small terminals and respects the `NO_COLOR` environment variable. It uses only standard Unicode symbols and does not require a Nerd Font.
 

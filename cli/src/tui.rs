@@ -2,8 +2,9 @@ use std::{collections::VecDeque, env, io, time::Duration};
 
 use crossterm::{
     event::{
-        Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent,
+        KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent,
+        MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -93,6 +94,37 @@ enum NetEvent {
 enum UpdateEvent {
     Check(Result<Option<update::AvailableUpdate>, QdError>),
     Applied(Result<String, QdError>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MouseAction {
+    Submit,
+    Newline,
+    Clear,
+    Cancel,
+    Edit,
+    Copy,
+    Resend,
+    Delete,
+    Update,
+    Help,
+    Quit,
+    ConfirmDelete,
+    Close,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ActionRegion {
+    area: Rect,
+    action: MouseAction,
+}
+
+#[derive(Debug, Default)]
+struct UiRegions {
+    timeline: Rect,
+    composer: Rect,
+    timeline_offset: usize,
+    actions: Vec<ActionRegion>,
 }
 pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
     let mut terminal = TerminalGuard::enter()?;
@@ -203,7 +235,12 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
             let reset_connection = tokio::select! {
                 terminal_event = events.next() => {
                     match terminal_event {
-                        Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                        Some(Ok(Event::Key(key))) => {
+                            handle_key(&mut app, key, Some(actions)).await?
+                        }
+                        Some(Ok(Event::Mouse(mouse))) => {
+                            handle_mouse(&mut app, mouse, Some(actions)).await?
+                        }
                         Some(Ok(_)) => {}
                         Some(Err(error)) => return Err(terminal_error(error)),
                         None => return Ok(()),
@@ -230,6 +267,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
             tokio::select! {
                 terminal_event = events.next() => match terminal_event {
                     Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
+                    Some(Ok(Event::Mouse(mouse))) => handle_mouse(&mut app, mouse, None).await?,
                     Some(Ok(_)) => {}
                     Some(Err(error)) => return Err(terminal_error(error)),
                     None => return Ok(()),
@@ -263,6 +301,7 @@ struct App<'a> {
     update_busy: bool,
     update_requested: bool,
     restart_after_update: bool,
+    ui: UiRegions,
     no_color: bool,
     server: Url,
     quit: bool,
@@ -299,6 +338,7 @@ impl<'a> App<'a> {
             update_busy: false,
             update_requested: false,
             restart_after_update: false,
+            ui: UiRegions::default(),
             no_color: env::var_os("NO_COLOR").is_some(),
             server,
             quit: false,
@@ -453,26 +493,32 @@ async fn handle_key(
     if app.screen == Screen::Timeline {
         app.status = None;
     }
+    let command_code = normalized_command_code(&key.code);
     match app.screen {
-        Screen::Code => match key.code {
-            KeyCode::Esc => app.quit = true,
-            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        Screen::Code => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) && command_code == KeyCode::Char('p') {
                 if app.pin_purpose == PinPurpose::Create && app.code_input.is_empty() {
                     app.pin_purpose = PinPurpose::Unlock;
                     app.status = None;
                 } else {
                     app.submit_code(Some(PinPurpose::Create));
                 }
+            } else {
+                match key.code {
+                    KeyCode::Esc => app.quit = true,
+                    KeyCode::Enter => app.submit_code(None),
+                    KeyCode::Backspace => {
+                        app.code_input.pop();
+                    }
+                    KeyCode::Char(character)
+                        if app.code_input.len() < 16 && valid_code_char(character) =>
+                    {
+                        app.code_input.push(character.to_ascii_uppercase())
+                    }
+                    _ => {}
+                }
             }
-            KeyCode::Enter => app.submit_code(None),
-            KeyCode::Backspace => {
-                app.code_input.pop();
-            }
-            KeyCode::Char(character) if app.code_input.len() < 16 && valid_code_char(character) => {
-                app.code_input.push(character.to_ascii_uppercase())
-            }
-            _ => {}
-        },
+        }
         Screen::Pin => match key.code {
             KeyCode::Esc => {
                 app.screen = Screen::Code;
@@ -500,24 +546,13 @@ async fn handle_key(
             }
             _ => {}
         },
-        Screen::Help => match key.code {
+        Screen::Help => match command_code {
             KeyCode::Char('q') => app.quit = true,
             KeyCode::Esc | KeyCode::Char('?') => app.screen = Screen::Timeline,
             _ => {}
         },
-        Screen::ConfirmDelete => match key.code {
-            KeyCode::Char('y') | KeyCode::Enter => {
-                if app.connection != ConnectionState::Connected {
-                    app.status = Some("Wait for the connection before deleting".to_owned());
-                } else if let (Some(sender), Some(drop)) = (actions, app.selected_drop()) {
-                    sender
-                        .send(Action::Delete(drop.id.clone()))
-                        .await
-                        .map_err(channel_error)?;
-                    app.status = Some("Deleting…".to_owned());
-                }
-                app.screen = Screen::Timeline;
-            }
+        Screen::ConfirmDelete => match command_code {
+            KeyCode::Char('y') | KeyCode::Enter => confirm_delete(app, actions).await?,
             KeyCode::Esc | KeyCode::Char('n') => app.screen = Screen::Timeline,
             _ => {}
         },
@@ -531,103 +566,256 @@ async fn handle_timeline_key(
     key: KeyEvent,
     actions: Option<&mpsc::Sender<Action>>,
 ) -> Result<(), QdError> {
+    let command_code = normalized_command_code(&key.code);
     if app.focus == Focus::Composer {
         if key.code == KeyCode::Esc {
-            if app.editing_drop_id.is_some() {
-                app.finish_edit();
-            } else {
-                app.focus = Focus::Timeline;
+            cancel_composer(app);
+        } else if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if !app.edit_saving {
+                app.composer.insert_newline();
             }
+        } else if key.code == KeyCode::Enter {
+            submit_composer(app, actions).await?;
         } else if key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Enter | KeyCode::Char('s'))
+            && command_code == KeyCode::Char('u')
         {
-            let content = app.composer_content();
-            let verb = if app.editing_drop_id.is_some() {
-                "saving"
-            } else {
-                "sending"
-            };
-            if content.trim().is_empty() {
-                app.status = Some(format!("Write something before {verb}"));
-            } else if app.connection != ConnectionState::Connected {
-                app.status = Some(format!("Wait for the connection before {verb}"));
-            } else if app.edit_saving {
-                app.status = Some("Wait for edit confirmation".to_owned());
-            } else if let Some(sender) = actions {
-                if let Some(drop_id) = app.editing_drop_id.clone() {
-                    sender
-                        .send(Action::Update(drop_id, content))
-                        .await
-                        .map_err(channel_error)?;
-                    app.edit_saving = true;
-                    app.status = Some("Saving…".to_owned());
-                } else {
-                    sender
-                        .send(Action::Publish(content))
-                        .await
-                        .map_err(channel_error)?;
-                    app.clear_composer();
-                    app.focus = Focus::Timeline;
-                    app.status = Some("Sending…".to_owned());
-                }
-            }
-        } else if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
             app.clear_composer();
         } else if !app.edit_saving {
             app.composer.input(key);
         }
         return Ok(());
     }
-    match key.code {
+    match command_code {
         KeyCode::Char('q') => app.quit = true,
         KeyCode::Char('?') => app.screen = Screen::Help,
         KeyCode::Char('j') | KeyCode::Down => app.select_next(),
         KeyCode::Char('k') | KeyCode::Up => app.selected = app.selected.saturating_sub(1),
         KeyCode::Char('g') | KeyCode::Home => app.selected = 0,
-        KeyCode::Char('G') | KeyCode::End => app.selected = app.drops.len().saturating_sub(1),
+        KeyCode::End => app.selected = app.drops.len().saturating_sub(1),
         KeyCode::Enter | KeyCode::Char('i') | KeyCode::Tab => app.focus = Focus::Composer,
         KeyCode::Char('e') if app.selected_drop().is_some() => app.begin_edit(),
-        KeyCode::Char('y') => {
-            if let Some(content) = app.selected_drop().map(|drop| drop.content.clone()) {
-                match copy_to_system_clipboard(&content) {
-                    Ok(()) => app.status = Some("Copied".to_owned()),
-                    Err(error) => app.status = Some(error_message(error)),
+        KeyCode::Char('c') => copy_selected(app),
+        KeyCode::Char('r') => resend_selected(app, actions).await?,
+        KeyCode::Char('d') if app.selected_drop().is_some() => app.screen = Screen::ConfirmDelete,
+        KeyCode::Char('u') if app.available_update.is_some() => request_update(app),
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_mouse(
+    app: &mut App<'_>,
+    mouse: MouseEvent,
+    actions: Option<&mpsc::Sender<Action>>,
+) -> Result<(), QdError> {
+    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+        if let Some(action) = app
+            .ui
+            .actions
+            .iter()
+            .find(|region| point_in_rect(mouse.column, mouse.row, region.area))
+            .map(|region| region.action)
+        {
+            return run_mouse_action(app, action, actions).await;
+        }
+    }
+    if app.screen != Screen::Timeline {
+        return Ok(());
+    }
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if point_in_rect(mouse.column, mouse.row, app.ui.composer) {
+                app.focus = Focus::Composer;
+                app.status = None;
+            } else if point_in_rect(mouse.column, mouse.row, app.ui.timeline) {
+                let first_row = app.ui.timeline.y.saturating_add(1);
+                let index = app
+                    .ui
+                    .timeline_offset
+                    .saturating_add(usize::from(mouse.row.saturating_sub(first_row) / 3));
+                if index < app.drops.len() {
+                    app.selected = index;
+                    app.focus = Focus::Timeline;
+                    app.status = None;
                 }
             }
         }
-        KeyCode::Char('r') => {
-            if app.connection != ConnectionState::Connected {
-                app.status = Some("Wait for the connection before resending".to_owned());
-            } else if let (Some(sender), Some(content)) = (
-                actions,
-                app.selected_drop().map(|drop| drop.content.clone()),
-            ) {
-                sender
-                    .send(Action::Publish(content))
-                    .await
-                    .map_err(channel_error)?;
-                app.status = Some("Resending…".to_owned());
+        MouseEventKind::ScrollDown => {
+            if point_in_rect(mouse.column, mouse.row, app.ui.composer) {
+                app.composer.input(mouse);
+            } else if point_in_rect(mouse.column, mouse.row, app.ui.timeline) {
+                app.select_next();
+                app.focus = Focus::Timeline;
             }
         }
-        KeyCode::Char('d') if app.selected_drop().is_some() => app.screen = Screen::ConfirmDelete,
-        KeyCode::Char('u') if app.available_update.is_some() => {
-            if app.update_busy {
-                app.status = Some("Updating qd…".to_owned());
-            } else {
-                app.update_busy = true;
-                app.update_requested = true;
-                app.status = Some(format!(
-                    "Updating to qd {}…",
-                    app.available_update
-                        .as_ref()
-                        .map(|item| item.version.as_str())
-                        .unwrap_or_default()
-                ));
+        MouseEventKind::ScrollUp => {
+            if point_in_rect(mouse.column, mouse.row, app.ui.composer) {
+                app.composer.input(mouse);
+            } else if point_in_rect(mouse.column, mouse.row, app.ui.timeline) {
+                app.selected = app.selected.saturating_sub(1);
+                app.focus = Focus::Timeline;
             }
         }
         _ => {}
     }
     Ok(())
+}
+
+async fn run_mouse_action(
+    app: &mut App<'_>,
+    action: MouseAction,
+    actions: Option<&mpsc::Sender<Action>>,
+) -> Result<(), QdError> {
+    app.status = None;
+    match action {
+        MouseAction::Submit => submit_composer(app, actions).await?,
+        MouseAction::Newline => {
+            if !app.edit_saving {
+                app.composer.insert_newline();
+            }
+        }
+        MouseAction::Clear => app.clear_composer(),
+        MouseAction::Cancel => cancel_composer(app),
+        MouseAction::Edit => app.begin_edit(),
+        MouseAction::Copy => copy_selected(app),
+        MouseAction::Resend => resend_selected(app, actions).await?,
+        MouseAction::Delete => {
+            if app.selected_drop().is_some() {
+                app.screen = Screen::ConfirmDelete;
+            }
+        }
+        MouseAction::Update => request_update(app),
+        MouseAction::Help => app.screen = Screen::Help,
+        MouseAction::Quit => app.quit = true,
+        MouseAction::ConfirmDelete => confirm_delete(app, actions).await?,
+        MouseAction::Close => app.screen = Screen::Timeline,
+    }
+    Ok(())
+}
+
+async fn submit_composer(
+    app: &mut App<'_>,
+    actions: Option<&mpsc::Sender<Action>>,
+) -> Result<(), QdError> {
+    let content = app.composer_content();
+    let verb = if app.editing_drop_id.is_some() {
+        "saving"
+    } else {
+        "sending"
+    };
+    if content.trim().is_empty() {
+        app.status = Some(format!("Write something before {verb}"));
+    } else if app.connection != ConnectionState::Connected {
+        app.status = Some(format!("Wait for the connection before {verb}"));
+    } else if app.edit_saving {
+        app.status = Some("Wait for edit confirmation".to_owned());
+    } else if let Some(sender) = actions {
+        if let Some(drop_id) = app.editing_drop_id.clone() {
+            sender
+                .send(Action::Update(drop_id, content))
+                .await
+                .map_err(channel_error)?;
+            app.edit_saving = true;
+            app.status = Some("Saving…".to_owned());
+        } else {
+            sender
+                .send(Action::Publish(content))
+                .await
+                .map_err(channel_error)?;
+            app.clear_composer();
+            app.focus = Focus::Timeline;
+            app.status = Some("Sending…".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn cancel_composer(app: &mut App<'_>) {
+    if app.editing_drop_id.is_some() {
+        app.finish_edit();
+    } else {
+        app.focus = Focus::Timeline;
+    }
+}
+
+fn copy_selected(app: &mut App<'_>) {
+    if let Some(content) = app.selected_drop().map(|drop| drop.content.clone()) {
+        match copy_to_system_clipboard(&content) {
+            Ok(()) => app.status = Some("Copied".to_owned()),
+            Err(error) => app.status = Some(error_message(error)),
+        }
+    }
+}
+
+async fn resend_selected(
+    app: &mut App<'_>,
+    actions: Option<&mpsc::Sender<Action>>,
+) -> Result<(), QdError> {
+    if app.connection != ConnectionState::Connected {
+        app.status = Some("Wait for the connection before resending".to_owned());
+    } else if let (Some(sender), Some(content)) = (
+        actions,
+        app.selected_drop().map(|drop| drop.content.clone()),
+    ) {
+        sender
+            .send(Action::Publish(content))
+            .await
+            .map_err(channel_error)?;
+        app.status = Some("Resending…".to_owned());
+    }
+    Ok(())
+}
+
+fn request_update(app: &mut App<'_>) {
+    if app.available_update.is_none() {
+        return;
+    }
+    if app.update_busy {
+        app.status = Some("Updating qd…".to_owned());
+    } else {
+        app.update_busy = true;
+        app.update_requested = true;
+        app.status = Some(format!(
+            "Updating to qd {}…",
+            app.available_update
+                .as_ref()
+                .map(|item| item.version.as_str())
+                .unwrap_or_default()
+        ));
+    }
+}
+
+async fn confirm_delete(
+    app: &mut App<'_>,
+    actions: Option<&mpsc::Sender<Action>>,
+) -> Result<(), QdError> {
+    if app.connection != ConnectionState::Connected {
+        app.status = Some("Wait for the connection before deleting".to_owned());
+    } else if let (Some(sender), Some(drop_id)) =
+        (actions, app.selected_drop().map(|drop| drop.id.clone()))
+    {
+        sender
+            .send(Action::Delete(drop_id))
+            .await
+            .map_err(channel_error)?;
+        app.status = Some("Deleting…".to_owned());
+    }
+    app.screen = Screen::Timeline;
+    Ok(())
+}
+
+fn normalized_command_code(code: &KeyCode) -> KeyCode {
+    match code {
+        KeyCode::Char(character) => KeyCode::Char(character.to_ascii_lowercase()),
+        _ => *code,
+    }
+}
+
+fn point_in_rect(column: u16, row: u16, area: Rect) -> bool {
+    column >= area.x
+        && column < area.x.saturating_add(area.width)
+        && row >= area.y
+        && row < area.y.saturating_add(area.height)
 }
 
 fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
@@ -1128,6 +1316,9 @@ fn valid_code_char(character: char) -> bool {
 }
 
 fn render(frame: &mut Frame<'_>, app: &mut App<'_>) {
+    app.ui.actions.clear();
+    app.ui.timeline = Rect::default();
+    app.ui.composer = Rect::default();
     match app.screen {
         Screen::Code => render_code(frame, app),
         Screen::Pin => render_pin(frame, app),
@@ -1237,6 +1428,8 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             Constraint::Length(1),
         ])
         .split(frame.area());
+    app.ui.timeline = rows[1];
+    app.ui.composer = rows[2];
     let (connection_label, connection_color) = match app.connection {
         ConnectionState::Connected => ("● Connected", app.color(Color::Green)),
         ConnectionState::Connecting => ("◌ Connecting", app.color(Color::Yellow)),
@@ -1303,6 +1496,7 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         )
         .block(Block::default().title(" Timeline ").borders(Borders::ALL));
     frame.render_stateful_widget(timeline, rows[1], &mut state);
+    app.ui.timeline_offset = state.offset();
     let composer_title = if app.editing_drop_id.is_some() {
         " Edit drop "
     } else {
@@ -1319,29 +1513,69 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
             })),
     );
     frame.render_widget(&app.composer, rows[2]);
-    let default_footer = if app.focus == Focus::Composer {
-        if app.editing_drop_id.is_some() {
-            "Ctrl+S/Ctrl+Enter save · Esc cancel · Ctrl+U clear".to_owned()
+    let (default_footer, actions) = if app.focus == Focus::Composer {
+        let submit_label = if app.editing_drop_id.is_some() {
+            "[Enter Save]"
         } else {
-            "Ctrl+S/Ctrl+Enter send · Esc timeline · Ctrl+U clear".to_owned()
-        }
-    } else if let Some(update) = &app.available_update {
-        format!(
-            "u update to {} · e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit",
-            update.version
+            "[Enter Send]"
+        };
+        (
+            if compact {
+                format!(
+                    "{} · Ctrl+Enter newline · Esc {}",
+                    submit_label.trim_matches(['[', ']']),
+                    if app.editing_drop_id.is_some() {
+                        "cancel"
+                    } else {
+                        "back"
+                    }
+                )
+            } else {
+                format!(
+                    "{} · Ctrl+Enter new line · Ctrl+U clear · Esc {}",
+                    submit_label.trim_matches(['[', ']']),
+                    if app.editing_drop_id.is_some() {
+                        "cancel"
+                    } else {
+                        "timeline"
+                    }
+                )
+            },
+            vec![
+                (submit_label.to_owned(), MouseAction::Submit),
+                ("[New line]".to_owned(), MouseAction::Newline),
+                ("[Clear]".to_owned(), MouseAction::Clear),
+                ("[Cancel]".to_owned(), MouseAction::Cancel),
+            ],
         )
     } else {
-        "e edit selected · Enter compose · y copy · r resend · d delete · ? help · q quit"
-            .to_owned()
+        let mut actions = vec![
+            ("[e Edit]".to_owned(), MouseAction::Edit),
+            ("[c Copy]".to_owned(), MouseAction::Copy),
+            ("[r Resend]".to_owned(), MouseAction::Resend),
+            ("[d Delete]".to_owned(), MouseAction::Delete),
+            ("[? Help]".to_owned(), MouseAction::Help),
+            ("[q Quit]".to_owned(), MouseAction::Quit),
+        ];
+        let fallback = if let Some(update) = &app.available_update {
+            actions.insert(0, ("[u Update]".to_owned(), MouseAction::Update));
+            format!(
+                "u update to {} · e edit · c copy · r resend · d delete · ? help · q quit",
+                update.version
+            )
+        } else {
+            "e edit · c copy · r resend · d delete · ? help · q quit".to_owned()
+        };
+        (fallback, actions)
     };
-    let footer = app.status.as_deref().unwrap_or(default_footer.as_str());
-    frame.render_widget(Paragraph::new(footer).alignment(Alignment::Center), rows[3]);
+    render_action_footer(frame, app, rows[3], &default_footer, actions);
 }
 
-fn render_help(frame: &mut Frame<'_>, app: &App<'_>) {
-    let area = centered_rect(58, 18, frame.area());
+fn render_help(frame: &mut Frame<'_>, app: &mut App<'_>) {
+    app.ui.actions.clear();
+    let area = centered_rect(62, 19, frame.area());
     frame.render_widget(Clear, area);
-    let help = "Navigation\n  j/↓, k/↑       Select a drop\n  g/Home, G/End   First or last drop\n  Enter/i/Tab     Edit composer\n\nActions\n  e edit selected · y copy · r resend · d delete · u update qd\n\nComposer / editor\n  Ctrl+S/Ctrl+Enter send or save · Ctrl+U clear · Esc cancel\n\n? or Esc close · q quit";
+    let help = "Navigation\n  j/J/↓, k/K/↑    Select a drop\n  g/G/Home         First drop\n  End              Last drop\n  Enter/i/I/Tab    Focus composer\n  Click/scroll     Select and navigate\n\nActions\n  e/E edit · c/C copy · r/R resend · d/D delete · u/U update\n\nComposer / editor\n  Enter send/save · Ctrl+Enter new line · Ctrl+U clear · Esc cancel\n\nShift+drag selects terminal text";
     frame.render_widget(
         Paragraph::new(help).wrap(Wrap { trim: false }).block(
             Block::default()
@@ -1351,14 +1585,25 @@ fn render_help(frame: &mut Frame<'_>, app: &App<'_>) {
         ),
         area,
     );
+    let actions = vec![
+        ("[Close]".to_owned(), MouseAction::Close),
+        ("[Quit]".to_owned(), MouseAction::Quit),
+    ];
+    let action_area = Rect::new(area.x, area.bottom().saturating_sub(2), area.width, 1);
+    frame.render_widget(
+        Paragraph::new("[Close] · [Quit]").alignment(Alignment::Center),
+        action_area,
+    );
+    register_centered_actions(app, action_area, &actions);
 }
 
-fn render_confirmation(frame: &mut Frame<'_>, app: &App<'_>) {
+fn render_confirmation(frame: &mut Frame<'_>, app: &mut App<'_>) {
+    app.ui.actions.clear();
     let area = centered_rect(48, 7, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(
-            "Delete the selected drop for every connected device?\n\nEnter/y delete · n/Esc cancel",
+            "Delete the selected drop for every connected device?\n\n[Yes, delete]  [Cancel]",
         )
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true })
@@ -1370,6 +1615,60 @@ fn render_confirmation(frame: &mut Frame<'_>, app: &App<'_>) {
         ),
         area,
     );
+    register_centered_actions(
+        app,
+        Rect::new(area.x, area.y.saturating_add(4), area.width, 1),
+        &[
+            ("[Yes, delete]".to_owned(), MouseAction::ConfirmDelete),
+            ("[Cancel]".to_owned(), MouseAction::Close),
+        ],
+    );
+}
+
+fn render_action_footer(
+    frame: &mut Frame<'_>,
+    app: &mut App<'_>,
+    area: Rect,
+    fallback: &str,
+    actions: Vec<(String, MouseAction)>,
+) {
+    if let Some(status) = app.status.as_deref() {
+        frame.render_widget(Paragraph::new(status).alignment(Alignment::Center), area);
+        return;
+    }
+    let action_text = actions
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if action_text.chars().count() <= usize::from(area.width) {
+        frame.render_widget(
+            Paragraph::new(action_text).alignment(Alignment::Center),
+            area,
+        );
+        register_centered_actions(app, area, &actions);
+    } else {
+        frame.render_widget(Paragraph::new(fallback).alignment(Alignment::Center), area);
+    }
+}
+
+fn register_centered_actions(app: &mut App<'_>, area: Rect, actions: &[(String, MouseAction)]) {
+    let total_width = actions
+        .iter()
+        .map(|(label, _)| label.chars().count())
+        .sum::<usize>()
+        .saturating_add(actions.len().saturating_sub(1) * 3);
+    let mut x = area
+        .x
+        .saturating_add(area.width.saturating_sub(total_width as u16) / 2);
+    for (label, action) in actions {
+        let width = label.chars().count() as u16;
+        app.ui.actions.push(ActionRegion {
+            area: Rect::new(x, area.y, width, area.height),
+            action: *action,
+        });
+        x = x.saturating_add(width).saturating_add(3);
+    }
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
@@ -1423,7 +1722,8 @@ impl TerminalGuard {
     fn enter() -> Result<Self, QdError> {
         enable_raw_mode().map_err(terminal_error)?;
         let mut stdout = io::stdout();
-        if let Err(error) = execute!(stdout, EnterAlternateScreen) {
+        if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableMouseCapture) {
+            let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
             let _ = disable_raw_mode();
             return Err(terminal_error(error));
         }
@@ -1434,7 +1734,7 @@ impl TerminalGuard {
             Ok(()) => true,
             Err(error) if keyboard_enhancement_is_optional(&error) => false,
             Err(error) => {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+                let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
                 let _ = disable_raw_mode();
                 return Err(terminal_error(error));
             }
@@ -1448,7 +1748,7 @@ impl TerminalGuard {
                 if keyboard_enhancement_enabled {
                     let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
                 }
-                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+                let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
                 let _ = disable_raw_mode();
                 Err(terminal_error(error))
             }
@@ -1466,7 +1766,11 @@ impl Drop for TerminalGuard {
         if self.keyboard_enhancement_enabled {
             let _ = execute!(self.terminal.backend_mut(), PopKeyboardEnhancementFlags);
         }
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         let _ = disable_raw_mode();
         let _ = self.terminal.show_cursor();
     }
@@ -1498,6 +1802,14 @@ mod tests {
             id: id.to_owned(),
             content: content.to_owned(),
             created_at: created_at.to_owned(),
+        }
+    }
+    fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
         }
     }
     #[test]
@@ -1606,7 +1918,7 @@ mod tests {
         assert_eq!(app.selected, 0);
     }
     #[tokio::test]
-    async fn ctrl_s_publishes_and_clears_the_composer() {
+    async fn enter_publishes_and_clears_the_composer() {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.screen = Screen::Timeline;
@@ -1617,7 +1929,7 @@ mod tests {
 
         handle_timeline_key(
             &mut app,
-            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
             Some(&actions),
         )
         .await
@@ -1632,13 +1944,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ctrl_enter_publishes_and_clears_the_composer() {
+    async fn ctrl_enter_inserts_a_newline_without_publishing() {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, Some("DEV".to_owned()));
         app.screen = Screen::Timeline;
         app.focus = Focus::Composer;
         app.connection = ConnectionState::Connected;
-        app.composer.insert_str("hello with ctrl enter");
+        app.composer.insert_str("first");
         let (actions, mut received) = mpsc::channel(1);
 
         handle_timeline_key(
@@ -1648,13 +1960,11 @@ mod tests {
         )
         .await
         .unwrap();
+        app.composer.insert_str("second");
 
-        let Some(Action::Publish(content)) = received.recv().await else {
-            panic!("expected publish action")
-        };
-        assert_eq!(content, "hello with ctrl enter");
-        assert!(app.composer_content().is_empty());
-        assert_eq!(app.focus, Focus::Timeline);
+        assert_eq!(app.composer_content(), "first\nsecond");
+        assert!(received.try_recv().is_err());
+        assert_eq!(app.focus, Focus::Composer);
     }
 
     #[tokio::test]
@@ -1682,7 +1992,7 @@ mod tests {
         app.composer.insert_str("edited");
         handle_timeline_key(
             &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
             Some(&actions),
         )
         .await
@@ -1805,6 +2115,153 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn uppercase_shortcuts_work_without_changing_typed_text() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.replace_drops(vec![
+            drop("new", "new", "2026-01-01T11:00:00Z"),
+            drop("old", "old", "2026-01-01T10:00:00Z"),
+        ]);
+
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('J'), KeyModifiers::SHIFT),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.selected, 1);
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.selected, 0);
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('E'), KeyModifiers::SHIFT),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(app.editing_drop_id.is_some());
+
+        app.finish_edit();
+        app.focus = Focus::Composer;
+        handle_timeline_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.composer_content(), "A");
+
+        app.screen = Screen::Code;
+        app.code_input = "SECRET".to_owned();
+        handle_key(
+            &mut app,
+            KeyEvent::new(
+                KeyCode::Char('P'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Pin);
+        assert_eq!(app.pin_purpose, PinPurpose::Create);
+    }
+
+    #[tokio::test]
+    async fn mouse_selects_drops_focuses_composer_and_runs_visible_actions() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Timeline;
+        app.replace_drops(vec![
+            drop("new", "new", "2026-01-01T11:00:00Z"),
+            drop("old", "old", "2026-01-01T10:00:00Z"),
+        ]);
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+
+        let timeline = app.ui.timeline;
+        handle_mouse(
+            &mut app,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                timeline.x + 2,
+                timeline.y + 4,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.selected, 1);
+
+        let composer = app.ui.composer;
+        handle_mouse(
+            &mut app,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                composer.x + 2,
+                composer.y + 1,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.focus, Focus::Composer);
+
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let newline = app
+            .ui
+            .actions
+            .iter()
+            .find(|region| region.action == MouseAction::Newline)
+            .copied()
+            .expect("newline action should be visible");
+        handle_mouse(
+            &mut app,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                newline.area.x,
+                newline.area.y,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.composer_content(), "\n");
+
+        app.focus = Focus::Timeline;
+        terminal.draw(|frame| render(frame, &mut app)).unwrap();
+        let help = app
+            .ui
+            .actions
+            .iter()
+            .find(|region| region.action == MouseAction::Help)
+            .copied()
+            .expect("help action should be visible");
+        handle_mouse(
+            &mut app,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                help.area.x,
+                help.area.y,
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(app.screen, Screen::Help);
+    }
+
+    #[tokio::test]
     async fn pin_prompt_accepts_a_valid_pin_and_returns_to_the_code_screen() {
         let server = Url::parse("https://quickdrop.example").unwrap();
         let mut app = App::new(server, Some("SECRET".to_owned()));
@@ -1860,7 +2317,7 @@ mod tests {
 
         handle_timeline_key(
             &mut app,
-            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT),
             None,
         )
         .await
@@ -1919,6 +2376,25 @@ mod tests {
                 .collect();
             assert!(rendered.contains("QuickDrop"));
             assert!(rendered.contains("hello from QuickDrop"));
+            let rendered_lower = rendered.to_ascii_lowercase();
+            assert!(rendered_lower.contains("c copy"));
+            assert!(!rendered_lower.contains("y copy"));
+
+            app.focus = Focus::Composer;
+            terminal.draw(|frame| render(frame, &mut app)).unwrap();
+            let composer_footer: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(composer_footer.contains("Enter Send"));
+            assert!(app
+                .ui
+                .actions
+                .iter()
+                .any(|region| region.action == MouseAction::Newline));
         }
     }
 
