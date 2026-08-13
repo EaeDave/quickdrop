@@ -343,6 +343,22 @@ bun run desktop:build:web
 
 File upload and download integration tests require working PostgreSQL and R2 credentials.
 
+## Knowledge graph
+
+The versioned [`graphify-out/`](graphify-out/) artifacts provide an interactive architecture map, a plain-language audit report, and queryable graph data:
+
+- `graph.html` — interactive visualization
+- `GRAPH_REPORT.md` — architecture and graph-health report
+- `graph.json` — machine-readable graph
+
+Install [graphify](https://github.com/safishamsi/graphify) and enable automatic code-only rebuilds for commits and branch switches with:
+
+```bash
+graphify hook install
+```
+
+Git hooks are local to each clone. Run `graphify query "<question>"` to explore the committed graph, or run `graphify .` for a complete rebuild including documentation and images.
+
 ## License
 
 No license file is currently included. Add one before distributing QuickDrop outside its intended private environment.
