@@ -608,6 +608,44 @@ async function handleRealtimeMessage(
     return;
   }
 
+  if (message.type === "drop_update") {
+    if (Buffer.byteLength(message.content, "utf8") > deps.maxBytes) {
+      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Texto excede o limite por item." }));
+      return;
+    }
+    if (message.content.trim().length === 0) {
+      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "O item não pode ficar vazio." }));
+      return;
+    }
+
+    const result = await dropsRepository.updateDrop({
+      roomId: room.id,
+      dropId: message.dropId,
+      content: message.content,
+      contentType: classifyTextDrop(message.content),
+      updatedAt: now(),
+    });
+    if (!result) {
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      return;
+    }
+    if (!result.drop) {
+      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item não encontrado." }));
+      return;
+    }
+
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "drop_updated", drop: dropPayload(result.drop), by: clientId }),
+    );
+    deps.hub.broadcast(
+      code,
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
+      clientId,
+    );
+    return;
+  }
+
   if (message.type === "drop_delete") {
     const result = await dropsRepository.deleteDrop(room.id, message.dropId, now());
     if (!result) {
@@ -675,6 +713,7 @@ async function handleRealtimeMessage(
 function parseRealtimeMessage(raw: RawData):
   | { type: "write"; text: string }
   | { type: "drop_add"; content: string }
+  | { type: "drop_update"; dropId: string; content: string }
   | { type: "drop_delete"; dropId: string }
   | { type: "drops_clear" }
   | { type: "typing"; active: boolean }
@@ -698,6 +737,17 @@ function parseRealtimeMessage(raw: RawData):
 
   if (parsed.type === "drop_add" && "content" in parsed && typeof parsed.content === "string") {
     return { type: "drop_add", content: parsed.content };
+  }
+
+  if (
+    parsed.type === "drop_update" &&
+    "dropId" in parsed &&
+    typeof parsed.dropId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.dropId) &&
+    "content" in parsed &&
+    typeof parsed.content === "string"
+  ) {
+    return { type: "drop_update", dropId: parsed.dropId, content: parsed.content };
   }
 
   if (
