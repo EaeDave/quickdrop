@@ -1,16 +1,6 @@
 name: Build Windows release
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/release.yml
-      - cli/**
-      - src-tauri/**
-      - src/desktop/**
-      - scripts/package-windows-qd-release.ts
-      - scripts/release.ts
-      - package.json
-      - bun.lock
   push:
     tags:
       - "v*"
@@ -31,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
