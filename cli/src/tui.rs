@@ -20,7 +20,9 @@ use tokio::{sync::mpsc, time::sleep};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui_textarea::TextArea;
 
-use crate::{copy_to_system_clipboard, endpoint, open_room, Client, QdCommand, QdError, TextDrop};
+use crate::{
+    copy_to_system_clipboard, endpoint, http_client, open_room, QdCommand, QdError, TextDrop,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
@@ -49,9 +51,11 @@ enum Action {
 enum NetEvent {
     State(ConnectionState),
     Snapshot(Vec<TextDrop>),
-    Added(TextDrop),
+    Added(TextDrop, bool),
     Deleted(String),
     Removed(Vec<String>),
+    Cleared,
+    PublishFailed(String),
     Error(String),
 }
 
@@ -114,12 +118,26 @@ impl<'a> App<'a> {
         self.drops = drops;
         self.selected = self.selected.min(self.drops.len().saturating_sub(1));
     }
-    fn add_drop(&mut self, drop: TextDrop) {
+    fn add_drop(&mut self, drop: TextDrop, local: bool) {
+        let selected_id = self.selected_drop().map(|item| item.id.clone());
+        let added_id = drop.id.clone();
         self.drops.retain(|item| item.id != drop.id);
         self.drops.push(drop);
         sort_drops(&mut self.drops);
-        self.selected = 0;
-        self.status = Some("Sent".to_owned());
+        if local {
+            self.selected = self
+                .drops
+                .iter()
+                .position(|item| item.id == added_id)
+                .unwrap_or_default();
+            self.status = Some("Sent".to_owned());
+        } else if let Some(selected_id) = selected_id {
+            self.selected = self
+                .drops
+                .iter()
+                .position(|item| item.id == selected_id)
+                .unwrap_or_else(|| self.selected.min(self.drops.len().saturating_sub(1)));
+        }
     }
     fn remove_drop(&mut self, id: &str) {
         self.drops.retain(|drop| drop.id != id);
@@ -134,6 +152,13 @@ impl<'a> App<'a> {
             .set_placeholder_text("Write or paste a new drop…");
         self.composer.set_cursor_line_style(Style::default());
     }
+    fn restore_composer(&mut self, content: String) {
+        self.composer = TextArea::from(content.split('\n').map(str::to_owned).collect::<Vec<_>>());
+        self.composer
+            .set_placeholder_text("Write or paste a new drop…");
+        self.composer.set_cursor_line_style(Style::default());
+        self.focus = Focus::Composer;
+    }
 }
 
 pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), QdError> {
@@ -141,6 +166,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
     let mut events = EventStream::new();
     let mut app = App::new(server, initial_code);
     let mut connection = None;
+
     loop {
         terminal
             .draw(|frame| render(frame, &mut app))
@@ -148,13 +174,27 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
         if app.quit {
             return Ok(());
         }
+
         if app.screen == Screen::Timeline && connection.is_none() {
             let command = QdCommand {
                 code: app.code.clone(),
                 copy: false,
                 server: app.server.clone(),
             };
-            let room = open_room(&Client::new(), &command).await?;
+            let room = match http_client() {
+                Ok(client) => open_room(&client, &command).await,
+                Err(error) => Err(error),
+            };
+            let room = match room {
+                Ok(room) => room,
+                Err(error) => {
+                    app.screen = Screen::Code;
+                    app.code_input = app.code.clone();
+                    app.status = Some(error_message(error));
+                    app.code.clear();
+                    continue;
+                }
+            };
             if room.protected {
                 app.screen = Screen::Code;
                 app.code_input = app.code.clone();
@@ -174,13 +214,27 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
             ));
             connection = Some((actions_tx, network_rx));
         }
+
         if let Some((actions, network)) = connection.as_mut() {
             tokio::select! {
-                terminal_event = events.next() => if let Some(Ok(Event::Key(key))) = terminal_event { handle_key(&mut app, key, Some(actions)).await?; },
-                network_event = network.recv() => match network_event { Some(event) => apply_network_event(&mut app, event), None => app.connection = ConnectionState::Reconnecting }
+                terminal_event = events.next() => match terminal_event {
+                    Some(Ok(Event::Key(key))) => handle_key(&mut app, key, Some(actions)).await?,
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => return Err(terminal_error(error)),
+                    None => return Ok(()),
+                },
+                network_event = network.recv() => match network_event {
+                    Some(event) => apply_network_event(&mut app, event),
+                    None => app.connection = ConnectionState::Reconnecting,
+                }
             }
-        } else if let Some(Ok(Event::Key(key))) = events.next().await {
-            handle_key(&mut app, key, None).await?;
+        } else {
+            match events.next().await {
+                Some(Ok(Event::Key(key))) => handle_key(&mut app, key, None).await?,
+                Some(Ok(_)) => {}
+                Some(Err(error)) => return Err(terminal_error(error)),
+                None => return Ok(()),
+            }
         }
     }
 }
@@ -215,14 +269,11 @@ async fn handle_key(
             }
             _ => {}
         },
-        Screen::Help => {
-            if matches!(
-                key.code,
-                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
-            ) {
-                app.screen = Screen::Timeline;
-            }
-        }
+        Screen::Help => match key.code {
+            KeyCode::Char('q') => app.quit = true,
+            KeyCode::Esc | KeyCode::Char('?') => app.screen = Screen::Timeline,
+            _ => {}
+        },
         Screen::ConfirmDelete => match key.code {
             KeyCode::Char('y') | KeyCode::Enter => {
                 if app.connection != ConnectionState::Connected {
@@ -286,8 +337,10 @@ async fn handle_timeline_key(
         KeyCode::Enter | KeyCode::Char('i') | KeyCode::Tab => app.focus = Focus::Composer,
         KeyCode::Char('y') => {
             if let Some(content) = app.selected_drop().map(|drop| drop.content.clone()) {
-                copy_to_system_clipboard(&content)?;
-                app.status = Some("Copied".to_owned());
+                match copy_to_system_clipboard(&content) {
+                    Ok(()) => app.status = Some("Copied".to_owned()),
+                    Err(error) => app.status = Some(error_message(error)),
+                }
             }
         }
         KeyCode::Char('r') => {
@@ -314,7 +367,7 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
     match event {
         NetEvent::State(state) => app.connection = state,
         NetEvent::Snapshot(drops) => app.replace_drops(drops),
-        NetEvent::Added(drop) => app.add_drop(drop),
+        NetEvent::Added(drop, local) => app.add_drop(drop, local),
         NetEvent::Deleted(id) => {
             app.remove_drop(&id);
             app.status = Some("Deleted".to_owned());
@@ -323,6 +376,15 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) {
             for id in ids {
                 app.remove_drop(&id);
             }
+        }
+        NetEvent::Cleared => {
+            app.drops.clear();
+            app.selected = 0;
+            app.status = Some("Cleared".to_owned());
+        }
+        NetEvent::PublishFailed(content) => {
+            app.restore_composer(content);
+            app.status = Some("Publish was not confirmed; the text was restored".to_owned());
         }
         NetEvent::Error(message) => app.status = Some(message),
     }
@@ -364,33 +426,95 @@ async fn realtime_client(
         {
             return;
         }
+
+        let mut client_id = None;
+        let mut pending_publish = None;
         loop {
             tokio::select! {
                 action = actions.recv() => match action {
-                    Some(Action::Publish(content)) => if socket.send(Message::Text(json!({ "type": "drop_add", "content": content }).to_string().into())).await.is_err() { break; },
-                    Some(Action::Delete(drop_id)) => if socket.send(Message::Text(json!({ "type": "drop_delete", "dropId": drop_id }).to_string().into())).await.is_err() { break; },
+                    Some(Action::Publish(content)) => {
+                        let message = Message::Text(
+                            json!({ "type": "drop_add", "content": content }).to_string().into(),
+                        );
+                        if socket.send(message).await.is_err() {
+                            if events.send(NetEvent::PublishFailed(content)).await.is_err() {
+                                return;
+                            }
+                            break;
+                        }
+                        pending_publish = Some(content);
+                    }
+                    Some(Action::Delete(drop_id)) => {
+                        let message = Message::Text(
+                            json!({ "type": "drop_delete", "dropId": drop_id }).to_string().into(),
+                        );
+                        if socket.send(message).await.is_err() {
+                            if events
+                                .send(NetEvent::Error(
+                                    "Delete was not sent; reconnecting".to_owned(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            break;
+                        }
+                    }
                     None => return,
                 },
                 message = socket.next() => match message {
-                    Some(Ok(Message::Text(text))) => if let Some(event) = parse_server_event(&text) { if events.send(event).await.is_err() { return; } },
-                    Some(Ok(Message::Ping(payload))) => if socket.send(Message::Pong(payload)).await.is_err() { break; },
-                    Some(Ok(_)) => {}, Some(Err(_)) | None => break,
+                    Some(Ok(Message::Text(text))) => {
+                        if let Some(mut event) = parse_server_event(&text, &mut client_id) {
+                            if matches!(event, NetEvent::Added(_, true)) {
+                                pending_publish = None;
+                            } else if matches!(event, NetEvent::Error(_)) {
+                                if let Some(content) = pending_publish.take() {
+                                    event = NetEvent::PublishFailed(content);
+                                }
+                            }
+                            if events.send(event).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        if socket.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) | None => break,
                 }
+            }
+        }
+        if let Some(content) = pending_publish {
+            if events.send(NetEvent::PublishFailed(content)).await.is_err() {
+                return;
             }
         }
         sleep(Duration::from_secs(2)).await;
     }
 }
 
-fn parse_server_event(text: &str) -> Option<NetEvent> {
+fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetEvent> {
     let payload: Value = serde_json::from_str(text).ok()?;
     match payload.get("type")?.as_str()? {
-        "snapshot" => serde_json::from_value(payload.get("drops")?.clone())
-            .ok()
-            .map(NetEvent::Snapshot),
-        "drop_added" => serde_json::from_value(payload.get("drop")?.clone())
-            .ok()
-            .map(NetEvent::Added),
+        "snapshot" => {
+            *client_id = payload
+                .get("clientId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            serde_json::from_value(payload.get("drops")?.clone())
+                .ok()
+                .map(NetEvent::Snapshot)
+        }
+        "drop_added" => {
+            let local = client_id.as_deref() == payload.get("by").and_then(Value::as_str);
+            serde_json::from_value(payload.get("drop")?.clone())
+                .ok()
+                .map(|drop| NetEvent::Added(drop, local))
+        }
         "drop_deleted" => payload
             .get("dropId")?
             .as_str()
@@ -398,6 +522,7 @@ fn parse_server_event(text: &str) -> Option<NetEvent> {
         "drops_removed" => serde_json::from_value(payload.get("dropIds")?.clone())
             .ok()
             .map(NetEvent::Removed),
+        "drops_cleared" => Some(NetEvent::Cleared),
         "error" => Some(NetEvent::Error(
             payload
                 .get("message")
@@ -681,6 +806,11 @@ fn terminal_error(error: io::Error) -> QdError {
 fn channel_error<T>(_: mpsc::error::SendError<T>) -> QdError {
     QdError::Runtime("the realtime connection stopped unexpectedly".to_owned())
 }
+fn error_message(error: QdError) -> String {
+    match error {
+        QdError::Runtime(message) | QdError::Usage(message) => message,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -714,11 +844,37 @@ mod tests {
     }
     #[test]
     fn parses_realtime_drop_events() {
-        let event = parse_server_event(r#"{"type":"drop_added","drop":{"id":"1","content":"hello","createdAt":"2026-01-01T11:00:00Z"}}"#).unwrap();
-        let NetEvent::Added(drop) = event else {
-            panic!("expected added event")
+        let mut client_id = Some("local-client".to_owned());
+        let event = parse_server_event(
+            r#"{"type":"drop_added","by":"remote-client","drop":{"id":"1","content":"hello","createdAt":"2026-01-01T11:00:00Z"}}"#,
+            &mut client_id,
+        )
+        .unwrap();
+        let NetEvent::Added(drop, false) = event else {
+            panic!("expected remote added event")
         };
         assert_eq!(drop.content, "hello");
+    }
+
+    #[test]
+    fn remote_additions_preserve_selection_and_clear_events_empty_the_timeline() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.replace_drops(vec![
+            drop("selected", "selected", "2026-01-01T10:00:00Z"),
+            drop("older", "older", "2026-01-01T09:00:00Z"),
+        ]);
+        app.selected = 0;
+        app.add_drop(drop("remote", "remote", "2026-01-01T11:00:00Z"), false);
+        assert_eq!(
+            app.selected_drop().map(|drop| drop.id.as_str()),
+            Some("selected")
+        );
+        assert!(app.status.is_none());
+
+        apply_network_event(&mut app, NetEvent::Cleared);
+        assert!(app.drops.is_empty());
+        assert_eq!(app.selected, 0);
     }
     #[tokio::test]
     async fn ctrl_s_publishes_and_clears_the_composer() {
@@ -744,6 +900,29 @@ mod tests {
         assert_eq!(content, "hello");
         assert!(app.composer_content().is_empty());
         assert_eq!(app.focus, Focus::Timeline);
+    }
+
+    #[tokio::test]
+    async fn q_quits_from_help_and_failed_publish_restores_the_composer() {
+        let server = Url::parse("https://quickdrop.example").unwrap();
+        let mut app = App::new(server, Some("DEV".to_owned()));
+        app.screen = Screen::Help;
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(app.quit);
+
+        apply_network_event(&mut app, NetEvent::PublishFailed("unsent text".to_owned()));
+        assert_eq!(app.composer_content(), "unsent text");
+        assert_eq!(app.focus, Focus::Composer);
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("restored")));
     }
 
     #[test]

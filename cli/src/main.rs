@@ -2,6 +2,7 @@ use std::{
     env,
     io::{self, IsTerminal, Read, Write},
     process::{Command as ProcessCommand, Stdio},
+    time::Duration,
 };
 
 use futures_util::{SinkExt, StreamExt};
@@ -92,6 +93,11 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
         let (server, code) = parse_tui_command(tui_args)?;
         return tui::run_tui(server, code).await;
     }
+    if args.first().is_some_and(|argument| argument == "--tui") {
+        return Err(QdError::Usage(
+            "--tui requires an interactive terminal.".to_owned(),
+        ));
+    }
 
     let command = parse_command(args)?;
     let piped_content = if io::stdin().is_terminal() {
@@ -99,11 +105,11 @@ async fn run(args: Vec<String>) -> Result<(), QdError> {
     } else {
         Some(read_piped_stdin()?)
     };
-    let client = Client::new();
+    let client = http_client()?;
     let room = open_room(&client, &command).await?;
     if room.protected {
         return Err(QdError::Runtime(
-            "este clipboard exige PIN e ainda não pode ser usado pelo qd.".to_owned(),
+            "this clipboard requires a PIN and is not yet supported by qd.".to_owned(),
         ));
     }
 
@@ -235,20 +241,19 @@ async fn open_room(client: &Client, command: &QdCommand) -> Result<OpenResponse,
         .json(&json!({}))
         .send()
         .await
-        .map_err(|error| {
-            QdError::Runtime(format!("não foi possível abrir o clipboard: {error}"))
-        })?;
-    parse_response(response, "não foi possível abrir o clipboard.").await
+        .map_err(|error| QdError::Runtime(format!("could not open the clipboard: {error}")))?;
+    parse_response(response, "could not open the clipboard.").await
 }
 
 async fn latest_drop(client: &Client, server: &Url, code: &str) -> Result<String, QdError> {
     let url = endpoint(server, &format!("api/text/{code}"))?;
-    let response =
-        client.get(url).send().await.map_err(|error| {
-            QdError::Runtime(format!("não foi possível ler o clipboard: {error}"))
-        })?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| QdError::Runtime(format!("could not read the clipboard: {error}")))?;
     let snapshot: SnapshotResponse =
-        parse_response(response, "não foi possível ler o clipboard.").await?;
+        parse_response(response, "could not read the clipboard.").await?;
     Ok(latest_content(snapshot))
 }
 
@@ -265,6 +270,13 @@ fn latest_content(snapshot: SnapshotResponse) -> String {
         .unwrap_or(snapshot.text)
 }
 
+fn http_client() -> Result<Client, QdError> {
+    Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| QdError::Runtime(format!("could not configure the HTTP client: {error}")))
+}
+
 async fn publish_drop(server: &Url, code: &str, content: &str) -> Result<(), QdError> {
     let mut websocket_url = endpoint(server, &format!("api/text/{code}/ws"))?;
     websocket_url
@@ -273,65 +285,71 @@ async fn publish_drop(server: &Url, code: &str, content: &str) -> Result<(), QdE
         } else {
             "ws"
         })
-        .map_err(|_| {
-            QdError::Runtime("não foi possível preparar a conexão WebSocket.".to_owned())
-        })?;
+        .map_err(|_| QdError::Runtime("could not prepare the WebSocket URL.".to_owned()))?;
     let (mut socket, _) = connect_async(websocket_url.as_str())
         .await
         .map_err(|error| {
-            QdError::Runtime(format!("não foi possível conectar ao clipboard: {error}"))
+            QdError::Runtime(format!("could not connect to the clipboard: {error}"))
         })?;
     let mut client_id = None;
 
-    while let Some(message) = socket.next().await {
-        let message = message.map_err(|error| {
-            QdError::Runtime(format!("conexão com o clipboard falhou: {error}"))
-        })?;
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let payload: Value = serde_json::from_str(&text).map_err(|error| {
-            QdError::Runtime(format!("o servidor enviou uma mensagem inválida: {error}"))
-        })?;
-        match payload.get("type").and_then(Value::as_str) {
-            Some("snapshot") => {
-                let id = payload
-                    .get("clientId")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        QdError::Runtime("o servidor não identificou esta conexão.".to_owned())
-                    })?;
-                client_id = Some(id.to_owned());
-                socket
-                    .send(Message::Text(
-                        json!({ "type": "drop_add", "content": content })
-                            .to_string()
-                            .into(),
-                    ))
-                    .await
-                    .map_err(|error| {
-                        QdError::Runtime(format!("não foi possível enviar o texto: {error}"))
-                    })?;
+    let confirmation = tokio::time::timeout(Duration::from_secs(15), async {
+        while let Some(message) = socket.next().await {
+            let message = message.map_err(|error| {
+                QdError::Runtime(format!("the clipboard connection failed: {error}"))
+            })?;
+            let Message::Text(text) = message else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(&text).map_err(|error| {
+                QdError::Runtime(format!("the server sent an invalid message: {error}"))
+            })?;
+            match payload.get("type").and_then(Value::as_str) {
+                Some("snapshot") => {
+                    let id = payload
+                        .get("clientId")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            QdError::Runtime(
+                                "the server did not identify this connection.".to_owned(),
+                            )
+                        })?;
+                    client_id = Some(id.to_owned());
+                    socket
+                        .send(Message::Text(
+                            json!({ "type": "drop_add", "content": content })
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .map_err(|error| {
+                            QdError::Runtime(format!("could not publish the text: {error}"))
+                        })?;
+                }
+                Some("drop_added")
+                    if client_id.as_deref() == payload.get("by").and_then(Value::as_str) =>
+                {
+                    return Ok(());
+                }
+                Some("error") => {
+                    let message = payload
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("the server rejected the text.");
+                    return Err(QdError::Runtime(message.to_owned()));
+                }
+                _ => {}
             }
-            Some("drop_added")
-                if client_id.as_deref() == payload.get("by").and_then(Value::as_str) =>
-            {
-                return Ok(())
-            }
-            Some("error") => {
-                let message = payload
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("o servidor recusou o texto.");
-                return Err(QdError::Runtime(message.to_owned()));
-            }
-            _ => {}
         }
-    }
 
-    Err(QdError::Runtime(
-        "a conexão com o clipboard foi encerrada antes da confirmação.".to_owned(),
-    ))
+        Err(QdError::Runtime(
+            "the clipboard connection closed before confirmation.".to_owned(),
+        ))
+    })
+    .await
+    .map_err(|_| QdError::Runtime("timed out waiting for publish confirmation.".to_owned()))?;
+
+    confirmation
 }
 
 async fn parse_response<T: for<'de> Deserialize<'de>>(
@@ -340,9 +358,7 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
 ) -> Result<T, QdError> {
     let status = response.status();
     let payload: Value = response.json().await.map_err(|error| {
-        QdError::Runtime(format!(
-            "o servidor retornou uma resposta inválida: {error}"
-        ))
+        QdError::Runtime(format!("the server returned an invalid response: {error}"))
     })?;
     if !status.is_success() {
         let message = payload
@@ -352,9 +368,7 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
         return Err(QdError::Runtime(message.to_owned()));
     }
     serde_json::from_value(payload).map_err(|error| {
-        QdError::Runtime(format!(
-            "o servidor retornou uma resposta inválida: {error}"
-        ))
+        QdError::Runtime(format!("the server returned an invalid response: {error}"))
     })
 }
 
@@ -367,9 +381,9 @@ fn endpoint(server: &Url, path: &str) -> Result<Url, QdError> {
 
 fn read_piped_stdin() -> Result<String, QdError> {
     let mut content = String::new();
-    io::stdin().read_to_string(&mut content).map_err(|error| {
-        QdError::Runtime(format!("não foi possível ler a entrada padrão: {error}"))
-    })?;
+    io::stdin()
+        .read_to_string(&mut content)
+        .map_err(|error| QdError::Runtime(format!("could not read standard input: {error}")))?;
     Ok(content)
 }
 
@@ -404,12 +418,12 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
         };
         if let Some(stdin) = child.stdin.as_mut() {
             stdin.write_all(content.as_bytes()).map_err(|error| {
-                QdError::Runtime(format!("não foi possível escrever no clipboard: {error}"))
+                QdError::Runtime(format!("could not write to the clipboard command: {error}"))
             })?;
         }
         if child
             .wait()
-            .map_err(|error| QdError::Runtime(format!("não foi possível copiar o texto: {error}")))?
+            .map_err(|error| QdError::Runtime(format!("could not copy the text: {error}")))?
             .success()
         {
             return Ok(());
@@ -417,9 +431,9 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
     }
 
     #[cfg(target_os = "windows")]
-    let message = "não foi possível copiar: PowerShell não está disponível.";
+    let message = "could not copy: PowerShell is not available.";
     #[cfg(not(target_os = "windows"))]
-    let message = "não foi possível copiar: instale wl-clipboard, xclip ou xsel.";
+    let message = "could not copy: install wl-clipboard, xclip, or xsel.";
     Err(QdError::Runtime(message.to_owned()))
 }
 
