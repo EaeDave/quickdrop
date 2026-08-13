@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertReleasePlatform, nextVersion, parseVersion } from "./release";
+import { assertReleasePlatform, nextVersion, parseVersion, replacePackageVersion } from "./release";
 
 describe("release version selection", () => {
   test("increments semantic versions", () => {
@@ -17,6 +17,15 @@ describe("release version selection", () => {
     for (const version of ["1.2", "1.2.3-beta", "01.2.3", "latest"]) {
       expect(() => parseVersion(version)).toThrow("Invalid semantic version");
     }
+  });
+});
+
+describe("release manifest updates", () => {
+  test("replaces standard Cargo package versions only", () => {
+    const manifest = `[package]\nname = "quickdrop-cli"\nversion = "0.1.2"\n\n[dependencies]\nexample = "0.1.2"\n`;
+    expect(replacePackageVersion(manifest, "quickdrop-cli", "0.1.2", "0.1.3")).toBe(
+      `[package]\nname = "quickdrop-cli"\nversion = "0.1.3"\n\n[dependencies]\nexample = "0.1.2"\n`,
+    );
   });
 });
 

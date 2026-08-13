@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 const VERSION_FILES = [
@@ -64,7 +65,28 @@ export async function currentVersion(): Promise<string> {
       `Release versions disagree:\n${[...versions].map(([path, version]) => `  ${path}: ${version}`).join("\n")}`,
     );
   }
-  return unique[0]!;
+  const version = unique[0]!;
+  parseVersion(version);
+  return version;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function replacePackageVersion(
+  text: string,
+  packageName: string,
+  current: string,
+  next: string,
+): string {
+  const packageBlock = new RegExp(
+    `((?:^|\\n)(?:\\[\\[package\\]\\]|\\[package\\])\\nname = "${escapeRegExp(packageName)}"\\nversion = ")${escapeRegExp(current)}(")`,
+  );
+  if (!packageBlock.test(text)) {
+    throw new Error(`Could not update ${packageName} version`);
+  }
+  return text.replace(packageBlock, (_match, prefix: string, suffix: string) => `${prefix}${next}${suffix}`);
 }
 
 async function replaceVersion(path: string, current: string, next: string): Promise<void> {
@@ -77,11 +99,7 @@ async function replaceVersion(path: string, current: string, next: string): Prom
 
   const packageName = path.startsWith("cli/") ? "quickdrop-cli" : "quickdrop";
   const text = await readFile(path, "utf8");
-  const packageBlock = new RegExp(`((?:^|\\n)(?:\\[\\[package\\]\\]|\\[package\\])\\nname = "${packageName}"\\nversion = ")${current}(" )?`);
-  const match = packageBlock.exec(text);
-  if (!match) throw new Error(`Could not update ${packageName} version in ${path}`);
-  const updated = text.slice(0, match.index) + match[0].replace(`version = "${current}"`, `version = "${next}"`) + text.slice(match.index + match[0].length);
-  await writeFile(path, updated);
+  await writeFile(path, replacePackageVersion(text, packageName, current, next));
 }
 
 async function output(command: string[]): Promise<string> {
@@ -108,6 +126,84 @@ async function preflight(tag: string): Promise<void> {
   }
   if (Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `refs/tags/${tag}`]).exitCode === 0) {
     throw new Error(`Tag ${tag} already exists`);
+  }
+}
+
+type ReleaseAsset = { name: string; digest: string };
+
+async function waitForWindowsWorkflow(tag: string): Promise<void> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const raw = await output([
+      "gh",
+      "run",
+      "list",
+      "--workflow",
+      "release.yml",
+      "--event",
+      "push",
+      "--branch",
+      tag,
+      "--limit",
+      "1",
+      "--json",
+      "databaseId",
+    ]);
+    const runs = JSON.parse(raw) as Array<{ databaseId: number }>;
+    if (runs[0]) {
+      await run(["gh", "run", "watch", String(runs[0].databaseId), "--exit-status"]);
+      return;
+    }
+    await Bun.sleep(2_000);
+  }
+  throw new Error(`Windows release workflow did not start for ${tag}`);
+}
+
+async function responseDigest(response: Response): Promise<string> {
+  if (!response.ok || !response.body) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const hash = createHash("sha256");
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    hash.update(value);
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+async function verifyPublicAssets(tag: string, version: string): Promise<void> {
+  const raw = await output(["gh", "release", "view", tag, "--json", "assets"]);
+  const release = JSON.parse(raw) as { assets: ReleaseAsset[] };
+  const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
+  const endpoints = new Map([
+    ["/linux/latest", `quickdrop_${version}_x86_64-linux`],
+    ["/linux/qd/latest", `qd_${version}_x86_64-linux`],
+    ["/linux/qd/latest.sha256", `qd_${version}_x86_64-linux.sha256`],
+    ["/windows/latest.exe", `QuickDrop_${version}_x64-setup.exe`],
+    ["/windows/qd/latest.exe", `qd_${version}_x86_64-windows.exe`],
+    ["/windows/qd/latest.sha256", `qd_${version}_x86_64-windows.exe.sha256`],
+  ]);
+  for (const assetName of endpoints.values()) {
+    if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
+  }
+
+  const pending = new Map(endpoints);
+  for (let attempt = 0; attempt < 36 && pending.size > 0; attempt += 1) {
+    for (const [endpoint, assetName] of pending) {
+      try {
+        const response = await fetch(`https://quickdrop.eaedave.xyz${endpoint}`, { cache: "no-store" });
+        if ((await responseDigest(response)) === assetsByName.get(assetName)!.digest) {
+          pending.delete(endpoint);
+        }
+      } catch {
+        // The public proxy caches release metadata briefly; retry below.
+      }
+    }
+    if (pending.size > 0) await Bun.sleep(10_000);
+  }
+  if (pending.size > 0) {
+    throw new Error(`Public downloads did not update: ${[...pending.keys()].join(", ")}`);
   }
 }
 
@@ -162,7 +258,9 @@ async function main(): Promise<void> {
     "--title",
     tag,
   ]);
-  console.log(`Published ${tag} with Linux assets; GitHub Actions is building the Windows assets.`);
+  await waitForWindowsWorkflow(tag);
+  await verifyPublicAssets(tag, next);
+  console.log(`Published and verified ${tag} for Linux and Windows.`);
 }
 
 if (import.meta.main) {
