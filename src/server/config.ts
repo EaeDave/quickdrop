@@ -22,6 +22,8 @@ export type AppConfig = {
   textSessionCodeLength: number;
   textSessionMaxSessions: number;
   textSessionMaxClientsPerSession: number;
+  textMetricsEnabled: boolean;
+  textMetricsRetentionDays: number;
 };
 
 const DEFAULT_PORT = 3000;
@@ -38,6 +40,7 @@ const DEFAULT_TEXT_SESSION_MAX_KB = 256;
 const DEFAULT_TEXT_SESSION_CODE_LENGTH = 6;
 const DEFAULT_TEXT_SESSION_MAX_SESSIONS = 500;
 const DEFAULT_TEXT_SESSION_MAX_CLIENTS = 20;
+const DEFAULT_TEXT_METRICS_RETENTION_DAYS = 90;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = readPositiveInteger(env, "PORT", DEFAULT_PORT);
@@ -97,6 +100,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     "TEXT_SESSION_MAX_CLIENTS",
     DEFAULT_TEXT_SESSION_MAX_CLIENTS,
   );
+  const textMetricsEnabled = readBoolean(env, "TEXT_METRICS_ENABLED", false);
+  const textMetricsRetentionDays = readPositiveInteger(
+    env,
+    "TEXT_METRICS_RETENTION_DAYS",
+    DEFAULT_TEXT_METRICS_RETENTION_DAYS,
+  );
   const publicBaseUrl = readRequired(env, "PUBLIC_BASE_URL").replace(/\/+$/, "");
 
   return {
@@ -124,6 +133,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     textSessionCodeLength,
     textSessionMaxSessions,
     textSessionMaxClientsPerSession,
+    textMetricsEnabled,
+    textMetricsRetentionDays,
   };
 }
 

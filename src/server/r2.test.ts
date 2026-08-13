@@ -27,6 +27,8 @@ const config: AppConfig = {
   textSessionCodeLength: 6,
   textSessionMaxSessions: 500,
   textSessionMaxClientsPerSession: 20,
+  textMetricsEnabled: false,
+  textMetricsRetentionDays: 90,
 };
 
 describe("createR2Client", () => {

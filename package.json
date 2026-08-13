@@ -9,6 +9,7 @@
     "db:generate": "bunx drizzle-kit generate",
     "db:check": "bunx drizzle-kit check",
     "cleanup:run": "bun run src/server/cleanup-cli.ts",
+    "metrics:text": "bun run scripts/text-metrics-report.ts",
     "desktop:css": "bunx @tailwindcss/cli -i ./src/desktop/input.css -o ./src/desktop/output.css --minify",
     "desktop:serve": "bun run src/desktop/dev-server.ts",
     "desktop:build:web": "bun run desktop:css && bun build --compile --target=browser --minify ./src/desktop/index.html --outdir dist",

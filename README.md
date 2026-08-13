@@ -18,6 +18,7 @@
 - A instalação Windows por PowerShell é pública no endpoint `GET /install.ps1`; o `.exe` é baixado pelo endpoint interno `GET /windows/latest.exe`, que usa um token GitHub configurado somente no servidor para buscar o asset privado `QuickDrop_*_x64-setup.exe` da última release sem expor credenciais ao usuário final. A página principal exibe `irm https://quickdrop.eaedave.xyz/install.ps1 | iex` com botão de cópia. Após o NSIS silencioso concluir, o script abre o app instalado em modo visível no canto direito e libera o terminal. Fonte: `src/desktop/App.tsx`, `scripts/install-windows.ps1`, `src/server/index.ts` e `src/server/windows-installer-service.ts`.
 - A instalação Linux por Bash é pública no endpoint `GET /install.sh` (`curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash`); o script detecta Linux/x86_64 e escolhe automaticamente OmarchyBar ou Waybar, com override `QUICKDROP_BAR=auto|omarchy|waybar|both|none`. Ele baixa o binário pré-compilado por `GET /linux/latest`, instala `~/.local/bin/quickdrop`, o launcher genérico `~/.local/bin/quickdrop-launcher` e o alias compatível `quickdrop-waybar`. Para OmarchyBar instala o plugin `quickdrop.bar` em `~/.config/omarchy/plugins/`; para Waybar mantém o módulo idempotente `custom/quickdrop` com backup do JSONC. Fonte: `scripts/install-linux.sh`, `scripts/install-bar-integration.sh`, `src/server/index.ts`, `src/server/linux-installer-service.ts` e `src/server/github-release.ts`.
 - O QuickDrop tem um relay de texto em tempo real para colar/compartilhar texto entre máquinas sem clipboard compartilhado (ex.: máquinas Guacamole). Pela web, o usuário digita um código próprio de 1 a 16 caracteres e usa uma única ação para abrir o clipboard existente ou criá-lo automaticamente; a opção secundária preserva a geração de um código aleatório; um textarea grande é sincronizado ao vivo entre todos na mesma sala via WebSocket, no modelo último-a-escrever-vence (last-writer-wins) com versão monotônica. Edições simultâneas não sobrescrevem em silêncio: quando chega uma alteração remota durante uma edição local pendente, a UI mostra um aviso não destrutivo com opção de carregar. As salas ficam persistidas no PostgreSQL, então sobrevivem a restart/deploy; cada registro possui identidade UUID independente do código público, e apenas salas não removidas exigem código único, permitindo reutilizar um código depois da expiração e limpeza. Clipboards com código personalizado expiram 30 minutos por padrão depois que o último cliente sai (valor configurável por `TEXT_CUSTOM_SESSION_TTL_MINUTES`); salas com código aleatório mantêm 12 horas por padrão, e nenhuma expira enquanto houver cliente conectado. As salas limitam tamanho do texto (padrão 256 KB) e número de salas/clientes. Opcionalmente, a sala pode ser criada com PIN: o texto passa a exigir o código curto **e** o PIN para leitura/sincronização, usando um cookie HttpOnly por sala em vez de colocar segredo ou token de acesso na URL/WebSocket. A interface do clipboard também mostra presença em tempo real (`1 conectado`, `2 conectados`), destaca discretamente texto novo recebido de outro dispositivo sem roubar o foco, oferece ações diretas para copiar o texto e compartilhar a URL canônica `/t/CÓDIGO`, e permite exportar explicitamente o texto atual como arquivo `.txt` pelo mesmo fluxo público de upload do QuickDrop, retornando um link público copiável. Cursores remotos e indicadores de digitação ficam ocultos para priorizar a transferência de texto; `Ctrl/⌘ + Enter` copia o conteúdo e `Esc` sai do clipboard. A escrita persistida do texto foi ajustada para parecer mais imediata (janela de envio ~75 ms, com flush rápido em paste/blur), enquanto typing e mouse são efêmeros e não persistem no banco. A página é servida pelo mesmo backend (subdomínio `texto.*`, com entrada direta em `/t` e `/t/:code`, além do legado `?c=CÓDIGO` na raiz). Fontes: Endpoints internos `POST /api/text`, `POST /api/text/:code/access`, `GET /api/text/:code`, `WS /api/text/:code/ws` (sync + presence + typing + pointer) e `POST /api/upload`; rotas públicas `GET /t` e `GET /t/:code`; repositório `src/server/text-rooms-repository.ts`, hub `src/server/text-session-hub.ts`, serviço `src/server/text-session-service.ts`, UI `src/desktop/TextSession.tsx`.
+- Métricas do funil de texto são opcionais e desligadas por padrão (`TEXT_METRICS_ENABLED=false`). Quando habilitadas, o PostgreSQL recebe somente contadores diários agregados de abertura da tela, abrir/criar, primeira publicação, conexão do segundo dispositivo, cópia e categoria fechada de erro. A tabela de métricas não possui código, PIN, conteúdo, ID de sala/cliente, IP ou user agent; payloads com campos extras são rejeitados. Os agregados expiram após 90 dias por padrão e podem ser consultados localmente por CLI. Esses números representam eventos, não usuários únicos. Fonte: `src/server/text-funnel-metrics.ts`, `src/server/text-funnel-metrics-route.ts`, migração `009_text_funnel_metrics.sql` e `scripts/text-metrics-report.ts`.
 <!-- business-readme:business-rules:end -->
 
 <!-- business-readme:technical:start -->
@@ -59,6 +60,8 @@ R2_STORAGE_HARD_LIMIT_GB=8
 UPLOAD_RESERVATION_TTL_MINUTES=30
 TEXT_SESSION_TTL_HOURS=12
 TEXT_CUSTOM_SESSION_TTL_MINUTES=30
+TEXT_METRICS_ENABLED=false
+TEXT_METRICS_RETENTION_DAYS=90
 TEXT_SESSION_MAX_KB=256
 TEXT_SESSION_CODE_LENGTH=6
 TEXT_SESSION_MAX_SESSIONS=500
@@ -119,6 +122,25 @@ TEXT_SESSION_MAX_CLIENTS=20
 
 Rotas de texto usam `Cache-Control: no-store`, bloqueiam framing, removem referrer e mascaram o código nos logs HTTP. A página web é servida pela mesma SPA: abre direto quando o host começa com `texto.`, em `/t` e na URL canônica `/t/CÓDIGO`. Links legados com `?c=CÓDIGO` na raiz continuam aceitos e são substituídos pela URL canônica depois que o clipboard abre. Para usar o subdomínio, aponte `texto.<seu-domínio>` para a mesma service no Coolify.
 
+### Métricas privadas do funil de texto
+
+A coleta usa armazenamento agregado próprio no PostgreSQL, sem provedor externo. Ela fica desativada até o operador definir:
+
+```env
+TEXT_METRICS_ENABLED=true
+TEXT_METRICS_RETENTION_DAYS=90
+```
+
+O endpoint `POST /api/text/metrics` aceita somente os eventos públicos `screen_opened`, `text_copied` e `client_error`, com enums fechados. Eventos de abrir/criar, primeira publicação e segundo dispositivo são gerados internamente pelo servidor. O schema rejeita qualquer dimensão fora das listas permitidas e o endpoint rejeita campos extras, impedindo o envio de código, PIN, conteúdo ou identificadores. Falhas na coleta nunca interrompem o clipboard.
+
+Painel textual dos últimos 30 dias:
+
+```bash
+bun run metrics:text --days 30
+```
+
+O relatório mostra contagens e conversão relativa a aberturas da tela, mais o detalhamento agregado por dia UTC, tipo de sala, resultado e categoria técnica de erro. Para opt-out, mantenha `TEXT_METRICS_ENABLED=false`; nenhum contador é gravado.
+
 ### Deploy Coolify / Dockerfile
 
 O `Dockerfile` publica somente o backend HTTP. No Coolify, use build por Dockerfile, exponha a porta `3000` ou a porta injetada em `PORT`, e configure estas variáveis no app:
@@ -139,6 +161,8 @@ R2_STORAGE_HARD_LIMIT_GB=8
 UPLOAD_RESERVATION_TTL_MINUTES=30
 TEXT_SESSION_TTL_HOURS=12
 TEXT_CUSTOM_SESSION_TTL_MINUTES=30
+TEXT_METRICS_ENABLED=false
+TEXT_METRICS_RETENTION_DAYS=90
 TEXT_SESSION_MAX_KB=256
 TEXT_SESSION_CODE_LENGTH=6
 TEXT_SESSION_MAX_SESSIONS=500

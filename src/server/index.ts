@@ -14,6 +14,8 @@ import { handleUpload } from "./upload-service";
 import { handleLinuxInstallerDownload } from "./linux-installer-service";
 import { handleWindowsInstallerDownload } from "./windows-installer-service";
 import { TextSessionHub } from "./text-session-hub";
+import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
+import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
 import {
   rearmTextRoomsAfterRestart,
   registerTextSessionRoutes,
@@ -62,6 +64,10 @@ export function buildApp() {
 
   const textHub = new TextSessionHub({
     maxClientsPerSession: config.textSessionMaxClientsPerSession,
+  });
+  const textMetrics = createTextFunnelMetrics({
+    enabled: config.textMetricsEnabled,
+    logger: app.log,
   });
 
   const sendScriptFile = (reply: FastifyReply, fileName: string) =>
@@ -123,7 +129,9 @@ export function buildApp() {
       codeLength: config.textSessionCodeLength,
       ttlMs: config.textSessionTtlHours * 60 * 60 * 1000,
       customTtlMs: config.textCustomSessionTtlMinutes * 60 * 1000,
+      metrics: textMetrics,
     });
+    registerTextFunnelMetricsRoute(app, textMetrics);
   });
 
   app.get<{ Params: { shortId: string } }>("/f/:shortId", async (request, reply) => {
@@ -143,6 +151,9 @@ export async function startServer(): Promise<void> {
   startCleanupJob();
   startTextSessionSweep();
   startTextSessionHeartbeat(app);
+  if (config.textMetricsEnabled) {
+    startTextFunnelMetricsCleanup(config.textMetricsRetentionDays);
+  }
 }
 
 export function redactTextCodeFromUrl(rawUrl: string): string {
