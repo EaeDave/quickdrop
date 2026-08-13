@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   connectRoom,
   createRoom,
+  formatRoomExpiry,
   openRoom,
   recordTextMetric,
   RoomAccessError,
@@ -89,9 +90,11 @@ export default function TextSession() {
   const [roomNotice, setRoomNotice] = useState<string | null>(null);
   const [roomKind, setRoomKind] = useState<RoomKind | null>(null);
   const [expiresAfterMinutes, setExpiresAfterMinutes] = useState<number | null>(null);
+  const [roomExpiresAt, setRoomExpiresAt] = useState<string | null>(null);
   const [dropExpiresAfterMinutes, setDropExpiresAfterMinutes] = useState<number | null>(null);
   const [maxDrops, setMaxDrops] = useState<number | null>(null);
   const [presenceCount, setPresenceCount] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [remoteDropId, setRemoteDropId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -228,6 +231,8 @@ export default function TextSession() {
         roomKindRef.current = opened.kind;
         setRoomKind(opened.kind);
         setExpiresAfterMinutes(opened.expiresAfterMinutes);
+        setRoomExpiresAt(opened.expiresAt);
+        setPresenceCount(opened.presence);
         setRoomNotice(opened.created ? "Clipboard criado. Abra este endereço na outra máquina." : "Clipboard aberto.");
       } catch (error) {
         handleAccessError(error);
@@ -251,7 +256,9 @@ export default function TextSession() {
       activateRoom(created.code);
       roomKindRef.current = created.kind;
       setRoomKind(created.kind);
-      setExpiresAfterMinutes(created.expiresAfterMinutes);
+        setExpiresAfterMinutes(created.expiresAfterMinutes);
+        setRoomExpiresAt(created.expiresAt);
+        setPresenceCount(created.presence);
       setRoomNotice("Código aleatório criado. Compartilhe o endereço com a outra máquina.");
     } catch (error) {
       handleAccessError(error);
@@ -409,6 +416,14 @@ export default function TextSession() {
   }, []);
 
   useEffect(() => {
+    if (!roomExpiresAt || (presenceCount ?? 0) > 0) {
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [presenceCount, roomExpiresAt]);
+
+  useEffect(() => {
     if (!initialCode || roomCode || autoJoinAttemptedRef.current) {
       return;
     }
@@ -430,6 +445,8 @@ export default function TextSession() {
         roomKindRef.current = payload.kind;
         setRoomKind(payload.kind);
         setExpiresAfterMinutes(payload.expiresAfterMinutes);
+        setRoomExpiresAt(payload.expiresAt);
+        setPresenceCount(payload.presence);
         setDropExpiresAfterMinutes(payload.dropExpiresAfterMinutes);
         dropTtlMinutesRef.current = payload.dropExpiresAfterMinutes;
         setMaxDrops(payload.maxDrops);
@@ -487,6 +504,11 @@ export default function TextSession() {
       },
       onPresence(payload) {
         setPresenceCount(payload.count);
+      },
+      onLifecycle(payload) {
+        setExpiresAfterMinutes(payload.expiresAfterMinutes);
+        setRoomExpiresAt(payload.expiresAt);
+        setPresenceCount(payload.presence);
       },
       // Represent a legacy client's live document as one replaceable virtual item.
       onUpdate(payload) {
@@ -628,7 +650,11 @@ export default function TextSession() {
     : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
   const expiryLabel = expiresAfterMinutes === null
     ? null
-    : `Sala expira ${expiresAfterMinutes >= 60 && expiresAfterMinutes % 60 === 0 ? `${expiresAfterMinutes / 60}h` : `${expiresAfterMinutes} min`} depois que todos saírem.`;
+    : formatRoomExpiry({
+      expiresAfterMinutes,
+      expiresAt: roomExpiresAt,
+      presence: presenceCount ?? 0,
+    }, new Date(now));
   const dropPolicyLabel = dropExpiresAfterMinutes === null
     ? null
     : `Itens duram ${dropExpiresAfterMinutes >= 60 && dropExpiresAfterMinutes % 60 === 0 ? `${dropExpiresAfterMinutes / 60}h` : `${dropExpiresAfterMinutes} min`}${maxDrops ? ` · máximo ${maxDrops}` : ""}.`;

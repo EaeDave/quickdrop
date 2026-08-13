@@ -26,6 +26,12 @@ export type TextDrop = {
   expiresAt: string;
 };
 
+export type RoomLifecycle = {
+  expiresAfterMinutes: number;
+  expiresAt: string | null;
+  presence: number;
+};
+
 export type RoomHandlers = {
   onSnapshot(payload: {
     text: string;
@@ -34,6 +40,8 @@ export type RoomHandlers = {
     clientId: string;
     kind: RoomKind;
     expiresAfterMinutes: number;
+    expiresAt: string | null;
+    presence: number;
     dropExpiresAfterMinutes: number;
     maxDrops: number;
   }): void;
@@ -44,6 +52,7 @@ export type RoomHandlers = {
   onDropDeleted(payload: { dropId: string }): void;
   onDropsCleared(): void;
   onPresence(payload: { count: number }): void;
+  onLifecycle(payload: RoomLifecycle): void;
   onTyping(payload: { by: string; active: boolean }): void;
   onPointer(payload: { by: string; pointer: RoomPointer }): void;
   onPeerLeft(payload: { by: string }): void;
@@ -68,6 +77,8 @@ export type RoomAccess = {
   accessExpiresAt: string | null;
   kind: RoomKind;
   expiresAfterMinutes: number;
+  expiresAt: string | null;
+  presence: number;
 };
 
 export type OpenRoomResult = RoomAccess & { created: boolean };
@@ -175,6 +186,59 @@ function parseRoomKind(value: unknown): RoomKind | null {
   return value === "custom" || value === "generated" ? value : null;
 }
 
+function parseExpiresAt(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function parseLifecycle(value: object): RoomLifecycle | null {
+  const expiresAfterMinutes = "expiresAfterMinutes" in value ? parseNumber(value.expiresAfterMinutes) : null;
+  const presence = "presence" in value ? parseNumber(value.presence) : null;
+  if (expiresAfterMinutes === null || presence === null) {
+    return null;
+  }
+  return {
+    expiresAfterMinutes,
+    expiresAt: "expiresAt" in value ? parseExpiresAt(value.expiresAt) : null,
+    presence,
+  };
+}
+
+export function formatRoomExpiry(
+  lifecycle: Pick<RoomLifecycle, "expiresAfterMinutes" | "expiresAt" | "presence">,
+  now: Date,
+): string {
+  const idle = formatIdleWindow(lifecycle.expiresAfterMinutes);
+  if (lifecycle.presence > 0 || !lifecycle.expiresAt) {
+    return `Segura · some ${idle} depois que todos saírem`;
+  }
+  const remainingMs = Date.parse(lifecycle.expiresAt) - now.getTime();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    return "Encerrando…";
+  }
+  return `Some em ${formatRemaining(remainingMs)}`;
+}
+
+function formatIdleWindow(minutes: number): string {
+  if (minutes >= 60 && minutes % 60 === 0) {
+    return `${minutes / 60}h`;
+  }
+  return `${minutes} min`;
+}
+
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function parseTextDrop(value: unknown): TextDrop | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -234,12 +298,18 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
   const code = "code" in payload ? parseString(payload.code) : null;
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
-  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
-  if (!code || protectedRoom === null || kind === null || expiresAfterMinutes === null) {
+  const lifecycle = parseLifecycle(payload);
+  if (!code || protectedRoom === null || kind === null || !lifecycle) {
     throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
   }
 
-  return { code: code.trim().toUpperCase(), protected: protectedRoom, accessExpiresAt: null, kind, expiresAfterMinutes };
+  return {
+    code: code.trim().toUpperCase(),
+    protected: protectedRoom,
+    accessExpiresAt: null,
+    kind,
+    ...lifecycle,
+  };
 }
 
 export async function openRoom(code: string, pin?: string): Promise<OpenRoomResult> {
@@ -268,8 +338,8 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
   const created = "created" in payload ? parseBoolean(payload.created) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
-  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
-  if (!returnedCode || protectedRoom === null || created === null || kind === null || expiresAfterMinutes === null) {
+  const lifecycle = parseLifecycle(payload);
+  if (!returnedCode || protectedRoom === null || created === null || kind === null || !lifecycle) {
     throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
   }
 
@@ -279,7 +349,7 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
     created,
     accessExpiresAt,
     kind,
-    expiresAfterMinutes,
+    ...lifecycle,
   };
 }
 
@@ -306,8 +376,8 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
-  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
-  if (protectedRoom === null || kind === null || expiresAfterMinutes === null) {
+  const lifecycle = parseLifecycle(payload);
+  if (protectedRoom === null || kind === null || !lifecycle) {
     throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
   }
 
@@ -316,11 +386,19 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
     protected: protectedRoom,
     accessExpiresAt,
     kind,
-    expiresAfterMinutes,
+    ...lifecycle,
   };
 }
 
-export async function fetchSnapshot(code: string): Promise<{ text: string; version: number; protected: boolean; kind: RoomKind; expiresAfterMinutes: number }> {
+export async function fetchSnapshot(code: string): Promise<{
+  text: string;
+  version: number;
+  protected: boolean;
+  kind: RoomKind;
+  expiresAfterMinutes: number;
+  expiresAt: string | null;
+  presence: number;
+}> {
   const response = await fetch(`/api/text/${encodeURIComponent(code)}`, { credentials: "same-origin" });
   const payload = await readJsonResponse(response);
 
@@ -340,12 +418,12 @@ export async function fetchSnapshot(code: string): Promise<{ text: string; versi
   const version = "version" in payload ? parseNumber(payload.version) : null;
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
-  const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
-  if (text === null || version === null || protectedRoom === null || kind === null || expiresAfterMinutes === null) {
+  const lifecycle = parseLifecycle(payload);
+  if (text === null || version === null || protectedRoom === null || kind === null || !lifecycle) {
     throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
   }
 
-  return { text, version, protected: protectedRoom, kind, expiresAfterMinutes };
+  return { text, version, protected: protectedRoom, kind, ...lifecycle };
 }
 
 export function connectRoom(code: string, handlers: RoomHandlers): RoomController {
@@ -438,14 +516,14 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const version = "version" in payload ? parseNumber(payload.version) : null;
         const clientId = "clientId" in payload ? parseString(payload.clientId) : null;
         const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
-        const expiresAfterMinutes = "expiresAfterMinutes" in payload ? parseNumber(payload.expiresAfterMinutes) : null;
-        const dropExpiresAfterMinutes = "dropExpiresAfterMinutes" in payload ? parseNumber(payload.dropExpiresAfterMinutes) : expiresAfterMinutes;
+        const lifecycle = parseLifecycle(payload);
+        const dropExpiresAfterMinutes = "dropExpiresAfterMinutes" in payload ? parseNumber(payload.dropExpiresAfterMinutes) : lifecycle?.expiresAfterMinutes ?? null;
         const maxDrops = "maxDrops" in payload ? parseNumber(payload.maxDrops) : 10;
         const rawDrops = "drops" in payload && Array.isArray(payload.drops) ? payload.drops : [];
         const drops = rawDrops
           .map(parseTextDrop)
           .filter((drop): drop is TextDrop => drop !== null);
-        if (text === null || version === null || clientId === null || kind === null || expiresAfterMinutes === null) {
+        if (text === null || version === null || clientId === null || kind === null || !lifecycle) {
           return;
         }
         if (dropExpiresAfterMinutes === null || maxDrops === null) {
@@ -461,7 +539,7 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
           drops,
           clientId,
           kind,
-          expiresAfterMinutes,
+          ...lifecycle,
           dropExpiresAfterMinutes,
           maxDrops,
         });
@@ -534,6 +612,15 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         }
 
         handlers.onPresence({ count });
+        return;
+      }
+
+      if (payload.type === "lifecycle") {
+        const lifecycle = parseLifecycle(payload);
+        if (!lifecycle) {
+          return;
+        }
+        handlers.onLifecycle(lifecycle);
         return;
       }
 

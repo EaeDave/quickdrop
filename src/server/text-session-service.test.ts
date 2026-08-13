@@ -20,7 +20,7 @@ import type {
 import type { CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, TextRoomsRepository } from "./text-rooms-repository";
 
 type ServerMessage = {
-  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error" | "drop_added" | "drop_updated" | "drops_removed" | "drop_deleted" | "drops_cleared";
+  type: "snapshot" | "update" | "presence" | "typing" | "pointer" | "peer_left" | "ack" | "error" | "drop_added" | "drop_updated" | "drops_removed" | "drop_deleted" | "drops_cleared" | "lifecycle";
   text?: string;
   version?: number;
   clientId?: string;
@@ -37,6 +37,9 @@ type ServerMessage = {
   drops?: Array<{ id: string; content: string; contentType: string; createdAt: string; expiresAt: string }>;
   dropId?: string;
   dropIds?: string[];
+  expiresAfterMinutes?: number;
+  expiresAt?: string | null;
+  presence?: number;
 };
 
 type MutableClock = { current: Date };
@@ -46,6 +49,8 @@ type SnapshotResponse = {
   protected: boolean;
   kind: string;
   expiresAfterMinutes: number;
+  expiresAt: string | null;
+  presence: number;
   dropExpiresAfterMinutes: number;
   maxDrops: number;
   drops: ServerMessage["drops"];
@@ -588,6 +593,8 @@ describe("text session routes", () => {
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        expiresAt: "2026-06-23T21:00:00.000Z",
+        presence: 0,
         dropExpiresAfterMinutes: 720,
         maxDrops: 10,
         drops: [],
@@ -635,6 +642,8 @@ describe("text session routes", () => {
         protected: false,
         kind: "custom",
         expiresAfterMinutes: 30,
+        expiresAt: "2026-06-23T20:30:00.000Z",
+        presence: 0,
       });
 
       const opened = await server.app.inject({ method: "POST", url: "/api/text/A/open" });
@@ -645,6 +654,8 @@ describe("text session routes", () => {
         protected: false,
         kind: "custom",
         expiresAfterMinutes: 30,
+        expiresAt: "2026-06-23T20:30:00.000Z",
+        presence: 0,
       });
 
       const room = await repository.findTextRoomByCode("A");
@@ -887,6 +898,8 @@ describe("text session routes", () => {
         protected: true,
         kind: "custom",
         expiresAfterMinutes: 30,
+        expiresAt: "2026-06-23T20:30:00.000Z",
+        presence: 0,
       });
 
       const denied = await server.app.inject({ method: "POST", url: "/api/text/SECRET/open" });
@@ -942,6 +955,7 @@ describe("text session routes", () => {
       const viewerSnapshot = await expectJoined(viewer, 2);
       expect(viewerSnapshot.type).toBe("snapshot");
       expect(await authorPresenceAfterViewer).toEqual({ type: "presence", count: 2 });
+      expect(await nextMessage(author)).toMatchObject({ type: "lifecycle", presence: 2, expiresAt: null });
 
       const updateOnViewer = nextMessage(viewer);
       const ackOnAuthor = nextMessage(author);
@@ -952,9 +966,11 @@ describe("text session routes", () => {
 
       const authorPeerLeftAfterLeave = nextMessage(author);
       const authorPresenceAfterLeave = nextMessage(author);
+      const authorLifecycleAfterLeave = nextMessage(author);
       await closeSocket(viewer);
       expect(await authorPeerLeftAfterLeave).toEqual({ type: "peer_left", by: viewerSnapshot.clientId });
       expect(await authorPresenceAfterLeave).toEqual({ type: "presence", count: 1 });
+      expect(await authorLifecycleAfterLeave).toMatchObject({ type: "lifecycle", presence: 1, expiresAt: null });
 
       const persisted = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
       const persistedPayload: SnapshotResponse = JSON.parse(persisted.body);
@@ -964,6 +980,8 @@ describe("text session routes", () => {
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        expiresAt: null,
+        presence: 1,
         dropExpiresAfterMinutes: 720,
         maxDrops: 10,
         drops: [],
@@ -1003,9 +1021,61 @@ describe("text session routes", () => {
 
       const peerLeftOnViewer = nextMessage(viewer);
       const presenceAfterLeave = nextMessage(viewer);
+      const lifecycleAfterLeave = nextMessage(viewer);
       await closeSocket(author);
       expect(await peerLeftOnViewer).toEqual({ type: "peer_left", by: authorSnapshot.clientId });
       expect(await presenceAfterLeave).toEqual({ type: "presence", count: 1 });
+      expect(await lifecycleAfterLeave).toEqual({
+        type: "lifecycle",
+        expiresAfterMinutes: 60,
+        expiresAt: null,
+        presence: 1,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("publishes lifecycle state when a room is held open and released", async () => {
+    const clock = { current: new Date("2026-06-23T20:00:00Z") };
+    const repository = new InMemoryTextRoomsRepository();
+    const server = await startTestServer(repository, clock);
+
+    try {
+      await server.app.inject({ method: "POST", url: "/api/text/HELD/open" });
+      const keeper = server.connect("HELD");
+      const snapshot = await expectJoined(keeper, 1);
+      expect(snapshot).toMatchObject({
+        type: "snapshot",
+        expiresAfterMinutes: 30,
+        expiresAt: null,
+        presence: 1,
+      });
+      const keeperPresence = nextMessage(keeper);
+      const keeperLifecycle = nextMessage(keeper);
+      const visitor = server.connect("HELD");
+      const visitorSnapshot = await expectJoined(visitor, 2);
+      expect(visitorSnapshot).toMatchObject({ expiresAt: null, presence: 2 });
+      expect(await keeperPresence).toEqual({ type: "presence", count: 2 });
+      expect(await keeperLifecycle).toEqual({
+        type: "lifecycle",
+        expiresAfterMinutes: 30,
+        expiresAt: null,
+        presence: 2,
+      });
+
+      const peerLeft = nextMessage(keeper);
+      const presence = nextMessage(keeper);
+      const released = nextMessage(keeper);
+      await closeSocket(visitor);
+      expect(await peerLeft).toMatchObject({ type: "peer_left" });
+      expect(await presence).toEqual({ type: "presence", count: 1 });
+      expect(await released).toEqual({
+        type: "lifecycle",
+        expiresAfterMinutes: 30,
+        expiresAt: null,
+        presence: 1,
+      });
     } finally {
       await server.close();
     }
@@ -1100,6 +1170,8 @@ describe("text session routes", () => {
         protected: true,
         kind: "generated",
         expiresAfterMinutes: 60,
+        expiresAt: "2026-06-23T21:00:00.000Z",
+        presence: 0,
         dropExpiresAfterMinutes: 720,
         maxDrops: 10,
         drops: [],
@@ -1147,6 +1219,8 @@ describe("text session routes", () => {
         protected: false,
         kind: "generated",
         expiresAfterMinutes: 60,
+        expiresAt: "2026-06-23T21:00:00.000Z",
+        presence: 0,
         dropExpiresAfterMinutes: 720,
         maxDrops: 10,
         drops: [],

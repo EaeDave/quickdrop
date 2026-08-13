@@ -78,6 +78,11 @@ enum NetEvent {
     Deleted(String),
     PublishFailed(Vec<String>),
     Cleared,
+    Lifecycle {
+        idle_ttl_minutes: u64,
+        expires_at: Option<String>,
+        presence: u64,
+    },
     Error {
         code: Option<String>,
         message: String,
@@ -95,6 +100,8 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
     let mut app = App::new(server, initial_code);
     let mut connection = None;
     let (update_tx, mut update_rx) = mpsc::channel(2);
+    let mut expiry_tick = interval(Duration::from_secs(1));
+    expiry_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     tokio::spawn({
         let server = app.server.clone();
         let update_tx = update_tx.clone();
@@ -207,6 +214,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                     apply_update_event(&mut app, update_event);
                     false
                 },
+                _ = expiry_tick.tick() => false,
                 network_event = network.recv() => match network_event {
                     Some(event) => apply_network_event(&mut app, event),
                     None => {
@@ -227,6 +235,7 @@ pub async fn run_tui(server: Url, initial_code: Option<String>) -> Result<(), Qd
                     None => return Ok(()),
                 },
                 update_event = update_rx.recv() => apply_update_event(&mut app, update_event),
+                _ = expiry_tick.tick() => {}
             }
         }
     }
@@ -247,6 +256,9 @@ struct App<'a> {
     edit_saving: bool,
     connection: ConnectionState,
     status: Option<String>,
+    idle_ttl_minutes: Option<u64>,
+    room_expires_at: Option<String>,
+    presence: u64,
     available_update: Option<update::AvailableUpdate>,
     update_busy: bool,
     update_requested: bool,
@@ -280,6 +292,9 @@ impl<'a> App<'a> {
             editing_drop_id: None,
             edit_saving: false,
             status: None,
+            idle_ttl_minutes: None,
+            room_expires_at: None,
+            presence: 0,
             available_update: None,
             update_busy: false,
             update_requested: false,
@@ -643,6 +658,15 @@ fn apply_network_event(app: &mut App<'_>, event: NetEvent) -> bool {
             app.selected = 0;
             app.status = Some("Cleared".to_owned());
         }
+        NetEvent::Lifecycle {
+            idle_ttl_minutes,
+            expires_at,
+            presence,
+        } => {
+            app.idle_ttl_minutes = Some(idle_ttl_minutes);
+            app.room_expires_at = expires_at;
+            app.presence = presence;
+        }
         NetEvent::PublishFailed(contents) => {
             app.restore_composer(contents);
             app.status = Some("Unconfirmed text was restored to the composer".to_owned());
@@ -815,6 +839,11 @@ async fn realtime_client(
                 },
                 message = socket.next() => match message {
                     Some(Ok(Message::Text(text))) => {
+                        if let Some(lifecycle) = parse_lifecycle_event(&text) {
+                            if events.send(lifecycle).await.is_err() {
+                                return;
+                            }
+                        }
                         if let Some(event) = parse_server_event(&text, &mut client_id) {
                             let auth_failed = matches!(
                                 &event,
@@ -915,6 +944,7 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
             .ok()
             .map(NetEvent::Removed),
         "drops_cleared" => Some(NetEvent::Cleared),
+        "lifecycle" => parse_lifecycle_event(text),
         "error" => Some(NetEvent::Error {
             code: payload
                 .get("error")
@@ -927,6 +957,119 @@ fn parse_server_event(text: &str, client_id: &mut Option<String>) -> Option<NetE
                 .to_owned(),
         }),
         _ => None,
+    }
+}
+
+fn parse_lifecycle_event(text: &str) -> Option<NetEvent> {
+    let payload: Value = serde_json::from_str(text).ok()?;
+    match payload.get("type")?.as_str()? {
+        "snapshot" | "lifecycle" => Some(NetEvent::Lifecycle {
+            idle_ttl_minutes: payload.get("expiresAfterMinutes")?.as_u64()?,
+            expires_at: match payload.get("expiresAt") {
+                Some(Value::String(value)) => Some(value.clone()),
+                Some(Value::Null) | None => None,
+                _ => return None,
+            },
+            presence: payload.get("presence")?.as_u64()?,
+        }),
+        _ => None,
+    }
+}
+
+fn format_room_expiry(
+    idle_ttl_minutes: Option<u64>,
+    expires_at: Option<&str>,
+    presence: u64,
+    compact: bool,
+) -> Option<String> {
+    let idle = idle_ttl_minutes?;
+    if presence > 0 || expires_at.is_none() {
+        return Some(if compact {
+            "held".to_owned()
+        } else {
+            format!("held open · {idle}m idle")
+        });
+    }
+    let expires_at = expires_at?;
+    let remaining_ms = remaining_expiry_ms(expires_at)?;
+    if remaining_ms == 0 {
+        return Some("expiring".to_owned());
+    }
+    Some(if compact {
+        format!("{} left", format_compact_remaining(remaining_ms))
+    } else {
+        format!("{} left", format_remaining_clock(remaining_ms))
+    })
+}
+
+fn remaining_expiry_ms(expires_at: &str) -> Option<u64> {
+    let expires = parse_rfc3339_unix_ms(expires_at)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+    Some(expires.saturating_sub(now))
+}
+
+fn parse_rfc3339_unix_ms(value: &str) -> Option<u64> {
+    let value = value.trim().strip_suffix('Z')?;
+    let (date, clock) = value.split_once('T')?;
+    let mut date_parts = date.split('-');
+    let year: i32 = date_parts.next()?.parse().ok()?;
+    let month: u32 = date_parts.next()?.parse().ok()?;
+    let day: u32 = date_parts.next()?.parse().ok()?;
+    let (hms, fraction) = clock
+        .split_once('.')
+        .map_or((clock, "0"), |(hours, rest)| (hours, rest));
+    let mut time_parts = hms.split(':');
+    let hour: u32 = time_parts.next()?.parse().ok()?;
+    let minute: u32 = time_parts.next()?.parse().ok()?;
+    let second: u32 = time_parts.next()?.parse().ok()?;
+    let millis: u32 = fraction.chars().take(3).collect::<String>().parse().ok()?;
+    let days = days_from_civil(year, month, day)?;
+    Some(
+        (i64::from(days) * 86_400
+            + i64::from(hour) * 3600
+            + i64::from(minute) * 60
+            + i64::from(second)) as u64
+            * 1000
+            + u64::from(millis),
+    )
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i32> {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let day_of_year =
+        (153 * (month as i32 + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i32 - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    Some(era * 146_097 + day_of_era - 719_468)
+}
+
+fn format_remaining_clock(ms: u64) -> String {
+    let total_seconds = ms.div_ceil(1000);
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+fn format_compact_remaining(ms: u64) -> String {
+    let total_seconds = ms.div_ceil(1000);
+    if total_seconds >= 3600 {
+        format!("{}h", total_seconds / 3600)
+    } else if total_seconds >= 60 {
+        format!("{}m", total_seconds / 60)
+    } else {
+        format!("{total_seconds}s")
     }
 }
 
@@ -1068,6 +1211,12 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         ConnectionState::Connecting => ("◌ Connecting", app.color(Color::Yellow)),
         ConnectionState::Reconnecting => ("◌ Reconnecting", app.color(Color::Yellow)),
     };
+    let expiry_label = format_room_expiry(
+        app.idle_ttl_minutes,
+        app.room_expires_at.as_deref(),
+        app.presence,
+        compact,
+    );
     let title = if compact {
         format!(" QuickDrop · {}  ", app.code)
     } else {
@@ -1077,6 +1226,11 @@ fn render_timeline(frame: &mut Frame<'_>, app: &mut App<'_>) {
         Paragraph::new(Line::from(vec![
             Span::styled(title, Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(connection_label, Style::default().fg(connection_color)),
+            Span::raw(
+                expiry_label
+                    .map(|label| format!("  {label}"))
+                    .unwrap_or_default(),
+            ),
         ]))
         .block(Block::default().borders(Borders::ALL)),
         rows[0],
@@ -1735,5 +1889,24 @@ mod tests {
             assert!(rendered.contains("QuickDrop"));
             assert!(rendered.contains("hello from QuickDrop"));
         }
+    }
+
+    #[test]
+    fn formats_held_and_countdown_expiry_labels() {
+        assert_eq!(
+            format_room_expiry(Some(30), None, 1, false).as_deref(),
+            Some("held open · 30m idle")
+        );
+        assert_eq!(
+            format_room_expiry(Some(30), None, 1, true).as_deref(),
+            Some("held")
+        );
+        assert_eq!(format_remaining_clock(12 * 60 * 1000 + 34_000), "12:34");
+        assert_eq!(format_compact_remaining(90_000), "1m");
+        assert_eq!(parse_rfc3339_unix_ms("1970-01-01T00:00:00.000Z"), Some(0));
+        assert_eq!(
+            parse_rfc3339_unix_ms("2026-06-23T20:30:00.000Z"),
+            Some(1_782_246_600_000)
+        );
     }
 }
