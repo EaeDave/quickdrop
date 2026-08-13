@@ -23,6 +23,7 @@ type ServerMessage = {
   version?: number;
   clientId?: string;
   by?: string;
+  origin?: "drop_sync";
   count?: number;
   active?: boolean;
   visible?: boolean;
@@ -655,6 +656,7 @@ describe("text session routes", () => {
       const firstViewer = await nextMessageOfType(viewer, "drop_added");
       expect(firstAuthor.drop?.contentType).toBe("url");
       expect(firstViewer.drop?.id).toBe(firstAuthor.drop?.id);
+      expect((await nextMessageOfType(viewer, "update")).origin).toBe("drop_sync");
 
       clock.current = new Date("2026-06-23T20:01:00Z");
       author.send(JSON.stringify({ type: "drop_add", content: '{"ok":true}' }));

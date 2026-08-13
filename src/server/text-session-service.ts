@@ -593,7 +593,7 @@ async function handleRealtimeMessage(
     }
     deps.hub.broadcast(
       code,
-      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId }),
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
       clientId,
     );
     if (result.firstDrop) {
@@ -616,7 +616,7 @@ async function handleRealtimeMessage(
     deps.hub.broadcast(code, JSON.stringify({ type: "drop_deleted", dropId: message.dropId }));
     deps.hub.broadcast(
       code,
-      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId }),
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
       clientId,
     );
     return;
@@ -632,7 +632,7 @@ async function handleRealtimeMessage(
     deps.hub.broadcast(code, JSON.stringify({ type: "drops_cleared" }));
     deps.hub.broadcast(
       code,
-      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId }),
+      JSON.stringify({ type: "update", text: result.legacyText, version: result.legacyVersion, by: clientId, origin: "drop_sync" }),
       clientId,
     );
     return;

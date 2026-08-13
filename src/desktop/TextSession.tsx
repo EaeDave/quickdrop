@@ -471,10 +471,18 @@ export default function TextSession() {
       },
       // Represent a legacy client's live document as one replaceable virtual item.
       onUpdate(payload) {
+        if (payload.origin === "drop_sync") {
+          return;
+        }
+
         const virtualPrefix = "legacy-live-";
         setDrops((current) => {
+          const legacy = current.find((drop) => drop.id.startsWith(virtualPrefix));
           const withoutLegacy = current.filter((drop) => !drop.id.startsWith(virtualPrefix));
           if (!payload.text) {
+            if (legacy) {
+              setRoomNotice("Texto legado limpo.");
+            }
             return withoutLegacy;
           }
           if (withoutLegacy[0]?.content === payload.text) {
@@ -482,9 +490,9 @@ export default function TextSession() {
           }
           const virtual = legacyLiveDrop(payload.text, payload.version, dropTtlMinutesRef.current);
           highlightRemoteDrop(virtual.id);
+          setRoomNotice("Texto recebido de um cliente anterior.");
           return sortDrops([virtual, ...withoutLegacy]);
         });
-        setRoomNotice(payload.text ? "Texto recebido de um cliente anterior." : "Texto legado limpo.");
       },
       onTyping() {},
       onPointer() {},

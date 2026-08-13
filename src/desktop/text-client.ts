@@ -37,7 +37,7 @@ export type RoomHandlers = {
     dropExpiresAfterMinutes: number;
     maxDrops: number;
   }): void;
-  onUpdate(payload: { text: string; version: number; by: string }): void;
+  onUpdate(payload: { text: string; version: number; by: string; origin?: "drop_sync" }): void;
   onDropAdded(payload: { drop: TextDrop; by: string }): void;
   onDropsRemoved(payload: { dropIds: string[] }): void;
   onDropDeleted(payload: { dropId: string }): void;
@@ -470,11 +470,12 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
         const text = "text" in payload ? parseString(payload.text) : null;
         const version = "version" in payload ? parseNumber(payload.version) : null;
         const by = "by" in payload ? parseString(payload.by) : null;
+        const origin = "origin" in payload && payload.origin === "drop_sync" ? payload.origin : undefined;
         if (text === null || version === null || by === null) {
           return;
         }
 
-        handlers.onUpdate({ text, version, by });
+        handlers.onUpdate({ text, version, by, ...(origin ? { origin } : {}) });
         return;
       }
 

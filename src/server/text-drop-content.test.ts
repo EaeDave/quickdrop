@@ -17,6 +17,10 @@ describe("classifyTextDrop", () => {
     expect(classifyTextDrop("$ echo hello")).toBe("command");
     expect(classifyTextDrop("sudo systemctl restart app")).toBe("command");
     expect(classifyTextDrop("pwsh -File install.ps1")).toBe("command");
+    expect(classifyTextDrop("go test ./...")).toBe("command");
+    expect(classifyTextDrop("make --version")).toBe("command");
     expect(classifyTextDrop("A normal sentence with git in it.")).toBe("text");
+    expect(classifyTextDrop("go to lunch")).toBe("text");
+    expect(classifyTextDrop("make this easier")).toBe("text");
   });
 });
