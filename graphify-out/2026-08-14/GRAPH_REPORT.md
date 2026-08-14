@@ -1,16 +1,16 @@
 # Graph Report - quickdrop  (2026-08-14)
 
 ## Corpus Check
-- 116 files · ~64,368 words
+- 118 files · ~64,774 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1320 nodes · 2868 edges · 82 communities (55 shown, 27 thin omitted)
+- 1312 nodes · 2878 edges · 79 communities (65 shown, 14 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 57 edges (avg confidence: 0.64)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `92642595`
+- Built from commit: `aa7a8781`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -22,7 +22,7 @@
 - TextSession.tsx
 - Contributing
 - storage-quota.ts
-- Build Configuration
+- compilerOptions
 - tauri.ts
 - text-funnel-metrics.ts
 - scripts
@@ -42,7 +42,7 @@
 - Windows Installer Logic
 - permissions
 - QuickDrop Window Launcher
-- App
+- handle_key
 - index.ts
 - package-macos-qd-release.ts
 - Product Capabilities
@@ -62,37 +62,33 @@
 - HTML Type Declarations
 - Desktop Crate
 - CLI Crate
-- .replace_drops
 - .new
-- App<'a>
+- App
+- run_tui
 - Open-source readiness audit
 - bundle
 - TerminalGuard
 - text-client.ts
-- C
-- text-session-service.test.ts
+- handle_mouse
+- InMemoryTextDropsRepository
 - text-drops-repository.ts
-- Client
+- github-release.ts
 - QuickPanel.tsx
 - text-rooms-repository.ts
-- T
+- DelayedListTextDropsRepository
 - install-macos.test.ts
-- TextDrop
-- Url
-- Drop
-- HashMap
-- Option
-- OsString
-- Path
-- PathBuf
-- Result
-- Self
-- String
-- Vec
+- text-session-service.test.ts
+- InMemoryTextRoomsRepository
+- install-linux.test.ts
+- bun
+- DelayedExpiryTextRoomsRepository
+- config.ts
+- install-bar-integration.test.ts
+- lib
 
 ## God Nodes (most connected - your core abstractions)
 1. `QdError` - 58 edges
-2. `App` - 42 edges
+2. `App` - 44 edges
 3. `scripts` - 39 edges
 4. `buildApp()` - 26 edges
 5. `registerTextSessionRoutes()` - 23 edges
@@ -100,19 +96,19 @@
 7. `handle_timeline_key()` - 21 edges
 8. `run_mouse_action()` - 21 edges
 9. `compilerOptions` - 20 edges
-10. `handleReleaseAssetDownload()` - 19 edges
+10. `App<'a>` - 19 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `PostgreSQL Container` --semantically_similar_to--> `PostgreSQL Persistence`  [INFERRED] [semantically similar]
   compose.yml → README.md
 - `Download Arrow Symbol` --conceptually_related_to--> `Temporary File Transfer`  [INFERRED]
   src-tauri/icons/icon.png → README.md
+- `build_quickdrop_window()` --calls--> `App`  [EXTRACTED]
+  src-tauri/src/lib.rs → cli/src/tui.rs
+- `setup_desktop_tray()` --references--> `App`  [EXTRACTED]
+  src-tauri/src/lib.rs → cli/src/tui.rs
 - `QuickDrop Server Container` --conceptually_related_to--> `Bun Fastify Backend`  [INFERRED]
   compose.yml → README.md
-- `Bun Frontend Pipeline` --conceptually_related_to--> `Desktop HTML Entry`  [INFERRED]
-  docs/CLAUDE.md → src/desktop/index.html
-- `Desktop HTML Entry` --conceptually_related_to--> `React Tauri Desktop`  [INFERRED]
-  src/desktop/index.html → README.md
 
 ## Import Cycles
 - None detected.
@@ -121,7 +117,7 @@
 - **Cross-platform QuickDrop Clients** — readme_desktop_architecture, readme_native_cli, readme_backend_architecture [EXTRACTED 1.00]
 - **Verified Cross-platform Release Assets** — agents_release_policy, readme_release_pipeline, _github_workflows_release_windows_release [EXTRACTED 1.00]
 
-## Communities (82 total, 27 thin omitted)
+## Communities (79 total, 14 thin omitted)
 
 ### Community 0 - "install-macos.sh"
 Cohesion: 0.47
@@ -129,15 +125,15 @@ Nodes (8): acquire_app_lock(), cleanup(), fail(), info(), release_app_lock(), in
 
 ### Community 1 - "lib.rs"
 Cohesion: 0.05
-Nodes (97): App, AppHandle, Color, Drop, HashMap, Monitor, OsString, Path (+89 more)
+Nodes (95): AppHandle, Monitor, PhysicalPosition, Position, autostart_configured_marker_lives_in_app_config_dir(), autostart_configured_marker_path(), build_quickdrop_window(), clamp_window_position() (+87 more)
 
 ### Community 2 - "QdError"
 Cohesion: 0.06
-Nodes (99): C, access_existing_room(), add_missing_pin_guidance(), copy_to_system_clipboard(), empty_room_does_not_invoke_the_clipboard_writer(), endpoint(), http_client(), latest_content() (+91 more)
+Nodes (100): access_existing_room(), add_missing_pin_guidance(), copy_to_system_clipboard(), empty_room_does_not_invoke_the_clipboard_writer(), endpoint(), http_client(), latest_content(), latest_drop() (+92 more)
 
 ### Community 3 - "text-session-service.ts"
 Cohesion: 0.06
-Nodes (52): buildR2Key(), generateSessionCode(), isValidCustomSessionCode(), normalizeSessionCode(), sanitizeFilename(), classifyTextDrop(), looksLikeJson(), TextDropContentType (+44 more)
+Nodes (55): buildR2Key(), generateSessionCode(), isValidCustomSessionCode(), normalizeSessionCode(), sanitizeFilename(), startServer(), classifyTextDrop(), looksLikeJson() (+47 more)
 
 ### Community 4 - "TextSession.tsx"
 Cohesion: 0.12
@@ -148,12 +144,12 @@ Cohesion: 0.22
 Nodes (7): Contributing, Local setup, Pull requests, Security, Reporting a vulnerability, Security policy, Supported versions
 
 ### Community 6 - "storage-quota.ts"
-Cohesion: 0.16
-Nodes (18): cleanupExpiredUploads(), startCleanupJob(), generateShortId(), storageQuota, storageReservations, UploadRecord, uploads, hasPostgresUniqueViolation() (+10 more)
+Cohesion: 0.10
+Nodes (26): Database, db, sql, SqlClient, generateShortId(), storageQuota, StorageQuotaRecord, StorageReservationRecord (+18 more)
 
-### Community 7 - "Build Configuration"
-Cohesion: 0.04
-Nodes (39): bun, DOM, DOM.Iterable, ESNext, executable(), fakePath(), hasToolchain, installer (+31 more)
+### Community 7 - "compilerOptions"
+Cohesion: 0.11
+Nodes (18): compilerOptions, allowImportingTsExtensions, allowJs, jsx, module, moduleDetection, moduleResolution, noEmit (+10 more)
 
 ### Community 8 - "tauri.ts"
 Cohesion: 0.08
@@ -161,7 +157,7 @@ Nodes (37): App(), copyTextToClipboard(), extractBackendMessage(), formatError()
 
 ### Community 9 - "text-funnel-metrics.ts"
 Cohesion: 0.09
-Nodes (24): days, since, sql, incrementTextFunnelMetric(), metricDateUtc(), MetricsLogger, normalizeMetric(), retentionCutoffDate() (+16 more)
+Nodes (24): days, since, createTextFunnelMetrics(), incrementTextFunnelMetric(), metricDateUtc(), MetricsLogger, normalizeMetric(), retentionCutoffDate() (+16 more)
 
 ### Community 10 - "scripts"
 Cohesion: 0.05
@@ -180,12 +176,12 @@ Cohesion: 0.08
 Nodes (28): generateUploadId(), putObject(), releaseUploadStorageReservation(), reserveUploadStorage(), defaultStorageQuotaGateway, deleteRegisteredUpload(), deleteUploadedObject(), drainMultipartFile() (+20 more)
 
 ### Community 14 - "tui.rs"
-Cohesion: 0.08
-Nodes (42): apply_update_event(), ConnectionState, ctrl_or_shift_enter_inserts_a_newline_without_publishing(), ctrl_u_requests_an_available_update_from_every_screen(), days_from_civil(), direct_entry_seeds_pin_and_authoritative_feedback(), DropOrigin, enter_publishes_and_clears_the_composer() (+34 more)
+Cohesion: 0.09
+Nodes (35): apply_update_event(), ConnectionState, ctrl_or_shift_enter_inserts_a_newline_without_publishing(), ctrl_u_requests_an_available_update_from_every_screen(), days_from_civil(), direct_entry_seeds_pin_and_authoritative_feedback(), DropOrigin, enter_publishes_and_clears_the_composer() (+27 more)
 
 ### Community 15 - "download-service.ts"
-Cohesion: 0.33
-Nodes (9): DownloadDeps, handleDownload(), computeExpiresAt(), computeSignedUrlExpirySeconds(), isExpired(), deleteObject(), signedDownloadUrl(), findActiveByShortId() (+1 more)
+Cohesion: 0.21
+Nodes (15): cleanupExpiredUploads(), startCleanupJob(), AppConfig, DownloadDeps, handleDownload(), computeExpiresAt(), computeSignedUrlExpirySeconds(), isExpired() (+7 more)
 
 ### Community 16 - "Desktop Manifest Metadata"
 Cohesion: 0.10
@@ -193,7 +189,7 @@ Nodes (20): bar-widget, author, barWidget, allowMultiple, category, defaults, de
 
 ### Community 17 - "release.ts"
 Cohesion: 0.09
-Nodes (36): createTauriUpdateManifest(), main(), TauriUpdateManifest, TauriUpdatePlatform, updaterAssets(), LOCAL_BASE_URLS, publicBaseUrl(), updaterBaseUrl() (+28 more)
+Nodes (37): createTauriUpdateManifest(), main(), TauriUpdateManifest, TauriUpdatePlatform, updaterAssets(), LOCAL_BASE_URLS, publicBaseUrl(), updaterBaseUrl() (+29 more)
 
 ### Community 18 - "Development Dependencies"
 Cohesion: 0.11
@@ -231,13 +227,13 @@ Nodes (12): core:default, core:window:allow-close, core:window:allow-start-dragg
 Cohesion: 0.46
 Nodes (6): quickdrop-launcher script, cleanup_spawn_rule(), close_quickdrop_window(), disable_spawn_rule(), install_spawn_rule(), place_quickdrop_window()
 
-### Community 27 - "App"
-Cohesion: 0.17
-Nodes (26): Action, App, cancel_composer(), confirm_delete(), copy_selected(), ctrl_p_requests_a_pin_before_creating_a_protected_room(), ctrl_p_with_empty_code_enters_protected_create_then_asks_for_pin(), handle_key() (+18 more)
+### Community 27 - "handle_key"
+Cohesion: 0.20
+Nodes (19): Action, cancel_composer(), confirm_delete(), copy_selected(), ctrl_p_requests_a_pin_before_creating_a_protected_room(), ctrl_p_with_empty_code_enters_protected_create_then_asks_for_pin(), handle_key(), handle_timeline_key() (+11 more)
 
 ### Community 28 - "index.ts"
-Cohesion: 0.08
-Nodes (52): AppConfig, loadConfig(), normalizePublicBaseUrl(), readBoolean(), readOptional(), readPositiveInteger(), readRequired(), requiredEnv (+44 more)
+Cohesion: 0.13
+Nodes (32): DesktopUpdatePlatform, escapeRegExp(), handleDesktopUpdateDownload(), handleDesktopUpdateManifestDownload(), isDesktopUpdatePlatform(), PLATFORM_ASSET_NAMES, handleReleaseAssetDownload(), buildApp() (+24 more)
 
 ### Community 29 - "package-macos-qd-release.ts"
 Cohesion: 0.40
@@ -267,17 +263,17 @@ Nodes (3): installer, qdReleaseBinary, releaseBinary
 Cohesion: 0.50
 Nodes (3): assets, qdChecksum, { version }
 
-### Community 55 - ".replace_drops"
-Cohesion: 0.15
-Nodes (21): apply_network_event(), ctrl_o_leaves_the_current_room_without_quitting(), drop(), e_edits_the_selected_drop_and_restores_the_composer_draft(), keeps_newest_drops_first_and_selection_valid(), mouse_event(), mouse_hover_visually_tracks_every_interactive_region(), mouse_selects_drops_focuses_composer_and_runs_visible_actions() (+13 more)
+### Community 55 - ".new"
+Cohesion: 0.24
+Nodes (13): App<'a>, apply_network_event(), ctrl_o_leaves_the_current_room_without_quitting(), drop(), e_edits_the_selected_drop_and_restores_the_composer_draft(), keeps_newest_drops_first_and_selection_valid(), origin_expiry_snapshot_preservation_and_remote_fallback_are_independent(), q_quits_from_help_and_failed_publish_restores_the_composer() (+5 more)
 
-### Community 56 - ".new"
-Cohesion: 0.29
-Nodes (16): ActionRegion, centered_rect(), MouseAction, register_centered_actions(), render_action_footer(), render_centered_actions(), render_code(), render_confirmation() (+8 more)
+### Community 56 - "App"
+Cohesion: 0.17
+Nodes (28): ActionRegion, App, centered_rect(), HoverTarget, MouseAction, open_room_link(), register_centered_actions(), render() (+20 more)
 
-### Community 57 - "App<'a>"
-Cohesion: 0.21
-Nodes (5): App<'a>, entry_feedback_expires_without_clearing_newer_status(), normalize_code(), PinPurpose, Instant
+### Community 57 - "run_tui"
+Cohesion: 0.33
+Nodes (5): entry_feedback_expires_without_clearing_newer_status(), is_open_feedback_message(), open_feedback(), run_tui(), Instant
 
 ### Community 58 - "Open-source readiness audit"
 Cohesion: 0.33
@@ -285,51 +281,87 @@ Nodes (5): Completed hardening, Expected public values, Open-source readiness au
 
 ### Community 59 - "bundle"
 Cohesion: 0.15
-Nodes (12): dmg, icons/icon.icns, icons/icon.png, bundle, active, category, icon, macOS (+4 more)
+Nodes (12): dmg, icons/icon.icns, bundle, active, category, icon, macOS, targets (+4 more)
 
 ### Community 60 - "TerminalGuard"
 Cohesion: 0.20
 Nodes (9): keyboard_enhancement_is_optional(), Drop, Self, terminal_error(), TerminalGuard, CrosstermBackend, Error, Stdout (+1 more)
 
 ### Community 61 - "text-client.ts"
-Cohesion: 0.16
-Nodes (31): ClientTextMetric, connectRoom(), createJsonRequest(), createRoom(), fetchSnapshot(), formatIdleWindow(), formatRemaining(), formatRoomExpiry() (+23 more)
+Cohesion: 0.17
+Nodes (30): ClientTextMetric, connectRoom(), createJsonRequest(), createRoom(), fetchSnapshot(), formatIdleWindow(), formatRemaining(), formatRoomExpiry() (+22 more)
 
-### Community 63 - "text-session-service.test.ts"
-Cohesion: 0.06
-Nodes (27): ClearTextDropsResult, CreateTextDropInput, CreateTextDropResult, DeleteTextDropResult, TextDropRow, TextDropsRepository, UpdateTextDropInput, UpdateTextDropResult (+19 more)
+### Community 62 - "handle_mouse"
+Cohesion: 0.23
+Nodes (11): handle_mouse(), mouse_event(), mouse_hover_visually_tracks_every_interactive_region(), mouse_selects_drops_focuses_composer_and_runs_visible_actions(), overlays_do_not_hover_inactive_timeline_regions(), point_in_rect(), update_hover(), CompletedFrame (+3 more)
+
+### Community 63 - "InMemoryTextDropsRepository"
+Cohesion: 0.24
+Nodes (5): CreateTextDropInput, CreateTextDropResult, TextDropRow, copyDrop(), InMemoryTextDropsRepository
 
 ### Community 64 - "text-drops-repository.ts"
-Cohesion: 0.22
-Nodes (16): Database, db, SqlClient, clearDrops(), createDrop(), deleteDrop(), findExpiredDrops(), listActiveDrops() (+8 more)
+Cohesion: 0.28
+Nodes (14): textRooms, clearDrops(), createDrop(), deleteDrop(), findExpiredDrops(), listActiveDrops(), lockRoom(), markDropsDeleted() (+6 more)
+
+### Community 65 - "github-release.ts"
+Cohesion: 0.38
+Nodes (6): fetchRelease(), fetchReleaseAsset(), githubHeaders(), GitHubRelease, GitHubReleaseAsset, ReleaseAssetDownloadOptions
 
 ### Community 66 - "QuickPanel.tsx"
-Cohesion: 0.17
-Nodes (16): formatError(), normalizeCode(), PanelStatus, preview(), QuickPanel(), readNotificationsMuted(), readRecentCodes(), shouldNotifyRemoteDrop() (+8 more)
+Cohesion: 0.16
+Nodes (17): formatError(), normalizeCode(), PanelStatus, preview(), QuickPanel(), readNotificationsMuted(), readRecentCodes(), shouldNotifyRemoteDrop() (+9 more)
 
 ### Community 67 - "text-rooms-repository.ts"
-Cohesion: 0.13
-Nodes (15): StorageQuotaRecord, StorageReservationRecord, TextDropRecord, textDrops, TextFunnelMetricRecord, textFunnelMetrics, TextRoomRecord, textRooms (+7 more)
+Cohesion: 0.24
+Nodes (7): activeRoomFilter(), createTextRoomWithinLimit(), findExpiredTextRooms(), findTextRoomByCode(), TextRoomsRepository, toTextRoomRow(), updateTextRoomText()
+
+### Community 82 - "text-session-service.test.ts"
+Cohesion: 0.15
+Nodes (13): ClearTextDropsResult, DeleteTextDropResult, TextDropsRepository, UpdateTextDropInput, UpdateTextDropResult, expectJoined(), MutableClock, nextMessage() (+5 more)
+
+### Community 83 - "InMemoryTextRoomsRepository"
+Cohesion: 0.24
+Nodes (6): CreateTextRoomInput, TextRoomCreationResult, TextRoomRow, BarrierTextRoomsRepository, copyRoom(), InMemoryTextRoomsRepository
+
+### Community 84 - "install-linux.test.ts"
+Cohesion: 0.18
+Nodes (7): barInstallerSource, hasToolchain, launcherSource, omarchyPluginSource, Sandbox, scriptPath, waybarPatcherSource
+
+### Community 85 - "bun"
+Cohesion: 0.22
+Nodes (6): bun, launcher, runner, migrate(), waitForDatabase(), types
+
+### Community 87 - "config.ts"
+Cohesion: 0.47
+Nodes (7): loadConfig(), normalizePublicBaseUrl(), readBoolean(), readOptional(), readPositiveInteger(), readRequired(), requiredEnv
+
+### Community 88 - "install-bar-integration.test.ts"
+Cohesion: 0.40
+Nodes (5): executable(), fakePath(), hasToolchain, installer, pluginSource
+
+### Community 89 - "lib"
+Cohesion: 0.50
+Nodes (4): DOM, DOM.Iterable, ESNext, lib
 
 ## Knowledge Gaps
-- **283 isolated node(s):** `Local setup`, `Pull requests`, `Security`, `Reporting a vulnerability`, `Supported versions` (+278 more)
+- **284 isolated node(s):** `quickdrop-cli`, `databaseUrl`, `uploads`, `storage_quota`, `storage_reservations` (+279 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **27 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `bun` connect `Build Configuration` to `text-drops-repository.ts`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `QdError` connect `QdError` to `App`, `TerminalGuard`, `tui.rs`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Why does `render_timeline()` connect `.new` to `App<'a>`, `App`, `tui.rs`, `.replace_drops`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
-- **What connects `Local setup`, `Pull requests`, `Security` to the rest of the system?**
-  _283 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `App` connect `App` to `lib.rs`, `QdError`, `tui.rs`, `.new`, `run_tui`, `handle_key`, `handle_mouse`?**
+  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+- **Why does `QdError` connect `QdError` to `tui.rs`, `run_tui`, `handle_key`, `TerminalGuard`, `handle_mouse`?**
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Why does `bun` connect `bun` to `install-bar-integration.test.ts`, `install-linux.test.ts`, `storage-quota.ts`?**
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **What connects `quickdrop-cli`, `databaseUrl`, `uploads` to the rest of the system?**
+  _284 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `lib.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.053407855922993325 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05404551201011378 - nodes in this community are weakly interconnected._
 - **Should `QdError` be split into smaller, more focused modules?**
-  _Cohesion score 0.057254502208630646 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05536445536445536 - nodes in this community are weakly interconnected._
 - **Should `text-session-service.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.0647887323943662 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.061828952239911146 - nodes in this community are weakly interconnected._

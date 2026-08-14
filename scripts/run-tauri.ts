@@ -27,7 +27,7 @@ if (process.env.TAURI_CONFIG?.trim()) {
 
 const inheritedPlugins = (inheritedConfig.plugins ?? {}) as Record<string, unknown>;
 const inheritedUpdater = (inheritedPlugins.updater ?? {}) as Record<string, unknown>;
-process.env.TAURI_CONFIG = JSON.stringify({
+const dynamicConfig = JSON.stringify({
   ...inheritedConfig,
   plugins: {
     ...inheritedPlugins,
@@ -38,8 +38,9 @@ process.env.TAURI_CONFIG = JSON.stringify({
     },
   },
 });
+process.env.TAURI_CONFIG = dynamicConfig;
 
-const child = Bun.spawn(["bunx", "tauri", ...args], {
+const child = Bun.spawn(["bunx", "tauri", ...args, "--config", dynamicConfig], {
   env: process.env,
   stdin: "inherit",
   stdout: "inherit",

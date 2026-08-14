@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -34,6 +34,9 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Verify source version matches release tag
+        run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -85,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -93,6 +96,9 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Verify source version matches release tag
+        run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:

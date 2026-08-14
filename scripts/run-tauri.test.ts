@@ -15,6 +15,7 @@ test("Tauri runner normalizes the child build environment and allows keyless dev
     `#!/bin/sh
 printf '%s' "$TAURI_CONFIG" > "$TAURI_TEST_CONFIG"
 printf '%s' "$QUICKDROP_PUBLIC_BASE_URL" > "$TAURI_TEST_BASE_URL"
+printf '%s' "$*" > "$TAURI_TEST_ARGS"
 `,
   );
   await chmod(bunx, 0o755);
@@ -24,9 +25,10 @@ printf '%s' "$QUICKDROP_PUBLIC_BASE_URL" > "$TAURI_TEST_BASE_URL"
       ...process.env,
       PATH: `${root}:${process.env.PATH}`,
       QUICKDROP_PUBLIC_BASE_URL: " http://127.0.0.1:3000/ ",
-      TAURI_UPDATER_PUBLIC_KEY: undefined,
+      TAURI_UPDATER_PUBLIC_KEY: "",
       TAURI_TEST_CONFIG: output,
       TAURI_TEST_BASE_URL: `${output}.url`,
+      TAURI_TEST_ARGS: `${output}.args`,
     })
     .quiet();
 
@@ -36,4 +38,5 @@ printf '%s' "$QUICKDROP_PUBLIC_BASE_URL" > "$TAURI_TEST_BASE_URL"
     "http://127.0.0.1:3000/desktop/update/latest.json",
   ]);
   expect(config.plugins.updater.pubkey).toBeUndefined();
+  expect(await readFile(`${output}.args`, "utf8")).toContain("--config");
 });
