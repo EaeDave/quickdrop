@@ -196,10 +196,10 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "id": "scripts_release_releaseasset",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "releaseasset"
+      "norm_label": "releaseasset",
+      "id": "scripts_release_releaseasset"
     },
     {
       "label": "ReleaseKind",
@@ -209,10 +209,10 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "id": "scripts_release_releasekind",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "releasekind"
+      "norm_label": "releasekind",
+      "id": "scripts_release_releasekind"
     },
     {
       "label": "DesktopUpdatePlatform",
@@ -222,16 +222,16 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_desktopupdateplatform",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "desktopupdateplatform"
+      "norm_label": "desktopupdateplatform",
+      "id": "src_server_desktop_updater_service_desktopupdateplatform"
     },
     {
       "label": "GitHubRelease",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L15",
+      "source_location": "L17",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -244,7 +244,7 @@
       "label": "GitHubReleaseAsset",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L10",
+      "source_location": "L12",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -257,7 +257,7 @@
       "label": "ReleaseAssetDownloadOptions",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L19",
+      "source_location": "L21",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -1952,10 +1952,10 @@
       "source_location": "L36",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_assertreleaseplatform",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "assertreleaseplatform()"
+      "norm_label": "assertreleaseplatform()",
+      "id": "scripts_release_assertreleaseplatform"
     },
     {
       "label": "configureUpdaterSigning()",
@@ -1964,10 +1964,10 @@
       "source_location": "L122",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_configureupdatersigning",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "configureupdatersigning()"
+      "norm_label": "configureupdatersigning()",
+      "id": "scripts_release_configureupdatersigning"
     },
     {
       "label": "currentVersion()",
@@ -1976,10 +1976,10 @@
       "source_location": "L61",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_currentversion",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "currentversion()"
+      "norm_label": "currentversion()",
+      "id": "scripts_release_currentversion"
     },
     {
       "label": "escapeRegExp()",
@@ -1988,10 +1988,10 @@
       "source_location": "L74",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_escaperegexp",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "escaperegexp()"
+      "norm_label": "escaperegexp()",
+      "id": "scripts_release_escaperegexp"
     },
     {
       "label": "main()",
@@ -2000,10 +2000,10 @@
       "source_location": "L308",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_main",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "main()"
+      "norm_label": "main()",
+      "id": "scripts_release_main"
     },
     {
       "label": "manifestVersions()",
@@ -2012,10 +2012,10 @@
       "source_location": "L44",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_manifestversions",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "manifestversions()"
+      "norm_label": "manifestversions()",
+      "id": "scripts_release_manifestversions"
     },
     {
       "label": "nextVersion()",
@@ -2024,10 +2024,10 @@
       "source_location": "L21",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_nextversion",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "nextversion()"
+      "norm_label": "nextversion()",
+      "id": "scripts_release_nextversion"
     },
     {
       "label": "output()",
@@ -2036,10 +2036,10 @@
       "source_location": "L106",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_output",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "output()"
+      "norm_label": "output()",
+      "id": "scripts_release_output"
     },
     {
       "label": "parseVersion()",
@@ -2048,10 +2048,10 @@
       "source_location": "L15",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_parseversion",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "parseversion()"
+      "norm_label": "parseversion()",
+      "id": "scripts_release_parseversion"
     },
     {
       "label": "preflight()",
@@ -2060,10 +2060,10 @@
       "source_location": "L138",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_preflight",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "preflight()"
+      "norm_label": "preflight()",
+      "id": "scripts_release_preflight"
     },
     {
       "label": "replacePackageVersion()",
@@ -2072,10 +2072,10 @@
       "source_location": "L78",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_replacepackageversion",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "replacepackageversion()"
+      "norm_label": "replacepackageversion()",
+      "id": "scripts_release_replacepackageversion"
     },
     {
       "label": "replaceVersion()",
@@ -2084,10 +2084,10 @@
       "source_location": "L93",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_replaceversion",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "replaceversion()"
+      "norm_label": "replaceversion()",
+      "id": "scripts_release_replaceversion"
     },
     {
       "label": "responseDigest()",
@@ -2096,10 +2096,10 @@
       "source_location": "L183",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_responsedigest",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "responsedigest()"
+      "norm_label": "responsedigest()",
+      "id": "scripts_release_responsedigest"
     },
     {
       "label": "run()",
@@ -2108,10 +2108,10 @@
       "source_location": "L112",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_run",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "run()"
+      "norm_label": "run()",
+      "id": "scripts_release_run"
     },
     {
       "label": "verifyPublicAssets()",
@@ -2120,10 +2120,10 @@
       "source_location": "L197",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_verifypublicassets",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "verifypublicassets()"
+      "norm_label": "verifypublicassets()",
+      "id": "scripts_release_verifypublicassets"
     },
     {
       "label": "waitForPlatformWorkflow()",
@@ -2132,10 +2132,10 @@
       "source_location": "L156",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_release_waitforplatformworkflow",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "waitforplatformworkflow()"
+      "norm_label": "waitforplatformworkflow()",
+      "id": "scripts_release_waitforplatformworkflow"
     },
     {
       "label": "escapeRegExp()",
@@ -2144,10 +2144,10 @@
       "source_location": "L50",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_escaperegexp",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "escaperegexp()"
+      "norm_label": "escaperegexp()",
+      "id": "src_server_desktop_updater_service_escaperegexp"
     },
     {
       "label": "handleDesktopUpdateDownload()",
@@ -2156,10 +2156,10 @@
       "source_location": "L34",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_handledesktopupdatedownload",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "handledesktopupdatedownload()"
+      "norm_label": "handledesktopupdatedownload()",
+      "id": "src_server_desktop_updater_service_handledesktopupdatedownload"
     },
     {
       "label": "handleDesktopUpdateManifestDownload()",
@@ -2168,10 +2168,10 @@
       "source_location": "L22",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "handledesktopupdatemanifestdownload()"
+      "norm_label": "handledesktopupdatemanifestdownload()",
+      "id": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload"
     },
     {
       "label": "isDesktopUpdatePlatform()",
@@ -2180,16 +2180,16 @@
       "source_location": "L18",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_isdesktopupdateplatform",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "isdesktopupdateplatform()"
+      "norm_label": "isdesktopupdateplatform()",
+      "id": "src_server_desktop_updater_service_isdesktopupdateplatform"
     },
     {
       "label": "fetchRelease()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L69",
+      "source_location": "L77",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_fetchrelease",
@@ -2201,7 +2201,7 @@
       "label": "fetchReleaseAsset()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L86",
+      "source_location": "L94",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_fetchreleaseasset",
@@ -2213,7 +2213,7 @@
       "label": "githubHeaders()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L101",
+      "source_location": "L109",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_githubheaders",
@@ -2225,7 +2225,7 @@
       "label": "handleReleaseAssetDownload()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L27",
+      "source_location": "L29",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_handlereleaseassetdownload",
@@ -2240,10 +2240,10 @@
       "source_location": "L47",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_buildapp",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "buildapp()"
+      "norm_label": "buildapp()",
+      "id": "src_server_index_buildapp"
     },
     {
       "label": "canonicalRoomCodeFromRawUrl()",
@@ -2252,10 +2252,10 @@
       "source_location": "L265",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_canonicalroomcodefromrawurl",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "canonicalroomcodefromrawurl()"
+      "norm_label": "canonicalroomcodefromrawurl()",
+      "id": "src_server_index_canonicalroomcodefromrawurl"
     },
     {
       "label": "isMacOsArchitecture()",
@@ -2264,10 +2264,10 @@
       "source_location": "L278",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_ismacosarchitecture",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "ismacosarchitecture()"
+      "norm_label": "ismacosarchitecture()",
+      "id": "src_server_index_ismacosarchitecture"
     },
     {
       "label": "isSensitiveTextRoute()",
@@ -2276,10 +2276,10 @@
       "source_location": "L282",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_issensitivetextroute",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "issensitivetextroute()"
+      "norm_label": "issensitivetextroute()",
+      "id": "src_server_index_issensitivetextroute"
     },
     {
       "label": "redactTextCodeFromUrl()",
@@ -2288,10 +2288,10 @@
       "source_location": "L256",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_redacttextcodefromurl",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "redacttextcodefromurl()"
+      "norm_label": "redacttextcodefromurl()",
+      "id": "src_server_index_redacttextcodefromurl"
     },
     {
       "label": "startServer()",
@@ -2300,10 +2300,10 @@
       "source_location": "L241",
       "_callable": true,
       "_origin": "ast",
-      "id": "src_server_index_startserver",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "startserver()"
+      "norm_label": "startserver()",
+      "id": "src_server_index_startserver"
     },
     {
       "label": "handleLinuxInstallerDownload()",
@@ -8267,10 +8267,10 @@
       "source_file": "scripts/generate-tauri-update-manifest.test.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_test",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "generate-tauri-update-manifest.test.ts"
+      "norm_label": "generate-tauri-update-manifest.test.ts",
+      "id": "scripts_generate_tauri_update_manifest_test"
     },
     {
       "label": "release.ts",
@@ -8278,10 +8278,10 @@
       "source_file": "scripts/release.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "scripts_release",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "release.ts"
+      "norm_label": "release.ts",
+      "id": "scripts_release"
     },
     {
       "label": "release.test.ts",
@@ -8300,10 +8300,10 @@
       "source_file": "scripts/release.ts",
       "source_location": "L5",
       "_origin": "ast",
-      "id": "scripts_release_version_files",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "version_files"
+      "norm_label": "version_files",
+      "id": "scripts_release_version_files"
     },
     {
       "label": "devDependencies",
@@ -10000,10 +10000,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "tauri.conf.json"
+      "norm_label": "tauri.conf.json",
+      "id": "src_tauri_tauri_conf"
     },
     {
       "label": "app",
@@ -10011,10 +10011,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L12",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "app"
+      "norm_label": "app",
+      "id": "src_tauri_tauri_conf_app"
     },
     {
       "label": "macOSPrivateApi",
@@ -10022,10 +10022,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L14",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app_macosprivateapi",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "macosprivateapi"
+      "norm_label": "macosprivateapi",
+      "id": "src_tauri_tauri_conf_app_macosprivateapi"
     },
     {
       "label": "windows",
@@ -10033,10 +10033,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L13",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app_windows",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "windows"
+      "norm_label": "windows",
+      "id": "src_tauri_tauri_conf_app_windows"
     },
     {
       "label": "build",
@@ -10044,10 +10044,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "build"
+      "norm_label": "build",
+      "id": "src_tauri_tauri_conf_build"
     },
     {
       "label": "beforeBuildCommand",
@@ -10055,10 +10055,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L9",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_beforebuildcommand",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "beforebuildcommand"
+      "norm_label": "beforebuildcommand",
+      "id": "src_tauri_tauri_conf_build_beforebuildcommand"
     },
     {
       "label": "beforeDevCommand",
@@ -10066,10 +10066,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_beforedevcommand",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "beforedevcommand"
+      "norm_label": "beforedevcommand",
+      "id": "src_tauri_tauri_conf_build_beforedevcommand"
     },
     {
       "label": "devUrl",
@@ -10077,10 +10077,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L8",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_devurl",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "devurl"
+      "norm_label": "devurl",
+      "id": "src_tauri_tauri_conf_build_devurl"
     },
     {
       "label": "frontendDist",
@@ -10088,10 +10088,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L10",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_frontenddist",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "frontenddist"
+      "norm_label": "frontenddist",
+      "id": "src_tauri_tauri_conf_build_frontenddist"
     },
     {
       "label": "bundle",
@@ -10099,10 +10099,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L16",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_bundle",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "bundle"
+      "norm_label": "bundle",
+      "id": "src_tauri_tauri_conf_bundle"
     },
     {
       "label": "active",
@@ -10110,10 +10110,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L17",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_bundle_active",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "active"
+      "norm_label": "active",
+      "id": "src_tauri_tauri_conf_bundle_active"
     },
     {
       "label": "createUpdaterArtifacts",
@@ -10121,10 +10121,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L18",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_bundle_createupdaterartifacts",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "createupdaterartifacts"
+      "norm_label": "createupdaterartifacts",
+      "id": "src_tauri_tauri_conf_bundle_createupdaterartifacts"
     },
     {
       "label": "identifier",
@@ -10132,10 +10132,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L5",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_identifier",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "identifier"
+      "norm_label": "identifier",
+      "id": "src_tauri_tauri_conf_identifier"
     },
     {
       "label": "plugins",
@@ -10143,10 +10143,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L20",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_plugins",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "plugins"
+      "norm_label": "plugins",
+      "id": "src_tauri_tauri_conf_plugins"
     },
     {
       "label": "updater",
@@ -10154,10 +10154,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L21",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_plugins_updater",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "updater"
+      "norm_label": "updater",
+      "id": "src_tauri_tauri_conf_plugins_updater"
     },
     {
       "label": "productName",
@@ -10165,10 +10165,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L3",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_productname",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "productname"
+      "norm_label": "productname",
+      "id": "src_tauri_tauri_conf_productname"
     },
     {
       "label": "$schema",
@@ -10176,10 +10176,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L2",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_schema",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "$schema"
+      "norm_label": "$schema",
+      "id": "src_tauri_tauri_conf_schema"
     },
     {
       "label": "endpoints",
@@ -10187,10 +10187,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L23",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_updater_endpoints",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "endpoints"
+      "norm_label": "endpoints",
+      "id": "src_tauri_tauri_conf_updater_endpoints"
     },
     {
       "label": "pubkey",
@@ -10198,10 +10198,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L22",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_updater_pubkey",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "pubkey"
+      "norm_label": "pubkey",
+      "id": "src_tauri_tauri_conf_updater_pubkey"
     },
     {
       "label": "version",
@@ -10209,10 +10209,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L4",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_version",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "version"
+      "norm_label": "version",
+      "id": "src_tauri_tauri_conf_version"
     },
     {
       "label": "https://quickdrop.eaedave.xyz/desktop/update/latest.json",
@@ -10220,10 +10220,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L23",
       "_origin": "ast",
-      "id": "ref_https_quickdrop_eaedave_xyz_desktop_update_latest_json",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "https://quickdrop.eaedave.xyz/desktop/update/latest.json"
+      "norm_label": "https://quickdrop.eaedave.xyz/desktop/update/latest.json",
+      "id": "ref_https_quickdrop_eaedave_xyz_desktop_update_latest_json"
     },
     {
       "label": "tauri.windows.conf.json",
@@ -11290,10 +11290,10 @@
       "source_file": "src/server/desktop-updater-service.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "desktop-updater-service.ts"
+      "norm_label": "desktop-updater-service.ts",
+      "id": "src_server_desktop_updater_service"
     },
     {
       "label": "PLATFORM_ASSET_NAMES",
@@ -11301,10 +11301,10 @@
       "source_file": "src/server/desktop-updater-service.ts",
       "source_location": "L11",
       "_origin": "ast",
-      "id": "src_server_desktop_updater_service_platform_asset_names",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "platform_asset_names"
+      "norm_label": "platform_asset_names",
+      "id": "src_server_desktop_updater_service_platform_asset_names"
     },
     {
       "label": "github-release.ts",
@@ -11321,7 +11321,7 @@
       "label": "MISSING_GITHUB_TOKEN_MESSAGE",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L7",
+      "source_location": "L9",
       "_origin": "ast",
       "id": "src_server_github_release_missing_github_token_message",
       "community": 28,
@@ -11334,10 +11334,10 @@
       "source_file": "src/server/index.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_server_index",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "index.ts"
+      "norm_label": "index.ts",
+      "id": "src_server_index"
     },
     {
       "label": "linux-installer-service.ts",
@@ -13325,10 +13325,10 @@
       "source_file": "src/server/index.test.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_server_index_test",
       "community": 61,
       "community_name": "index.test.ts",
-      "norm_label": "index.test.ts"
+      "norm_label": "index.test.ts",
+      "id": "src_server_index_test"
     },
     {
       "label": "envKeys",
@@ -13336,10 +13336,10 @@
       "source_file": "src/server/index.test.ts",
       "source_location": "L14",
       "_origin": "ast",
-      "id": "src_server_index_test_envkeys",
       "community": 61,
       "community_name": "index.test.ts",
-      "norm_label": "envkeys"
+      "norm_label": "envkeys",
+      "id": "src_server_index_test_envkeys"
     },
     {
       "label": "previousEnv",
@@ -13347,10 +13347,10 @@
       "source_file": "src/server/index.test.ts",
       "source_location": "L27",
       "_origin": "ast",
-      "id": "src_server_index_test_previousenv",
       "community": 61,
       "community_name": "index.test.ts",
-      "norm_label": "previousenv"
+      "norm_label": "previousenv",
+      "id": "src_server_index_test_previousenv"
     },
     {
       "label": "testEnv",
@@ -13358,10 +13358,10 @@
       "source_file": "src/server/index.test.ts",
       "source_location": "L4",
       "_origin": "ast",
-      "id": "src_server_index_test_testenv",
       "community": 61,
       "community_name": "index.test.ts",
-      "norm_label": "testenv"
+      "norm_label": "testenv",
+      "id": "src_server_index_test_testenv"
     },
     {
       "label": "cleanup.ts",
@@ -17888,7 +17888,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "scripts/generate-tauri-update-manifest.ts",
-      "source_location": "L57",
+      "source_location": "L60",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_generate_tauri_update_manifest_main",
@@ -17900,7 +17900,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "scripts/generate-tauri-update-manifest.ts",
-      "source_location": "L61",
+      "source_location": "L64",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_generate_tauri_update_manifest_main",
@@ -18911,9 +18911,9 @@
       "source_location": "L62",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_currentversion",
-      "target": "scripts_release_manifestversions",
-      "confidence_score": 1.0
+      "target": "scripts_release_manifestversions"
     },
     {
       "relation": "calls",
@@ -18923,9 +18923,9 @@
       "source_location": "L70",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_currentversion",
-      "target": "scripts_release_parseversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_parseversion"
     },
     {
       "relation": "calls",
@@ -18935,9 +18935,9 @@
       "source_location": "L311",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_currentversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_currentversion"
     },
     {
       "relation": "calls",
@@ -18947,9 +18947,9 @@
       "source_location": "L317",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_assertreleaseplatform",
-      "confidence_score": 1.0
+      "target": "scripts_release_assertreleaseplatform"
     },
     {
       "relation": "calls",
@@ -18959,9 +18959,9 @@
       "source_location": "L319",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_nextversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_nextversion"
     },
     {
       "relation": "calls",
@@ -18971,9 +18971,9 @@
       "source_location": "L322",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_preflight",
-      "confidence_score": 1.0
+      "target": "scripts_release_preflight"
     },
     {
       "relation": "calls",
@@ -18983,9 +18983,9 @@
       "source_location": "L323",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_configureupdatersigning",
-      "confidence_score": 1.0
+      "target": "scripts_release_configureupdatersigning"
     },
     {
       "relation": "calls",
@@ -18995,9 +18995,9 @@
       "source_location": "L325",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_replaceversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_replaceversion"
     },
     {
       "relation": "calls",
@@ -19007,9 +19007,9 @@
       "source_location": "L326",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_run",
-      "confidence_score": 1.0
+      "target": "scripts_release_run"
     },
     {
       "relation": "calls",
@@ -19019,9 +19019,9 @@
       "source_location": "L369",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_waitforplatformworkflow",
-      "confidence_score": 1.0
+      "target": "scripts_release_waitforplatformworkflow"
     },
     {
       "relation": "calls",
@@ -19031,9 +19031,9 @@
       "source_location": "L370",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_main",
-      "target": "scripts_release_verifypublicassets",
-      "confidence_score": 1.0
+      "target": "scripts_release_verifypublicassets"
     },
     {
       "relation": "calls",
@@ -19043,9 +19043,9 @@
       "source_location": "L23",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_nextversion",
-      "target": "scripts_release_parseversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_parseversion"
     },
     {
       "relation": "calls",
@@ -19055,9 +19055,9 @@
       "source_location": "L139",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_preflight",
-      "target": "scripts_release_output",
-      "confidence_score": 1.0
+      "target": "scripts_release_output"
     },
     {
       "relation": "calls",
@@ -19067,9 +19067,9 @@
       "source_location": "L145",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_preflight",
-      "target": "scripts_release_run",
-      "confidence_score": 1.0
+      "target": "scripts_release_run"
     },
     {
       "relation": "calls",
@@ -19079,9 +19079,9 @@
       "source_location": "L85",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_replacepackageversion",
-      "target": "scripts_release_escaperegexp",
-      "confidence_score": 1.0
+      "target": "scripts_release_escaperegexp"
     },
     {
       "relation": "calls",
@@ -19091,9 +19091,9 @@
       "source_location": "L103",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_replaceversion",
-      "target": "scripts_release_replacepackageversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_replacepackageversion"
     },
     {
       "relation": "calls",
@@ -19103,9 +19103,9 @@
       "source_location": "L198",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_verifypublicassets",
-      "target": "scripts_release_output",
-      "confidence_score": 1.0
+      "target": "scripts_release_output"
     },
     {
       "relation": "calls",
@@ -19115,9 +19115,9 @@
       "source_location": "L220",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_verifypublicassets",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "calls",
@@ -19127,9 +19127,9 @@
       "source_location": "L239",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_verifypublicassets",
-      "target": "scripts_release_responsedigest",
-      "confidence_score": 1.0
+      "target": "scripts_release_responsedigest"
     },
     {
       "relation": "calls",
@@ -19139,9 +19139,9 @@
       "source_location": "L158",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_waitforplatformworkflow",
-      "target": "scripts_release_output",
-      "confidence_score": 1.0
+      "target": "scripts_release_output"
     },
     {
       "relation": "calls",
@@ -19151,9 +19151,9 @@
       "source_location": "L175",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release_waitforplatformworkflow",
-      "target": "scripts_release_run",
-      "confidence_score": 1.0
+      "target": "scripts_release_run"
     },
     {
       "relation": "calls",
@@ -20351,9 +20351,9 @@
       "source_location": "L45",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service_handledesktopupdatedownload",
-      "target": "src_server_desktop_updater_service_escaperegexp",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_escaperegexp"
     },
     {
       "relation": "calls",
@@ -20456,7 +20456,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L76",
+      "source_location": "L84",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_fetchrelease",
@@ -20468,7 +20468,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L91",
+      "source_location": "L99",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_fetchreleaseasset",
@@ -20480,7 +20480,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L38",
+      "source_location": "L40",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_handlereleaseassetdownload",
@@ -20492,7 +20492,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L51",
+      "source_location": "L53",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_handlereleaseassetdownload",
@@ -20627,9 +20627,9 @@
       "source_location": "L155",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_buildapp",
-      "target": "src_server_index_ismacosarchitecture",
-      "confidence_score": 1.0
+      "target": "src_server_index_ismacosarchitecture"
     },
     {
       "relation": "calls",
@@ -20771,9 +20771,9 @@
       "source_location": "L74",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_buildapp",
-      "target": "src_server_index_issensitivetextroute",
-      "confidence_score": 1.0
+      "target": "src_server_index_issensitivetextroute"
     },
     {
       "relation": "calls",
@@ -20807,9 +20807,9 @@
       "source_location": "L283",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_issensitivetextroute",
-      "target": "src_server_index_canonicalroomcodefromrawurl",
-      "confidence_score": 1.0
+      "target": "src_server_index_canonicalroomcodefromrawurl"
     },
     {
       "relation": "calls",
@@ -20819,9 +20819,9 @@
       "source_location": "L257",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_redacttextcodefromurl",
-      "target": "src_server_index_canonicalroomcodefromrawurl",
-      "confidence_score": 1.0
+      "target": "src_server_index_canonicalroomcodefromrawurl"
     },
     {
       "relation": "calls",
@@ -20831,9 +20831,9 @@
       "source_location": "L242",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_startserver",
-      "target": "src_server_index_buildapp",
-      "confidence_score": 1.0
+      "target": "src_server_index_buildapp"
     },
     {
       "relation": "calls",
@@ -26351,9 +26351,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_updater_endpoints",
-      "target": "ref_https_quickdrop_eaedave_xyz_desktop_update_latest_json",
-      "confidence_score": 1.0
+      "target": "ref_https_quickdrop_eaedave_xyz_desktop_update_latest_json"
     },
     {
       "relation": "extends",
@@ -26795,9 +26795,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_test",
-      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest"
     },
     {
       "relation": "imports",
@@ -26807,9 +26807,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_test",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "imports",
@@ -26819,9 +26819,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "imports",
@@ -27503,9 +27503,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_config_appconfig",
-      "confidence_score": 1.0
+      "target": "src_server_config_appconfig"
     },
     {
       "relation": "imports",
@@ -27515,9 +27515,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_github_release_handlereleaseassetdownload",
-      "confidence_score": 1.0
+      "target": "src_server_github_release_handlereleaseassetdownload"
     },
     {
       "relation": "imports",
@@ -27695,9 +27695,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_cleanup_startcleanupjob",
-      "confidence_score": 1.0
+      "target": "src_server_cleanup_startcleanupjob"
     },
     {
       "relation": "imports",
@@ -27707,9 +27707,9 @@
       "source_location": "L11",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_download_service_handledownload",
-      "confidence_score": 1.0
+      "target": "src_server_download_service_handledownload"
     },
     {
       "relation": "imports",
@@ -27719,9 +27719,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_desktop_updater_service_handledesktopupdatedownload",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_handledesktopupdatedownload"
     },
     {
       "relation": "imports",
@@ -27731,9 +27731,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload"
     },
     {
       "relation": "imports",
@@ -27743,9 +27743,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_desktop_updater_service_isdesktopupdateplatform",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_isdesktopupdateplatform"
     },
     {
       "relation": "imports",
@@ -27755,9 +27755,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_r2_creater2client",
-      "confidence_score": 1.0
+      "target": "src_server_r2_creater2client"
     },
     {
       "relation": "imports",
@@ -27767,9 +27767,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_upload_service_handleupload",
-      "confidence_score": 1.0
+      "target": "src_server_upload_service_handleupload"
     },
     {
       "relation": "imports",
@@ -27779,9 +27779,9 @@
       "source_location": "L19",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_linux_installer_service_handlelinuxinstallerdownload",
-      "confidence_score": 1.0
+      "target": "src_server_linux_installer_service_handlelinuxinstallerdownload"
     },
     {
       "relation": "imports",
@@ -27791,9 +27791,9 @@
       "source_location": "L19",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_linux_installer_service_handlelinuxqdchecksumdownload",
-      "confidence_score": 1.0
+      "target": "src_server_linux_installer_service_handlelinuxqdchecksumdownload"
     },
     {
       "relation": "imports",
@@ -27803,9 +27803,9 @@
       "source_location": "L19",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_linux_installer_service_handlelinuxqddownload",
-      "confidence_score": 1.0
+      "target": "src_server_linux_installer_service_handlelinuxqddownload"
     },
     {
       "relation": "imports",
@@ -27815,9 +27815,9 @@
       "source_location": "L24",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_windows_installer_service_handlewindowsinstallerdownload",
-      "confidence_score": 1.0
+      "target": "src_server_windows_installer_service_handlewindowsinstallerdownload"
     },
     {
       "relation": "imports",
@@ -27827,9 +27827,9 @@
       "source_location": "L24",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_windows_installer_service_handlewindowsqdchecksumdownload",
-      "confidence_score": 1.0
+      "target": "src_server_windows_installer_service_handlewindowsqdchecksumdownload"
     },
     {
       "relation": "imports",
@@ -27839,9 +27839,9 @@
       "source_location": "L24",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_windows_installer_service_handlewindowsqddownload",
-      "confidence_score": 1.0
+      "target": "src_server_windows_installer_service_handlewindowsqddownload"
     },
     {
       "relation": "imports",
@@ -27851,9 +27851,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service_handlemacosdesktopchecksumdownload",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service_handlemacosdesktopchecksumdownload"
     },
     {
       "relation": "imports",
@@ -27863,9 +27863,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service_handlemacosdesktopdownload",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service_handlemacosdesktopdownload"
     },
     {
       "relation": "imports",
@@ -27875,9 +27875,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service_handlemacosqdchecksumdownload",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service_handlemacosqdchecksumdownload"
     },
     {
       "relation": "imports",
@@ -27887,9 +27887,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service_handlemacosqddownload",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service_handlemacosqddownload"
     },
     {
       "relation": "imports",
@@ -27899,9 +27899,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service_macosarchitecture",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service_macosarchitecture"
     },
     {
       "relation": "imports",
@@ -27911,9 +27911,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_hub_textsessionhub",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_hub_textsessionhub"
     },
     {
       "relation": "imports",
@@ -27923,9 +27923,9 @@
       "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_funnel_metrics_createtextfunnelmetrics",
-      "confidence_score": 1.0
+      "target": "src_server_text_funnel_metrics_createtextfunnelmetrics"
     },
     {
       "relation": "imports",
@@ -27935,9 +27935,9 @@
       "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_funnel_metrics_starttextfunnelmetricscleanup",
-      "confidence_score": 1.0
+      "target": "src_server_text_funnel_metrics_starttextfunnelmetricscleanup"
     },
     {
       "relation": "imports",
@@ -27947,9 +27947,9 @@
       "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_funnel_metrics_route_registertextfunnelmetricsroute",
-      "confidence_score": 1.0
+      "target": "src_server_text_funnel_metrics_route_registertextfunnelmetricsroute"
     },
     {
       "relation": "imports",
@@ -27959,9 +27959,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service_rearmtextroomsafterrestart",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service_rearmtextroomsafterrestart"
     },
     {
       "relation": "imports",
@@ -27971,9 +27971,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service_registertextsessionroutes",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service_registertextsessionroutes"
     },
     {
       "relation": "imports",
@@ -27983,9 +27983,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service_starttextdropsweep",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service_starttextdropsweep"
     },
     {
       "relation": "imports",
@@ -27995,9 +27995,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service_starttextsessionheartbeat",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service_starttextsessionheartbeat"
     },
     {
       "relation": "imports",
@@ -28007,9 +28007,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service_starttextsessionsweep",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service_starttextsessionsweep"
     },
     {
       "relation": "imports",
@@ -28019,9 +28019,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_config_loadconfig",
-      "confidence_score": 1.0
+      "target": "src_server_config_loadconfig"
     },
     {
       "relation": "imports",
@@ -28031,9 +28031,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index_buildapp",
-      "confidence_score": 1.0
+      "target": "src_server_index_buildapp"
     },
     {
       "relation": "imports",
@@ -28043,9 +28043,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index_redacttextcodefromurl",
-      "confidence_score": 1.0
+      "target": "src_server_index_redacttextcodefromurl"
     },
     {
       "relation": "imports",
@@ -29447,9 +29447,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_test",
-      "target": "scripts_generate_tauri_update_manifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest"
     },
     {
       "relation": "imports_from",
@@ -29495,9 +29495,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_generate_tauri_update_manifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest"
     },
     {
       "relation": "imports_from",
@@ -29819,9 +29819,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_config",
-      "confidence_score": 1.0
+      "target": "src_server_config"
     },
     {
       "relation": "imports_from",
@@ -29831,9 +29831,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_github_release",
-      "confidence_score": 1.0
+      "target": "src_server_github_release"
     },
     {
       "relation": "imports_from",
@@ -29915,9 +29915,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_cleanup",
-      "confidence_score": 1.0
+      "target": "src_server_cleanup"
     },
     {
       "relation": "imports_from",
@@ -29927,9 +29927,9 @@
       "source_location": "L11",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_download_service",
-      "confidence_score": 1.0
+      "target": "src_server_download_service"
     },
     {
       "relation": "imports_from",
@@ -29939,9 +29939,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_desktop_updater_service",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service"
     },
     {
       "relation": "imports_from",
@@ -29951,9 +29951,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_r2",
-      "confidence_score": 1.0
+      "target": "src_server_r2"
     },
     {
       "relation": "imports_from",
@@ -29963,9 +29963,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_upload_service",
-      "confidence_score": 1.0
+      "target": "src_server_upload_service"
     },
     {
       "relation": "imports_from",
@@ -29975,9 +29975,9 @@
       "source_location": "L19",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_linux_installer_service",
-      "confidence_score": 1.0
+      "target": "src_server_linux_installer_service"
     },
     {
       "relation": "imports_from",
@@ -29987,9 +29987,9 @@
       "source_location": "L24",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_windows_installer_service",
-      "confidence_score": 1.0
+      "target": "src_server_windows_installer_service"
     },
     {
       "relation": "imports_from",
@@ -29999,9 +29999,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_macos_installer_service",
-      "confidence_score": 1.0
+      "target": "src_server_macos_installer_service"
     },
     {
       "relation": "imports_from",
@@ -30011,9 +30011,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_hub",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_hub"
     },
     {
       "relation": "imports_from",
@@ -30023,9 +30023,9 @@
       "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_funnel_metrics",
-      "confidence_score": 1.0
+      "target": "src_server_text_funnel_metrics"
     },
     {
       "relation": "imports_from",
@@ -30035,9 +30035,9 @@
       "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_funnel_metrics_route",
-      "confidence_score": 1.0
+      "target": "src_server_text_funnel_metrics_route"
     },
     {
       "relation": "imports_from",
@@ -30047,9 +30047,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_text_session_service",
-      "confidence_score": 1.0
+      "target": "src_server_text_session_service"
     },
     {
       "relation": "imports_from",
@@ -30059,9 +30059,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_config",
-      "confidence_score": 1.0
+      "target": "src_server_config"
     },
     {
       "relation": "imports_from",
@@ -30071,9 +30071,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index",
-      "confidence_score": 1.0
+      "target": "src_server_index"
     },
     {
       "relation": "imports_from",
@@ -38498,9 +38498,9 @@
       "source_location": "L106",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_output",
-      "confidence_score": 1.0
+      "target": "scripts_release_output"
     },
     {
       "relation": "contains",
@@ -38509,9 +38509,9 @@
       "source_location": "L112",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_run",
-      "confidence_score": 1.0
+      "target": "scripts_release_run"
     },
     {
       "relation": "contains",
@@ -38520,9 +38520,9 @@
       "source_location": "L122",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_configureupdatersigning",
-      "confidence_score": 1.0
+      "target": "scripts_release_configureupdatersigning"
     },
     {
       "relation": "contains",
@@ -38531,9 +38531,9 @@
       "source_location": "L13",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_releasekind",
-      "confidence_score": 1.0
+      "target": "scripts_release_releasekind"
     },
     {
       "relation": "contains",
@@ -38542,9 +38542,9 @@
       "source_location": "L138",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_preflight",
-      "confidence_score": 1.0
+      "target": "scripts_release_preflight"
     },
     {
       "relation": "contains",
@@ -38553,9 +38553,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_parseversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_parseversion"
     },
     {
       "relation": "contains",
@@ -38564,9 +38564,9 @@
       "source_location": "L154",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_releaseasset",
-      "confidence_score": 1.0
+      "target": "scripts_release_releaseasset"
     },
     {
       "relation": "contains",
@@ -38575,9 +38575,9 @@
       "source_location": "L156",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_waitforplatformworkflow",
-      "confidence_score": 1.0
+      "target": "scripts_release_waitforplatformworkflow"
     },
     {
       "relation": "contains",
@@ -38586,9 +38586,9 @@
       "source_location": "L183",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_responsedigest",
-      "confidence_score": 1.0
+      "target": "scripts_release_responsedigest"
     },
     {
       "relation": "contains",
@@ -38597,9 +38597,9 @@
       "source_location": "L197",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_verifypublicassets",
-      "confidence_score": 1.0
+      "target": "scripts_release_verifypublicassets"
     },
     {
       "relation": "contains",
@@ -38608,9 +38608,9 @@
       "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_nextversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_nextversion"
     },
     {
       "relation": "contains",
@@ -38619,9 +38619,9 @@
       "source_location": "L308",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_main",
-      "confidence_score": 1.0
+      "target": "scripts_release_main"
     },
     {
       "relation": "contains",
@@ -38630,9 +38630,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_assertreleaseplatform",
-      "confidence_score": 1.0
+      "target": "scripts_release_assertreleaseplatform"
     },
     {
       "relation": "contains",
@@ -38641,9 +38641,9 @@
       "source_location": "L44",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_manifestversions",
-      "confidence_score": 1.0
+      "target": "scripts_release_manifestversions"
     },
     {
       "relation": "contains",
@@ -38652,9 +38652,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_version_files",
-      "confidence_score": 1.0
+      "target": "scripts_release_version_files"
     },
     {
       "relation": "contains",
@@ -38663,9 +38663,9 @@
       "source_location": "L61",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_currentversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_currentversion"
     },
     {
       "relation": "contains",
@@ -38674,9 +38674,9 @@
       "source_location": "L74",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_escaperegexp",
-      "confidence_score": 1.0
+      "target": "scripts_release_escaperegexp"
     },
     {
       "relation": "contains",
@@ -38685,9 +38685,9 @@
       "source_location": "L78",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_replacepackageversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_replacepackageversion"
     },
     {
       "relation": "contains",
@@ -38696,9 +38696,9 @@
       "source_location": "L93",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_release",
-      "target": "scripts_release_replaceversion",
-      "confidence_score": 1.0
+      "target": "scripts_release_replaceversion"
     },
     {
       "relation": "contains",
@@ -39961,9 +39961,9 @@
       "source_location": "L11",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_platform_asset_names",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_platform_asset_names"
     },
     {
       "relation": "contains",
@@ -39972,9 +39972,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_isdesktopupdateplatform",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_isdesktopupdateplatform"
     },
     {
       "relation": "contains",
@@ -39983,9 +39983,9 @@
       "source_location": "L22",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_handledesktopupdatemanifestdownload"
     },
     {
       "relation": "contains",
@@ -39994,9 +39994,9 @@
       "source_location": "L34",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_handledesktopupdatedownload",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_handledesktopupdatedownload"
     },
     {
       "relation": "contains",
@@ -40005,9 +40005,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_desktopupdateplatform",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_desktopupdateplatform"
     },
     {
       "relation": "contains",
@@ -40016,9 +40016,9 @@
       "source_location": "L50",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_desktop_updater_service",
-      "target": "src_server_desktop_updater_service_escaperegexp",
-      "confidence_score": 1.0
+      "target": "src_server_desktop_updater_service_escaperegexp"
     },
     {
       "relation": "contains",
@@ -40079,18 +40079,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L10",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_server_github_release",
-      "target": "src_server_github_release_githubreleaseasset",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/server/github-release.ts",
-      "source_location": "L101",
+      "source_location": "L109",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40101,7 +40090,18 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L15",
+      "source_location": "L12",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "src_server_github_release",
+      "target": "src_server_github_release_githubreleaseasset",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/server/github-release.ts",
+      "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40112,7 +40112,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L19",
+      "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40123,7 +40123,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L27",
+      "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40134,7 +40134,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L69",
+      "source_location": "L77",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40145,7 +40145,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L7",
+      "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40156,7 +40156,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L86",
+      "source_location": "L94",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40247,9 +40247,9 @@
       "source_location": "L241",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_startserver",
-      "confidence_score": 1.0
+      "target": "src_server_index_startserver"
     },
     {
       "relation": "contains",
@@ -40258,9 +40258,9 @@
       "source_location": "L256",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_redacttextcodefromurl",
-      "confidence_score": 1.0
+      "target": "src_server_index_redacttextcodefromurl"
     },
     {
       "relation": "contains",
@@ -40269,9 +40269,9 @@
       "source_location": "L265",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_canonicalroomcodefromrawurl",
-      "confidence_score": 1.0
+      "target": "src_server_index_canonicalroomcodefromrawurl"
     },
     {
       "relation": "contains",
@@ -40280,9 +40280,9 @@
       "source_location": "L278",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_ismacosarchitecture",
-      "confidence_score": 1.0
+      "target": "src_server_index_ismacosarchitecture"
     },
     {
       "relation": "contains",
@@ -40291,9 +40291,9 @@
       "source_location": "L282",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_issensitivetextroute",
-      "confidence_score": 1.0
+      "target": "src_server_index_issensitivetextroute"
     },
     {
       "relation": "contains",
@@ -40302,9 +40302,9 @@
       "source_location": "L47",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index",
-      "target": "src_server_index_buildapp",
-      "confidence_score": 1.0
+      "target": "src_server_index_buildapp"
     },
     {
       "relation": "contains",
@@ -40313,9 +40313,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index_test_envkeys",
-      "confidence_score": 1.0
+      "target": "src_server_index_test_envkeys"
     },
     {
       "relation": "contains",
@@ -40324,9 +40324,9 @@
       "source_location": "L27",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index_test_previousenv",
-      "confidence_score": 1.0
+      "target": "src_server_index_test_previousenv"
     },
     {
       "relation": "contains",
@@ -40335,9 +40335,9 @@
       "source_location": "L4",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_server_index_test",
-      "target": "src_server_index_test_testenv",
-      "confidence_score": 1.0
+      "target": "src_server_index_test_testenv"
     },
     {
       "relation": "contains",
@@ -43360,9 +43360,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_app",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app"
     },
     {
       "relation": "contains",
@@ -43371,9 +43371,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_bundle",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_bundle"
     },
     {
       "relation": "contains",
@@ -43382,9 +43382,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_schema",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_schema"
     },
     {
       "relation": "contains",
@@ -43393,9 +43393,9 @@
       "source_location": "L20",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_plugins",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_plugins"
     },
     {
       "relation": "contains",
@@ -43404,9 +43404,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_productname",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_productname"
     },
     {
       "relation": "contains",
@@ -43415,9 +43415,9 @@
       "source_location": "L4",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_version",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_version"
     },
     {
       "relation": "contains",
@@ -43426,9 +43426,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_identifier",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_identifier"
     },
     {
       "relation": "contains",
@@ -43437,9 +43437,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_build",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build"
     },
     {
       "relation": "contains",
@@ -43448,9 +43448,9 @@
       "source_location": "L13",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_app",
-      "target": "src_tauri_tauri_conf_app_windows",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app_windows"
     },
     {
       "relation": "contains",
@@ -43459,9 +43459,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_app",
-      "target": "src_tauri_tauri_conf_app_macosprivateapi",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app_macosprivateapi"
     },
     {
       "relation": "contains",
@@ -43470,9 +43470,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_frontenddist",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_frontenddist"
     },
     {
       "relation": "contains",
@@ -43481,9 +43481,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_beforedevcommand",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_beforedevcommand"
     },
     {
       "relation": "contains",
@@ -43492,9 +43492,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_devurl",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_devurl"
     },
     {
       "relation": "contains",
@@ -43503,9 +43503,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_beforebuildcommand",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_beforebuildcommand"
     },
     {
       "relation": "contains",
@@ -43514,9 +43514,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_bundle",
-      "target": "src_tauri_tauri_conf_bundle_active",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_bundle_active"
     },
     {
       "relation": "contains",
@@ -43525,9 +43525,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_bundle",
-      "target": "src_tauri_tauri_conf_bundle_createupdaterartifacts",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_bundle_createupdaterartifacts"
     },
     {
       "relation": "contains",
@@ -43536,9 +43536,9 @@
       "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_plugins",
-      "target": "src_tauri_tauri_conf_plugins_updater",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_plugins_updater"
     },
     {
       "relation": "contains",
@@ -43547,9 +43547,9 @@
       "source_location": "L22",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_plugins_updater",
-      "target": "src_tauri_tauri_conf_updater_pubkey",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_updater_pubkey"
     },
     {
       "relation": "contains",
@@ -43558,9 +43558,9 @@
       "source_location": "L23",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_plugins_updater",
-      "target": "src_tauri_tauri_conf_updater_endpoints",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_updater_endpoints"
     },
     {
       "relation": "contains",
@@ -46391,5 +46391,5 @@
       "source_file": "AGENTS.md"
     }
   ],
-  "built_at_commit": "457565123d1887a067006fcf18bdaed3c41a9f58"
+  "built_at_commit": "d006fb6b7c1229e12d966b36d1be0973b3d87a26"
 }
