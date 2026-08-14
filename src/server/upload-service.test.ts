@@ -74,7 +74,7 @@ describe("handleUpload storage quota", () => {
     expect(response.statusCode).toBe(507);
     expect(JSON.parse(response.body)).toEqual({
       error: "storage_quota_exceeded",
-      message: "Limite de armazenamento temporário atingido.",
+      message: "Temporary storage limit reached.",
     });
     expect(reserveCalls).toBe(1);
     expect(registerCalls).toBe(0);

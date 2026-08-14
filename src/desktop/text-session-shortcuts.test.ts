@@ -27,9 +27,9 @@ describe("text session shortcuts", () => {
 
 describe("dropContentTypeLabel", () => {
   test("returns presentation-only labels for every safe content type", () => {
-    expect(dropContentTypeLabel("text")).toBe("Texto");
+    expect(dropContentTypeLabel("text")).toBe("Text");
     expect(dropContentTypeLabel("url")).toBe("URL");
-    expect(dropContentTypeLabel("command")).toBe("Comando");
+    expect(dropContentTypeLabel("command")).toBe("Command");
     expect(dropContentTypeLabel("json")).toBe("JSON");
   });
 });

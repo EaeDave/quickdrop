@@ -34,6 +34,7 @@ import {
   type MacOsArchitecture,
 } from "./macos-installer-service";
 import { TextSessionHub } from "./text-session-hub";
+import { TAURI_WEBVIEW_ORIGINS } from "./native-origins";
 import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
 import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
 import {
@@ -59,14 +60,9 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: [
-      "tauri://localhost",
-      "http://tauri.localhost",
-      "http://127.0.0.1:1420",
-      "http://localhost:1420",
-    ],
+    origin: [...TAURI_WEBVIEW_ORIGINS],
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["content-type", "x-quickdrop-file-size"],
+    allowedHeaders: ["content-type", "x-quickdrop-file-size", "x-quickdrop-native"],
   });
 
   app.register(multipart);
@@ -237,7 +233,8 @@ export function buildApp() {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {
       return reply.callNotFound();
     }
-    return reply.sendFile("index.html");
+    const query = request.raw.url?.match(/\?[^#]*/)?.[0] ?? "";
+    return reply.redirect(`/${encodeURIComponent(request.params.code.toUpperCase())}${query}`, 308);
   });
   app.get<{ Params: { code: string } }>("/:code", async (request, reply) => {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {
@@ -273,7 +270,8 @@ export function redactTextCodeFromUrl(rawUrl: string): string {
       : rawUrl;
   return redactedRoomUrl
     .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
-    .replace(/([?&]c=)[^&]*/gi, "$1[code]");
+    .replace(/([?&]c=)[^&]*/gi, "$1[code]")
+    .replace(/([?&]access_token=)[^&]*/gi, "$1[redacted]");
 }
 
 function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {

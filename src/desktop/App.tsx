@@ -93,7 +93,7 @@ export function App() {
         setUseNativeClipboardPaste(enabled);
       }
     }).catch((error) => {
-      console.error("Falha ao detectar modo de clipboard nativo", error);
+      console.error("Failed to detect native clipboard mode", error);
     });
 
     return () => {
@@ -107,7 +107,7 @@ export function App() {
     const selectedInputs = inputs.filter(Boolean);
 
     if (selectedInputs.length === 0) {
-      setState({ status: "error", message: "Selecione pelo menos um arquivo." });
+      setState({ status: "error", message: "Select at least one file." });
       return;
     }
 
@@ -128,7 +128,7 @@ export function App() {
         setManualUrl(response.url);
         setState({
           status: "error",
-          message: `Upload concluído, mas não foi possível copiar o link: ${formatError(error)}`,
+          message: `Upload complete, but the link could not be copied: ${formatError(error)}`,
         });
         return;
       }
@@ -142,7 +142,7 @@ export function App() {
           url: response.url,
           expiresAt: response.expiresAt,
           fileCount: selectedInputs.length,
-          notificationWarning: `Link copiado, mas a notificação falhou: ${formatError(error)}`,
+          notificationWarning: `Link copied, but the notification failed: ${formatError(error)}`,
         });
       }
     } catch (error) {
@@ -161,7 +161,7 @@ export function App() {
 
         await handleUploadInputs(paths);
       } catch (error) {
-        setState({ status: "error", message: `Falha ao abrir seletor de arquivos: ${formatError(error)}` });
+        setState({ status: "error", message: `Failed to open the file picker: ${formatError(error)}` });
       }
     } else {
       fileInputRef.current?.click();
@@ -194,7 +194,7 @@ export function App() {
         copiedInstallTimeoutRef.current = null;
       }, 1600);
     } catch (error) {
-      setInstallCopyError(`Não foi possível copiar automaticamente: ${formatError(error)}`);
+      setInstallCopyError(`Could not copy automatically: ${formatError(error)}`);
     }
   }, []);
 
@@ -207,13 +207,13 @@ export function App() {
       const inputs = await readClipboardUploadInputs();
 
       if (inputs.length === 0) {
-        setState({ status: "error", message: "Clipboard sem imagem ou texto para enviar." });
+        setState({ status: "error", message: "The clipboard has no image or text to send." });
         return;
       }
 
       await handleUploadInputs(inputs);
     } catch (error) {
-      setState({ status: "error", message: `Falha ao ler clipboard: ${formatError(error)}` });
+      setState({ status: "error", message: `Failed to read the clipboard: ${formatError(error)}` });
     }
   }, [handleUploadInputs]);
 
@@ -238,7 +238,7 @@ export function App() {
 
       unlisten = cleanup;
     }).catch((error) => {
-      console.error("Falha ao registrar progresso do upload", error);
+      console.error("Failed to register upload progress", error);
     });
 
     return () => {
@@ -281,7 +281,7 @@ export function App() {
 
       unlisten = cleanup;
     }).catch((error) => {
-      setState({ status: "error", message: `Falha ao ativar drag-and-drop: ${formatError(error)}` });
+      setState({ status: "error", message: `Failed to enable drag and drop: ${formatError(error)}` });
     });
 
     return () => {
@@ -416,11 +416,11 @@ export function App() {
       >
         <header className="quickdrop-header" onMouseDown={startWindowDrag}>
           <h1 className="quickdrop-title">QuickDrop</h1>
-          <nav className="quickdrop-mode-tabs" aria-label="Modo do QuickPanel">
-            <button type="button" className={panelMode === "files" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("files")}>Arquivo</button>
-            <button type="button" className={panelMode === "text" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("text")}>Texto</button>
+          <nav className="quickdrop-mode-tabs" aria-label="QuickPanel mode">
+            <button type="button" className={panelMode === "files" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("files")}>Files</button>
+            <button type="button" className={panelMode === "text" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("text")}>Text</button>
           </nav>
-          <button className="quickdrop-close" type="button" aria-label="Fechar QuickDrop" onClick={closeWindow}>
+          <button className="quickdrop-close" type="button" aria-label="Close QuickDrop" onClick={closeWindow}>
             ×
           </button>
         </header>
@@ -438,14 +438,14 @@ function IdleState(props: { onPickFile: () => void }) {
       <button
         className="quickdrop-picker"
         type="button"
-        aria-label="Selecionar arquivos do computador"
-        title="Selecionar arquivos"
+        aria-label="Select files from this computer"
+        title="Select files"
         onClick={props.onPickFile}
       >
         <span className="quickdrop-icon" aria-hidden="true">⇪</span>
       </button>
-      <p className="quickdrop-primary">Arraste arquivos para enviar</p>
-      <p className="quickdrop-secondary">Múltiplos arquivos viram um ZIP com um único link.</p>
+      <p className="quickdrop-primary">Drop files to send</p>
+      <p className="quickdrop-secondary">Multiple files become one ZIP with a single link.</p>
     </div>
   );
 }
@@ -455,17 +455,17 @@ function UploadingState(props: { state: Extract<UploadState, { status: "uploadin
 
   return (
     <div className="quickdrop-drop-zone">
-      <p className="quickdrop-kicker">{isPreparing ? "Criando ZIP..." : "Uploading..."}</p>
+      <p className="quickdrop-kicker">{isPreparing ? "Creating ZIP…" : "Uploading..."}</p>
       <p className="quickdrop-file">{props.state.fileName}</p>
       <div className="quickdrop-progress" aria-hidden="true">
         <div style={{ width: `${props.state.percent}%` }} />
       </div>
       <p className="quickdrop-secondary">
         {isPreparing
-          ? "Compactando antes do envio"
+          ? "Compressing before upload"
           : props.state.fileCount === 1
-            ? `${props.state.percent}% enviado`
-            : `${props.state.percent}% do pacote enviado`}
+            ? `${props.state.percent}% uploaded`
+            : `${props.state.percent}% of package uploaded`}
       </p>
     </div>
   );
@@ -474,14 +474,14 @@ function UploadingState(props: { state: Extract<UploadState, { status: "uploadin
 function SuccessState(props: { state: Extract<UploadState, { status: "success" }> }) {
   return (
     <div className="quickdrop-drop-zone quickdrop-state">
-      <p className="quickdrop-primary quickdrop-success">Upload concluído</p>
+      <p className="quickdrop-primary quickdrop-success">Upload complete</p>
       <p className="quickdrop-secondary">
-        {props.state.fileCount === 1 ? "Link copiado" : `${props.state.fileCount} arquivos em um único link`}
+        {props.state.fileCount === 1 ? "Link copied" : `${props.state.fileCount} files in one link`}
       </p>
       <a className="quickdrop-url" href={props.state.url} tabIndex={-1} draggable={false}>
         {props.state.url}
       </a>
-      <p className="quickdrop-meta">Expira em {new Date(props.state.expiresAt).toLocaleString()}</p>
+      <p className="quickdrop-meta">Expires {new Date(props.state.expiresAt).toLocaleString()}</p>
       {props.state.notificationWarning && <p className="quickdrop-warning">{props.state.notificationWarning}</p>}
     </div>
   );
@@ -490,7 +490,7 @@ function SuccessState(props: { state: Extract<UploadState, { status: "success" }
 function ErrorState(props: { message: string; manualUrl: string | null; onReset: () => void }) {
   return (
     <div className="quickdrop-drop-zone quickdrop-state">
-      <p className="quickdrop-primary quickdrop-error">Falha no upload</p>
+      <p className="quickdrop-primary quickdrop-error">Upload failed</p>
       <p className="quickdrop-message">{props.message}</p>
       {props.manualUrl && (
         <a className="quickdrop-url" href={props.manualUrl} tabIndex={-1} draggable={false}>
@@ -498,7 +498,7 @@ function ErrorState(props: { message: string; manualUrl: string | null; onReset:
         </a>
       )}
       <button className="quickdrop-action" type="button" onClick={props.onReset}>
-        Tentar novamente
+        Try again
       </button>
     </div>
   );
@@ -519,10 +519,10 @@ function WebLanding(props: {
     <main className="quickdrop-web">
       <div className="quickdrop-web-inner">
         <section className="quickdrop-hero" aria-labelledby="quickdrop-hero-title">
-          <p className="quickdrop-pill">QuickDrop para Windows e Linux</p>
-          <h1 id="quickdrop-hero-title">Envie arquivos rápido, copie o link e siga.</h1>
+          <p className="quickdrop-pill">QuickDrop for Windows, macOS, and Linux</p>
+          <h1 id="quickdrop-hero-title">Send files fast, copy the link, move on.</h1>
           <p className="quickdrop-hero-copy">
-            App desktop com tray (Windows) e ícone na Waybar (Linux/Hyprland), backend de produção pronto. Instale pelo PowerShell ou Bash, ou use o upload web abaixo.
+            Desktop app for Windows, macOS, and Linux with a production-ready backend. Install it with PowerShell or Bash, or use the web uploader below.
           </p>
           <InstallCommand
             copied={props.copiedInstallCommand}
@@ -533,7 +533,7 @@ function WebLanding(props: {
 
         <section
           className={`quickdrop-web-upload quickdrop-panel ${props.dropActive ? "quickdrop-panel--active" : ""}`}
-          aria-label="Enviar arquivos pelo navegador"
+          aria-label="Send files from your browser"
           onDragOver={props.onDragOver}
           onDragLeave={props.onDragLeave}
           onDrop={props.onDrop}
@@ -557,7 +557,7 @@ function InstallCommand(props: { copied: boolean; error: string | null; onCopy: 
   return (
     <div className="quickdrop-install-card">
       <div className="quickdrop-install-header">
-        <div className="quickdrop-install-tabs" role="tablist" aria-label="Plataformas">
+        <div className="quickdrop-install-tabs" role="tablist" aria-label="Platforms">
           {(Object.keys(INSTALL_PLATFORMS) as InstallPlatform[]).map((key) => (
             <button
               key={key}
@@ -572,13 +572,13 @@ function InstallCommand(props: { copied: boolean; error: string | null; onCopy: 
           ))}
         </div>
         <a className="quickdrop-install-script" href={active.scriptHref} target="_blank" rel="noreferrer">
-          Ver script
+          View script
         </a>
       </div>
       <button className="quickdrop-command" type="button" onClick={() => props.onCopy(command)}>
         <span className="quickdrop-command-prompt">{active.prompt}</span>
         <code>{command}</code>
-        <span className="quickdrop-command-copy">{props.copied ? "Copiado" : "Copiar"}</span>
+        <span className="quickdrop-command-copy">{props.copied ? "Copied" : "Copy"}</span>
       </button>
       {props.error && <p className="quickdrop-install-error">{props.error}</p>}
     </div>
@@ -593,7 +593,7 @@ function formatSelectionName(inputs: UploadInput[]): string {
     return input.name ?? getFileName(input.path);
   }
 
-  return `${inputs.length} arquivos (.zip)`;
+  return `${inputs.length} files (.zip)`;
 }
 
 function getFileName(path: string): string {
@@ -637,7 +637,7 @@ function formatError(error: unknown): string {
     return error.message;
   }
 
-  return "Erro desconhecido.";
+  return "Unknown error.";
 }
 
 function extractBackendMessage(raw: string): string {

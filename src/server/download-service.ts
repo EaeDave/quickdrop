@@ -11,7 +11,7 @@ export async function handleDownload(shortId: string, reply: FastifyReply, deps:
   const upload = await findActiveByShortId(shortId);
 
   if (!upload || upload.deleted_at) {
-    reply.code(404).send({ error: "not_found", message: "Arquivo não encontrado." });
+    reply.code(404).send({ error: "not_found", message: "File not found." });
     return;
   }
 
@@ -20,7 +20,7 @@ export async function handleDownload(shortId: string, reply: FastifyReply, deps:
   if (isExpired(upload.expires_at, now)) {
     await deleteObject({ client: deps.r2Client, bucket: deps.config.r2BucketName, key: upload.r2_key });
     await markDeleted(upload.id, now);
-    reply.code(410).send({ error: "expired", message: "Arquivo expirado." });
+    reply.code(410).send({ error: "expired", message: "File expired." });
     return;
   }
 

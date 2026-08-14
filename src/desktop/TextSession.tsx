@@ -3,6 +3,7 @@ import {
   connectRoom,
   createRoom,
   formatRoomExpiry,
+  formatRoomPresence,
   openRoom,
   recordTextMetric,
   RoomAccessError,
@@ -28,11 +29,11 @@ const NEW_DROP_DURATION_MS = 8000;
 function dropOriginLabel(origin: DropOrigin): string {
   switch (origin) {
     case "self":
-      return "Enviado por você";
+      return "Sent by you";
     case "remote":
-      return "Enviado de outro dispositivo";
+      return "Sent from another device";
     default:
-      return "Origem desconhecida";
+      return "Unknown origin";
   }
 }
 
@@ -66,10 +67,10 @@ function sortDrops(drops: TextDrop[]): TextDrop[] {
 function formatDropTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Agora";
+    return "Now";
   }
 
-  return new Intl.DateTimeFormat("pt-BR", {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     day: "2-digit",
@@ -250,7 +251,7 @@ export default function TextSession() {
       setErrorMessage(error.message);
       return;
     }
-    setErrorMessage(error instanceof Error ? error.message : "Falha ao acessar o clipboard");
+    setErrorMessage(error instanceof Error ? error.message : "Failed to access the clipboard");
   }, []);
 
   const requestRoomOpen = useCallback(
@@ -264,10 +265,10 @@ export default function TextSession() {
         setExpiresAfterMinutes(opened.expiresAfterMinutes);
         setRoomExpiresAt(opened.expiresAt);
         setPresenceCount(opened.presence);
-        const protection = opened.protected ? " protegido por PIN" : " público";
+        const protection = opened.protected ? " with PIN protection" : " as a public room";
         setRoomNotice(opened.created
-          ? `Clipboard criado${protection}. Compartilhe este endereço com a outra máquina.`
-          : `Clipboard aberto${protection}.`);
+          ? `Clipboard created${protection}. Share this address with the other device.`
+          : `Clipboard opened${protection}.`);
       } catch (error) {
         handleAccessError(error);
       } finally {
@@ -294,8 +295,8 @@ export default function TextSession() {
       setRoomExpiresAt(created.expiresAt);
       setPresenceCount(created.presence);
       setRoomNotice(created.protected
-        ? "Código aleatório protegido por PIN criado. Compartilhe o endereço com a outra máquina."
-        : "Código aleatório público criado. Compartilhe o endereço com a outra máquina.");
+        ? "Random PIN-protected code created. Share the address with the other device."
+        : "Random public code created. Share the address with the other device.");
     } catch (error) {
       handleAccessError(error);
     } finally {
@@ -331,7 +332,7 @@ export default function TextSession() {
     setIsPublishing(true);
     clearComposerAfterPublishRef.current = clearComposerAfterPublish;
     setErrorMessage(null);
-    setRoomNotice(clearComposerAfterPublish ? "Enviando item..." : "Reenviando item...");
+    setRoomNotice(clearComposerAfterPublish ? "Sending item…" : "Sending item again…");
     controllerRef.current.addDrop(content);
   }, [composer]);
 
@@ -342,7 +343,7 @@ export default function TextSession() {
         event: "text_copied",
         ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
       });
-      setRoomNotice("Item copiado.");
+      setRoomNotice("Item copied.");
       setErrorMessage(null);
     } catch {
       void recordTextMetric({
@@ -350,7 +351,7 @@ export default function TextSession() {
         ...(roomKindRef.current ? { roomKind: roomKindRef.current } : {}),
         errorCategory: "clipboard",
       });
-      setErrorMessage("Não foi possível copiar este item agora.");
+      setErrorMessage("Could not copy this item.");
     }
   }, [copyText]);
 
@@ -367,10 +368,10 @@ export default function TextSession() {
     }
     try {
       await copyText(roomCode);
-      setRoomNotice("Código copiado.");
+      setRoomNotice("Code copied.");
       setErrorMessage(null);
     } catch {
-      setErrorMessage("Não foi possível copiar o código agora.");
+      setErrorMessage("Could not copy the code.");
     }
   }, [copyText, roomCode]);
 
@@ -380,10 +381,10 @@ export default function TextSession() {
     }
     try {
       await copyText(new URL(textRoomPath(roomCode), window.location.origin).href);
-      setRoomNotice("Endereço do clipboard copiado.");
+      setRoomNotice("Clipboard address copied.");
       setErrorMessage(null);
     } catch {
-      setErrorMessage("Não foi possível copiar o endereço agora.");
+      setErrorMessage("Could not copy the address.");
     }
   }, [copyText, roomCode]);
 
@@ -392,7 +393,7 @@ export default function TextSession() {
       return;
     }
     controllerRef.current?.deleteDrop(drop.id);
-    setRoomNotice("Excluindo item...");
+    setRoomNotice("Deleting item…");
   }, []);
 
   const handleClearDrops = useCallback(() => {
@@ -400,12 +401,12 @@ export default function TextSession() {
       drops.length === 0 ||
       connectionPhaseRef.current !== "open" ||
       !snapshotReadyRef.current ||
-      !window.confirm("Limpar todos os itens para todas as máquinas conectadas?")
+      !window.confirm("Clear all items for every connected device?")
     ) {
       return;
     }
     setIsClearing(true);
-    setRoomNotice("Limpando clipboard...");
+    setRoomNotice("Clearing clipboard…");
     controllerRef.current?.clearDrops();
   }, [drops.length]);
 
@@ -432,7 +433,7 @@ export default function TextSession() {
     } catch (error) {
       setExportState({
         status: "error",
-        message: error instanceof Error ? error.message : "Falha ao enviar a timeline como arquivo.",
+        message: error instanceof Error ? error.message : "Failed to upload the timeline as a file.",
       });
     }
   }, [copyText, drops, roomCode]);
@@ -516,11 +517,11 @@ export default function TextSession() {
             setComposer("");
           }
           clearComposerAfterPublishRef.current = true;
-          setRoomNotice("Item enviado.");
+          setRoomNotice("Item sent.");
           window.setTimeout(() => composerRef.current?.focus(), 0);
         } else {
           markNewDrop(payload.drop.id);
-          setRoomNotice("Novo item recebido de outro dispositivo.");
+          setRoomNotice("New item received from another device.");
         }
       },
       onDropUpdated(payload) {
@@ -531,10 +532,10 @@ export default function TextSession() {
           ...dropsRef.current.filter((drop) => drop.id !== payload.drop.id && !drop.id.startsWith("legacy-live-")),
         ]), origins);
         if (origin === "self") {
-          setRoomNotice("Item editado.");
+          setRoomNotice("Item edited.");
         } else {
           markNewDrop(payload.drop.id);
-          setRoomNotice("Item editado em outro dispositivo.");
+          setRoomNotice("Item edited on another device.");
         }
       },
       onDropsRemoved(payload) {
@@ -548,7 +549,7 @@ export default function TextSession() {
         const origins = { ...dropOriginsRef.current };
         delete origins[payload.dropId];
         classifyDrops(nextDrops, origins);
-        setRoomNotice("Item excluído.");
+        setRoomNotice("Item deleted.");
       },
       onDropsCleared() {
         clearDropHighlights();
@@ -556,7 +557,7 @@ export default function TextSession() {
         setDropOrigins({});
         replaceDrops([]);
         setIsClearing(false);
-        setRoomNotice("Clipboard limpo.");
+        setRoomNotice("Clipboard cleared.");
       },
       onPresence(payload) {
         setPresenceCount(payload.count);
@@ -582,7 +583,7 @@ export default function TextSession() {
           );
           classifyDrops(withoutLegacy, origins);
           if (!payload.text && hadLegacy) {
-            setRoomNotice("Texto legado limpo.");
+            setRoomNotice("Legacy text cleared.");
           }
           return;
         }
@@ -597,7 +598,7 @@ export default function TextSession() {
         };
         classifyDrops(nextDrops, origins);
         markNewDrop(virtual.id);
-        setRoomNotice("Texto recebido de um cliente anterior.");
+        setRoomNotice("Text received from an older client.");
       },
       onTyping() {},
       onPointer() {},
@@ -699,15 +700,15 @@ export default function TextSession() {
           : "connecting"
     : null;
   const statusLabel = badgeVariant === "open"
-    ? "Conectado"
+    ? "Connected"
     : badgeVariant === "closed"
-      ? "Desconectado"
+      ? "Disconnected"
       : badgeVariant === "reconnecting"
-        ? "Reconectando"
-        : "Conectando";
+        ? "Reconnecting"
+        : "Connecting";
   const presenceLabel = presenceCount === null
     ? null
-    : `${presenceCount} ${presenceCount === 1 ? "conectado" : "conectados"}`;
+    : formatRoomPresence(presenceCount);
   const expiryLabel = expiresAfterMinutes === null
     ? null
     : formatRoomExpiry({
@@ -717,31 +718,31 @@ export default function TextSession() {
     }, new Date(now));
   const dropPolicyLabel = dropExpiresAfterMinutes === null
     ? null
-    : `Itens duram ${dropExpiresAfterMinutes >= 60 && dropExpiresAfterMinutes % 60 === 0 ? `${dropExpiresAfterMinutes / 60}h` : `${dropExpiresAfterMinutes} min`}${maxDrops ? ` · máximo ${maxDrops}` : ""}.`;
+    : `Items last ${dropExpiresAfterMinutes >= 60 && dropExpiresAfterMinutes % 60 === 0 ? `${dropExpiresAfterMinutes / 60}h` : `${dropExpiresAfterMinutes} min`}${maxDrops ? ` · up to ${maxDrops}` : ""}.`;
   if (!roomCode) {
-    const primaryJoinLabel = isJoining ? "Abrindo..." : "Abrir";
+    const primaryJoinLabel = isJoining ? "Opening…" : "Open";
     return (
       <main className="quickdrop-text-shell">
         <section className="quickdrop-text-card quickdrop-text-join">
           <div className="quickdrop-text-heading">
-            <p className="quickdrop-text-kicker">Texto entre máquinas</p>
-            <h1>Clipboard temporário</h1>
+            <p className="quickdrop-text-kicker">Text across devices</p>
+            <h1>Temporary clipboard</h1>
             <p className="quickdrop-text-copy">
-              Digite o mesmo código nos dois computadores. Se não existir, o QuickDrop cria na hora.
+              Enter the same code on both devices. QuickDrop creates it if it does not exist.
             </p>
           </div>
 
           {errorMessage ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{errorMessage}</p> : null}
 
           <label className="quickdrop-text-field">
-            <span>Digite um código</span>
+            <span>Enter a code</span>
             <input
               className="quickdrop-text-input"
               autoComplete="off"
               autoFocus
               inputMode="text"
               maxLength={16}
-              placeholder="Ex.: A, DEV ou SERVER-1"
+              placeholder="E.g. A, DEV, or SERVER-1"
               value={joinCode}
               onChange={(event) => setJoinCode(event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 16))}
               onKeyDown={(event) => {
@@ -756,13 +757,13 @@ export default function TextSession() {
           {pinRequired || showPrivacyOptions ? (
             <>
               <label className="quickdrop-text-field">
-                <span>{pinRequired ? "PIN da sala" : "PIN (opcional)"}</span>
+                <span>{pinRequired ? "Room PIN" : "PIN (optional)"}</span>
                 <input
                   className="quickdrop-text-input"
                   autoComplete="off"
                   type="password"
                   maxLength={64}
-                  placeholder={pinRequired ? "Informe o PIN" : "Proteja o clipboard se quiser"}
+                  placeholder={pinRequired ? "Enter the PIN" : "Protect the clipboard if needed"}
                   value={joinPin}
                   onChange={(event) => setJoinPin(event.currentTarget.value)}
                   onKeyDown={(event) => {
@@ -774,13 +775,13 @@ export default function TextSession() {
                 />
               </label>
               <button className="quickdrop-text-button" type="button" disabled={isJoining} onClick={handleCreateRoom}>
-                {isJoining ? "Gerando..." : "Gerar código aleatório"}
+                {isJoining ? "Generating…" : "Generate random code"}
               </button>
             </>
           ) : null}
 
           <p className="quickdrop-text-copy">
-            Códigos curtos são públicos e fáceis de adivinhar. Não use para senhas ou dados sensíveis.
+            Short codes are public and easy to guess. Do not use them for passwords or sensitive data.
           </p>
           <div className="quickdrop-text-actions">
             <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={!joinCode.trim() || isJoining} onClick={handleJoin}>
@@ -793,7 +794,7 @@ export default function TextSession() {
               disabled={isJoining}
               onClick={() => setShowPrivacyOptions((current) => !current)}
             >
-              {showPrivacyOptions ? "Ocultar privacidade" : "Opções de privacidade"}
+              {showPrivacyOptions ? "Hide privacy" : "Privacy options"}
             </button>
           </div>
         </section>
@@ -806,30 +807,30 @@ export default function TextSession() {
       <section className="quickdrop-text-room">
         <header className="quickdrop-text-room-header">
           <div className="quickdrop-text-room-meta">
-            <button className="quickdrop-text-icon-button" type="button" onClick={leaveRoom}>← Voltar</button>
+            <button className="quickdrop-text-icon-button" type="button" onClick={leaveRoom}>← Back</button>
             <div>
-              <p className="quickdrop-text-kicker">Clipboard ativo</p>
+              <p className="quickdrop-text-kicker">Active clipboard</p>
               <div className="quickdrop-text-room-code-row">
                 <h1 className="quickdrop-text-room-code">{roomCode}</h1>
                 <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" disabled={drops.length === 0} onClick={handleCopyLatest}>
-                  Copiar mais recente
+                  Copy latest
                 </button>
-                <button className="quickdrop-text-button" type="button" onClick={handleCopyRoomLink}>Compartilhar endereço</button>
-                <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>Copiar código</button>
+                <button className="quickdrop-text-button" type="button" onClick={handleCopyRoomLink}>Share address</button>
+                <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" onClick={handleCopyCode}>Copy code</button>
                 <button
                   className="quickdrop-text-button quickdrop-text-button--ghost"
                   type="button"
                   disabled={isClearing || drops.length === 0 || connectionPhase !== "open" || !snapshotReady}
                   onClick={handleClearDrops}
                 >
-                  {isClearing ? "Limpando..." : "Limpar todos"}
+                  {isClearing ? "Clearing…" : "Clear all"}
                 </button>
                 <button className="quickdrop-text-button" type="button" disabled={exportState.status === "uploading" || drops.length === 0} onClick={handleExportDrops}>
-                  {exportState.status === "uploading" ? "Enviando..." : "Enviar timeline como arquivo"}
+                  {exportState.status === "uploading" ? "Uploading…" : "Upload timeline as file"}
                 </button>
               </div>
               {presenceLabel ? <p className="quickdrop-text-room-presence">{presenceLabel}</p> : null}
-              {expiryLabel ? <p className="quickdrop-text-room-presence">{expiryLabel}{roomKind === "custom" ? " Código público." : ""}</p> : null}
+              {expiryLabel ? <p className="quickdrop-text-room-presence">{expiryLabel}{roomKind === "custom" ? " Public code." : ""}</p> : null}
               {dropPolicyLabel ? <p className="quickdrop-text-room-presence">{dropPolicyLabel}</p> : null}
             </div>
           </div>
@@ -837,7 +838,7 @@ export default function TextSession() {
             className={`quickdrop-text-badge quickdrop-text-badge--${badgeVariant ?? "closed"}`}
             role="status"
             aria-live="polite"
-            aria-label={`Status da conexão: ${statusLabel}`}
+            aria-label={`Connection status: ${statusLabel}`}
           >
             {statusLabel}
           </span>
@@ -848,16 +849,16 @@ export default function TextSession() {
         {exportState.status === "error" ? <p className="quickdrop-text-note quickdrop-text-note--error" role="alert">{exportState.message}</p> : null}
         {exportState.status === "success" ? (
           <p className="quickdrop-text-note quickdrop-text-note--success">
-            {exportState.copied ? "Timeline enviada. Link copiado." : <>Timeline enviada. <a href={exportState.url} target="_blank" rel="noreferrer">Abrir link</a></>}
+            {exportState.copied ? "Timeline uploaded. Link copied." : <>Timeline uploaded. <a href={exportState.url} target="_blank" rel="noreferrer">Open link</a></>}
           </p>
         ) : null}
 
         <section className="quickdrop-drop-composer" aria-labelledby="quickdrop-drop-composer-title">
           <div>
-            <p className="quickdrop-text-kicker">Novo item</p>
-            <h2 id="quickdrop-drop-composer-title">Cole uma vez, mantenha o histórico</h2>
+            <p className="quickdrop-text-kicker">New item</p>
+            <h2 id="quickdrop-drop-composer-title">Paste once, keep the history</h2>
           </div>
-          <label className="sr-only" htmlFor="quickdrop-drop-content">Texto do novo item</label>
+          <label className="sr-only" htmlFor="quickdrop-drop-content">New item text</label>
           <textarea
             ref={composerRef}
             id="quickdrop-drop-content"
@@ -877,19 +878,19 @@ export default function TextSession() {
             autoCorrect="off"
             autoComplete="off"
             autoFocus
-            placeholder="Digite ou cole um texto, URL, comando ou JSON..."
+            placeholder="Type or paste text, a URL, a command, or JSON…"
             aria-describedby="quickdrop-drop-shortcuts"
             aria-keyshortcuts="Control+Enter Meta+Enter"
           />
           <div className="quickdrop-drop-composer-footer">
-            <p id="quickdrop-drop-shortcuts">Ctrl/⌘ + Enter para enviar · Esc para sair</p>
+            <p id="quickdrop-drop-shortcuts">Ctrl/⌘ + Enter to send · Esc to leave</p>
             <button
               className="quickdrop-text-button quickdrop-text-button--primary"
               type="button"
               disabled={!composer.trim() || isPublishing || connectionPhase !== "open" || !snapshotReady}
               onClick={() => publishDrop()}
             >
-              {isPublishing ? "Enviando..." : "Enviar item"}
+              {isPublishing ? "Sending…" : "Send item"}
             </button>
           </div>
         </section>
@@ -897,15 +898,15 @@ export default function TextSession() {
         <section className="quickdrop-drop-timeline" aria-labelledby="quickdrop-drop-timeline-title">
           <div className="quickdrop-drop-timeline-heading">
             <div>
-              <p className="quickdrop-text-kicker">Histórico</p>
-              <h2 id="quickdrop-drop-timeline-title">{drops.length} {drops.length === 1 ? "item" : "itens"}</h2>
+              <p className="quickdrop-text-kicker">History</p>
+              <h2 id="quickdrop-drop-timeline-title">{drops.length} {drops.length === 1 ? "item" : "items"}</h2>
             </div>
           </div>
 
           {drops.length === 0 ? (
             <div className="quickdrop-drop-empty">
-              <p>Nenhum item ainda.</p>
-              <span>Envie o primeiro texto acima e abra este código na outra máquina.</span>
+              <p>No items yet.</p>
+              <span>Send the first text above and open this code on the other device.</span>
             </div>
           ) : (
             <ol className="quickdrop-drop-list">
@@ -917,9 +918,9 @@ export default function TextSession() {
                   <div className="quickdrop-drop-card-header">
                     <div className="quickdrop-drop-card-labels">
                       <span className={`quickdrop-drop-type quickdrop-drop-type--${drop.contentType}`}>{dropContentTypeLabel(drop.contentType)}</span>
-                      {dropOrigins[drop.id] === "self" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--self" aria-label={dropOriginLabel("self")}>VOCÊ</span> : null}
-                      {dropOrigins[drop.id] === "remote" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--remote" aria-label={dropOriginLabel("remote")}>OUTRO DISPOSITIVO</span> : null}
-                      {newDropId === drop.id ? <span className="quickdrop-drop-origin quickdrop-drop-origin--new" aria-label="Item novo">NOVO</span> : null}
+                      {dropOrigins[drop.id] === "self" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--self" aria-label={dropOriginLabel("self")}>YOU</span> : null}
+                      {dropOrigins[drop.id] === "remote" ? <span className="quickdrop-drop-origin quickdrop-drop-origin--remote" aria-label={dropOriginLabel("remote")}>OTHER DEVICE</span> : null}
+                      {newDropId === drop.id ? <span className="quickdrop-drop-origin quickdrop-drop-origin--new" aria-label="New item">NEW</span> : null}
                     </div>
                     <time dateTime={drop.createdAt}>{formatDropTime(drop.createdAt)}</time>
                   </div>
@@ -931,9 +932,9 @@ export default function TextSession() {
                     <pre className="quickdrop-drop-content"><code>{drop.content}</code></pre>
                   )}
                   <div className="quickdrop-drop-actions">
-                    <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" onClick={() => void handleCopyDrop(drop)}>Copiar</button>
-                    <button className="quickdrop-text-button" type="button" disabled={connectionPhase !== "open" || !snapshotReady || isPublishing} onClick={() => publishDrop(drop.content, false)}>Reenviar</button>
-                    <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" disabled={connectionPhase !== "open" || !snapshotReady || drop.id.startsWith("legacy-")} onClick={() => handleDeleteDrop(drop)}>Excluir</button>
+                    <button className="quickdrop-text-button quickdrop-text-button--primary" type="button" onClick={() => void handleCopyDrop(drop)}>Copy</button>
+                    <button className="quickdrop-text-button" type="button" disabled={connectionPhase !== "open" || !snapshotReady || isPublishing} onClick={() => publishDrop(drop.content, false)}>Send again</button>
+                    <button className="quickdrop-text-button quickdrop-text-button--ghost" type="button" disabled={connectionPhase !== "open" || !snapshotReady || drop.id.startsWith("legacy-")} onClick={() => handleDeleteDrop(drop)}>Delete</button>
                   </div>
                 </li>
               ))}

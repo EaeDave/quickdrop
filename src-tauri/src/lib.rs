@@ -95,9 +95,9 @@ const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_UPDATE_ID: &str = "check_for_updates";
 #[cfg(target_os = "windows")]
-const TRAY_MENU_AUTOSTART_LABEL: &str = "Iniciar com Windows";
+const TRAY_MENU_AUTOSTART_LABEL: &str = "Start with Windows";
 #[cfg(target_os = "macos")]
-const TRAY_MENU_AUTOSTART_LABEL: &str = "Abrir ao iniciar sessão";
+const TRAY_MENU_AUTOSTART_LABEL: &str = "Launch at login";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_QUIT_ID: &str = "quit";
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
@@ -167,7 +167,7 @@ async fn upload_files_from_paths(
     api_base_url: String,
 ) -> Result<UploadResponse, String> {
     if paths.is_empty() {
-        return Err("Selecione pelo menos um arquivo.".to_string());
+        return Err("Select at least one file.".to_string());
     }
 
     if paths.len() == 1 {
@@ -183,12 +183,12 @@ async fn upload_files_from_paths(
 
     let inputs = validate_zip_inputs(&paths).await?;
     let zip_path = temp_zip_path();
-    let zip_file_name = format!("quickdrop-{}-arquivos.zip", inputs.len());
+    let zip_file_name = format!("quickdrop-{}-files.zip", inputs.len());
     let zip_path_for_task = zip_path.clone();
 
     tokio::task::spawn_blocking(move || create_zip_archive(&zip_path_for_task, &inputs))
         .await
-        .map_err(|error| format!("Falha ao criar ZIP: {error}"))??;
+        .map_err(|error| format!("Failed to create ZIP: {error}"))??;
 
     let response = upload_single_path(
         window,
@@ -215,16 +215,16 @@ async fn upload_single_path(
 ) -> Result<UploadResponse, String> {
     let metadata = tokio::fs::metadata(&path)
         .await
-        .map_err(|_| "Arquivo não encontrado.".to_string())?;
+        .map_err(|_| "File not found.".to_string())?;
 
     if !metadata.is_file() {
-        return Err("Selecione um arquivo regular.".to_string());
+        return Err("Select a regular file.".to_string());
     }
 
     let total_bytes = metadata.len();
 
     if total_bytes == 0 {
-        return Err("Arquivo vazio não é permitido.".to_string());
+        return Err("Empty files are not allowed.".to_string());
     }
 
     let file_name = match file_name_override {
@@ -238,7 +238,7 @@ async fn upload_single_path(
     });
     let file = tokio::fs::File::open(&path)
         .await
-        .map_err(|_| "Não foi possível abrir o arquivo.".to_string())?;
+        .map_err(|_| "Could not open the file.".to_string())?;
     let mut sent_bytes = 0_u64;
     let progress_window = window.clone();
     let progress_stream = ReaderStream::new(file).map_ok(move |chunk| {
@@ -258,7 +258,7 @@ async fn upload_single_path(
     let part = Part::stream_with_length(body, total_bytes)
         .file_name(file_name)
         .mime_str(&mime_type)
-        .map_err(|error| format!("MIME inválido: {error}"))?;
+        .map_err(|error| format!("Invalid MIME type: {error}"))?;
     let form = Form::new().part("file", part);
     let response = reqwest::Client::new()
         .post(format!("{}/api/upload", api_base_url))
@@ -266,19 +266,19 @@ async fn upload_single_path(
         .multipart(form)
         .send()
         .await
-        .map_err(|error| format!("Falha ao enviar arquivo: {error}"))?;
+        .map_err(|error| format!("Failed to upload file: {error}"))?;
 
     if !response.status().is_success() {
         return Err(response
             .text()
             .await
-            .unwrap_or_else(|_| "Falha no upload.".to_string()));
+            .unwrap_or_else(|_| "Upload failed.".to_string()));
     }
 
     response
         .json::<UploadResponse>()
         .await
-        .map_err(|error| format!("Resposta inválida do servidor: {error}"))
+        .map_err(|error| format!("Invalid server response: {error}"))
 }
 
 async fn validate_zip_inputs(paths: &[String]) -> Result<Vec<ZipInput>, String> {
@@ -290,16 +290,14 @@ async fn validate_zip_inputs(paths: &[String]) -> Result<Vec<ZipInput>, String> 
         let display_name = display_name(&path);
         let metadata = tokio::fs::metadata(&path)
             .await
-            .map_err(|_| format!("Arquivo não encontrado: {display_name}"))?;
+            .map_err(|_| format!("File not found: {display_name}"))?;
 
         if !metadata.is_file() {
-            return Err(format!(
-                "Selecione apenas arquivos regulares: {display_name}"
-            ));
+            return Err(format!("Select regular files only: {display_name}"));
         }
 
         if metadata.len() == 0 {
-            return Err(format!("Arquivo vazio não é permitido: {display_name}"));
+            return Err(format!("Empty file is not allowed: {display_name}"));
         }
 
         let entry_name = unique_archive_name(file_name_of(&path)?, &mut archive_names);
@@ -310,23 +308,24 @@ async fn validate_zip_inputs(paths: &[String]) -> Result<Vec<ZipInput>, String> 
 }
 
 fn create_zip_archive(zip_path: &Path, inputs: &[ZipInput]) -> Result<(), String> {
-    let file = StdFile::create(zip_path).map_err(|error| format!("Falha ao criar ZIP: {error}"))?;
+    let file =
+        StdFile::create(zip_path).map_err(|error| format!("Failed to create ZIP: {error}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
     for input in inputs {
         let source = StdFile::open(&input.path)
-            .map_err(|error| format!("Falha ao abrir {}: {error}", display_name(&input.path)))?;
+            .map_err(|error| format!("Failed to open {}: {error}", display_name(&input.path)))?;
         let mut reader = BufReader::new(source);
 
         zip.start_file(input.entry_name.as_str(), options)
-            .map_err(|error| format!("Falha ao adicionar {} ao ZIP: {error}", input.entry_name))?;
+            .map_err(|error| format!("Failed to add {} to ZIP: {error}", input.entry_name))?;
         std::io::copy(&mut reader, &mut zip)
-            .map_err(|error| format!("Falha ao escrever {} no ZIP: {error}", input.entry_name))?;
+            .map_err(|error| format!("Failed to write {} to ZIP: {error}", input.entry_name))?;
     }
 
     zip.finish()
-        .map_err(|error| format!("Falha ao finalizar ZIP: {error}"))?;
+        .map_err(|error| format!("Failed to finish ZIP: {error}"))?;
 
     Ok(())
 }
@@ -356,7 +355,7 @@ fn file_name_of(path: &Path) -> Result<String, String> {
     path.file_name()
         .and_then(|value| value.to_str())
         .map(ToString::to_string)
-        .ok_or_else(|| "Nome do arquivo inválido.".to_string())
+        .ok_or_else(|| "Invalid file name.".to_string())
 }
 
 fn display_name(path: &Path) -> String {
@@ -393,7 +392,7 @@ fn read_clipboard_upload_inputs(app: AppHandle) -> Result<Vec<LocalUploadInput>,
     let path = temp_clipboard_path(&payload.file_name);
 
     std::fs::write(&path, payload.bytes)
-        .map_err(|error| format!("Falha ao preparar clipboard para upload: {error}"))?;
+        .map_err(|error| format!("Failed to prepare clipboard content for upload: {error}"))?;
 
     Ok(vec![LocalUploadInput {
         path: path.to_string_lossy().to_string(),
@@ -412,9 +411,9 @@ fn read_clipboard_text_for_platform(app: &AppHandle) -> Result<String, String> {
     let text = app
         .clipboard()
         .read_text()
-        .map_err(|error| format!("Falha ao ler texto do clipboard: {error}"))?;
+        .map_err(|error| format!("Failed to read clipboard text: {error}"))?;
     if text.trim().is_empty() {
-        return Err("Clipboard sem texto para enviar.".to_string());
+        return Err("The clipboard has no text to send.".to_string());
     }
     Ok(text)
 }
@@ -424,12 +423,12 @@ fn read_clipboard_text_for_platform(_app: &AppHandle) -> Result<String, String> 
     let mime_type = list_clipboard_types()?
         .into_iter()
         .find(|mime_type| is_plain_text_clipboard_type(mime_type))
-        .ok_or_else(|| "Clipboard sem texto para enviar.".to_string())?;
+        .ok_or_else(|| "The clipboard has no text to send.".to_string())?;
     let bytes = read_clipboard_text_bytes(&mime_type)?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| "O texto do clipboard não está em UTF-8 válido.".to_string())?;
+    let text =
+        String::from_utf8(bytes).map_err(|_| "Clipboard text is not valid UTF-8.".to_string())?;
     if text.trim().is_empty() {
-        return Err("Clipboard sem texto para enviar.".to_string());
+        return Err("The clipboard has no text to send.".to_string());
     }
     Ok(text)
 }
@@ -453,9 +452,9 @@ fn read_clipboard_payload_for_platform(app: &AppHandle) -> Result<ClipboardPaylo
     let text = app
         .clipboard()
         .read_text()
-        .map_err(|_| "Clipboard sem imagem ou texto para enviar.".to_string())?;
+        .map_err(|_| "The clipboard has no image or text to send.".to_string())?;
     if text.is_empty() {
-        return Err("Clipboard sem imagem ou texto para enviar.".to_string());
+        return Err("The clipboard has no image or text to send.".to_string());
     }
 
     Ok(ClipboardPayload {
@@ -473,24 +472,24 @@ fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Stri
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder
             .write_header()
-            .map_err(|error| format!("Falha ao preparar imagem do clipboard: {error}"))?;
+            .map_err(|error| format!("Failed to prepare clipboard image: {error}"))?;
         writer
             .write_image_data(rgba)
-            .map_err(|error| format!("Falha ao preparar imagem do clipboard: {error}"))?;
+            .map_err(|error| format!("Failed to prepare clipboard image: {error}"))?;
     }
     Ok(bytes)
 }
 
 #[cfg(target_os = "windows")]
 fn read_clipboard_payload_for_platform(_app: &AppHandle) -> Result<ClipboardPayload, String> {
-    Err("Clipboard nativo indisponível nesta plataforma.".to_string())
+    Err("Native clipboard is unavailable on this platform.".to_string())
 }
 
 #[cfg(target_os = "linux")]
 fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
     let types = list_clipboard_types()?;
     let selection = select_clipboard_type(&types)
-        .ok_or_else(|| "Clipboard sem imagem ou texto para enviar.".to_string())?;
+        .ok_or_else(|| "The clipboard has no image or text to send.".to_string())?;
 
     match selection {
         ClipboardSelection::Image {
@@ -499,7 +498,7 @@ fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
         } => {
             let bytes = read_clipboard_bytes(&mime_type)?;
             if bytes.is_empty() {
-                return Err("Clipboard sem imagem para enviar.".to_string());
+                return Err("The clipboard has no image to send.".to_string());
             }
 
             Ok(ClipboardPayload {
@@ -510,7 +509,7 @@ fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
         ClipboardSelection::Text { mime_type } => {
             let bytes = read_clipboard_text_bytes(&mime_type)?;
             if bytes.is_empty() {
-                return Err("Clipboard sem texto para enviar.".to_string());
+                return Err("The clipboard has no text to send.".to_string());
             }
 
             Ok(ClipboardPayload {
@@ -526,10 +525,10 @@ fn list_clipboard_types() -> Result<Vec<String>, String> {
     let output = Command::new("wl-paste")
         .arg("--list-types")
         .output()
-        .map_err(|error| format!("wl-paste não encontrado ou falhou ao iniciar: {error}"))?;
+        .map_err(|error| format!("wl-paste was not found or failed to start: {error}"))?;
 
     if !output.status.success() {
-        return Err("Clipboard sem imagem ou texto para enviar.".to_string());
+        return Err("The clipboard has no image or text to send.".to_string());
     }
 
     Ok(String::from_utf8_lossy(&output.stdout)
@@ -605,10 +604,10 @@ fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
         .arg("--type")
         .arg(mime_type)
         .output()
-        .map_err(|error| format!("wl-paste não encontrou o conteúdo do clipboard: {error}"))?;
+        .map_err(|error| format!("wl-paste could not find clipboard content: {error}"))?;
 
     if !output.status.success() {
-        return Err("Não foi possível ler imagem do clipboard.".to_string());
+        return Err("Could not read a clipboard image.".to_string());
     }
 
     Ok(output.stdout)
@@ -621,10 +620,10 @@ fn read_clipboard_text_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
         .arg("--type")
         .arg(mime_type)
         .output()
-        .map_err(|error| format!("wl-paste não encontrou texto no clipboard: {error}"))?;
+        .map_err(|error| format!("wl-paste could not find clipboard text: {error}"))?;
 
     if !output.status.success() {
-        return Err("Não foi possível ler texto do clipboard.".to_string());
+        return Err("Could not read clipboard text.".to_string());
     }
 
     Ok(output.stdout)
@@ -662,7 +661,7 @@ fn copy_link(app: AppHandle, link: String) -> Result<(), String> {
 fn copy_link_for_platform(app: &AppHandle, link: String) -> Result<(), String> {
     app.clipboard()
         .write_text(link)
-        .map_err(|error| format!("Falha ao copiar link para o clipboard: {error}"))
+        .map_err(|error| format!("Failed to copy the link to the clipboard: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -670,23 +669,23 @@ fn copy_link_for_platform(_app: &AppHandle, link: String) -> Result<(), String> 
     let mut child = Command::new("wl-copy")
         .stdin(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("wl-copy não encontrado ou falhou ao iniciar: {error}"))?;
+        .map_err(|error| format!("wl-copy was not found or failed to start: {error}"))?;
 
     let stdin = child
         .stdin
         .as_mut()
-        .ok_or_else(|| "Não foi possível abrir stdin do wl-copy.".to_string())?;
+        .ok_or_else(|| "Could not open wl-copy stdin.".to_string())?;
     stdin
         .write_all(link.as_bytes())
-        .map_err(|error| format!("Falha ao escrever no wl-copy: {error}"))?;
+        .map_err(|error| format!("Failed to write to wl-copy: {error}"))?;
     drop(child.stdin.take());
 
     let status = child
         .wait()
-        .map_err(|error| format!("Falha ao aguardar wl-copy: {error}"))?;
+        .map_err(|error| format!("Failed while waiting for wl-copy: {error}"))?;
 
     if !status.success() {
-        return Err("wl-copy retornou erro.".to_string());
+        return Err("wl-copy returned an error.".to_string());
     }
 
     Ok(())
@@ -700,21 +699,29 @@ fn notify_success(app: AppHandle, file_count: Option<usize>) -> Result<(), Strin
 #[tauri::command]
 fn notify_text_drop(app: AppHandle, code: String) -> Result<(), String> {
     if !valid_text_code(&code) {
-        return Err("Código de clipboard inválido.".to_string());
+        return Err("Invalid clipboard code.".to_string());
     }
     notify_success_for_platform(
         &app,
-        format!("Novo texto recebido no canal {}.", code.to_uppercase()),
+        format!("New text received in room {}.", code.to_uppercase()),
     )
 }
 
 #[tauri::command]
 fn open_text_clipboard(state: tauri::State<'_, DesktopConfig>, code: String) -> Result<(), String> {
-    if !valid_text_code(&code) {
-        return Err("Código de clipboard inválido.".to_string());
-    }
-    let url = format!("{}/t/{}", state.api_base_url, code.to_uppercase());
+    let url = text_clipboard_url(&state.api_base_url, &code)?;
     open_url_for_platform(&url)
+}
+
+fn text_clipboard_url(base_url: &str, code: &str) -> Result<String, String> {
+    if !valid_text_code(code) {
+        return Err("Invalid clipboard code.".to_string());
+    }
+    Ok(format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        code.to_uppercase()
+    ))
 }
 
 fn valid_text_code(code: &str) -> bool {
@@ -731,7 +738,7 @@ fn open_url_for_platform(url: &str) -> Result<(), String> {
         .arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+        .map_err(|error| format!("Failed to open the clipboard in a browser: {error}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -740,7 +747,7 @@ fn open_url_for_platform(url: &str) -> Result<(), String> {
         .arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+        .map_err(|error| format!("Failed to open the clipboard in a browser: {error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -749,15 +756,13 @@ fn open_url_for_platform(url: &str) -> Result<(), String> {
         .arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+        .map_err(|error| format!("Failed to open the clipboard in a browser: {error}"))
 }
 
 fn upload_success_message(file_count: Option<usize>) -> String {
     match file_count.unwrap_or(1) {
-        1 => "Upload concluído. Link copiado para a área de transferência.".to_string(),
-        count => format!(
-            "{count} arquivos enviados em um ZIP. Link copiado para a área de transferência."
-        ),
+        1 => "Upload complete. Link copied to the clipboard.".to_string(),
+        count => format!("{count} files uploaded as a ZIP. Link copied to the clipboard."),
     }
 }
 
@@ -768,7 +773,7 @@ fn notify_success_for_platform(app: &AppHandle, message: String) -> Result<(), S
         .title("QuickDrop")
         .body(message)
         .show()
-        .map_err(|error| format!("Falha ao exibir notificação: {error}"))
+        .map_err(|error| format!("Failed to show notification: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -777,10 +782,10 @@ fn notify_success_for_platform(_app: &AppHandle, message: String) -> Result<(), 
         .arg("QuickDrop")
         .arg(message)
         .status()
-        .map_err(|error| format!("notify-send não encontrado ou falhou ao iniciar: {error}"))?;
+        .map_err(|error| format!("notify-send was not found or failed to start: {error}"))?;
 
     if !status.success() {
-        return Err("notify-send retornou erro.".to_string());
+        return Err("notify-send returned an error.".to_string());
     }
 
     Ok(())
@@ -793,7 +798,7 @@ fn get_api_base_url(state: tauri::State<'_, DesktopConfig>) -> String {
 #[tauri::command]
 fn dismiss_window(window: tauri::Window) -> Result<(), String> {
     dismiss_window_for_platform(&window)
-        .map_err(|error| format!("Falha ao fechar janela QuickDrop: {error}"))
+        .map_err(|error| format!("Failed to close the QuickDrop window: {error}"))
 }
 
 fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
@@ -1073,13 +1078,8 @@ fn ensure_initial_windows_autostart(app: &AppHandle) {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_OPEN_ID,
-        "Abrir QuickDrop",
-        true,
-        None::<&str>,
-    )?;
+    let open_item =
+        MenuItem::with_id(app, TRAY_MENU_OPEN_ID, "Open QuickDrop", true, None::<&str>)?;
     let autostart_item = CheckMenuItem::with_id(
         app,
         TRAY_MENU_AUTOSTART_ID,
@@ -1091,12 +1091,12 @@ fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
     let update_item = MenuItem::with_id(
         app,
         TRAY_MENU_UPDATE_ID,
-        "Verificar atualizações…",
+        "Check for updates…",
         true,
         None::<&str>,
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Sair", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -1376,6 +1376,14 @@ mod tests {
         assert!(!valid_text_code(""));
         assert!(!valid_text_code("contains space"));
         assert!(!valid_text_code("12345678901234567"));
+    }
+
+    #[test]
+    fn text_clipboard_url_uses_the_canonical_root_route() {
+        assert_eq!(
+            text_clipboard_url("https://quickdrop.example/", "dev-1").unwrap(),
+            "https://quickdrop.example/DEV-1"
+        );
     }
 
     #[cfg(target_os = "linux")]

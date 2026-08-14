@@ -74,6 +74,7 @@ export type RoomController = {
 export type RoomAccess = {
   code: string;
   protected: boolean;
+  accessToken: string | null;
   accessExpiresAt: string | null;
   kind: RoomKind;
   expiresAfterMinutes: number;
@@ -116,8 +117,8 @@ function textApiUrl(path: string): string {
 }
 
 function textRequestCredentials(): RequestCredentials {
-  // The native QuickPanel supports public channels only. PIN cookies stay in the
-  // same-origin browser experience instead of crossing into the desktop WebView.
+  // Native clients use the short-lived response token, so browser cookies remain
+  // same-origin and never cross into the desktop WebView.
   return textClientBaseUrl ? "omit" : "same-origin";
 }
 
@@ -181,13 +182,17 @@ function getErrorCode(payload: unknown): RoomErrorCode {
   return typeof error === "string" ? (error as RoomErrorCode) : null;
 }
 
-function getRoomUrl(code: string): string {
+export function roomWebSocketUrl(code: string): string {
   const baseUrl = new URL(textClientBaseUrl || window.location.origin);
   baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
   baseUrl.pathname = `/api/text/${encodeURIComponent(code)}/ws`;
   baseUrl.search = "";
   baseUrl.hash = "";
   return baseUrl.href;
+}
+
+export function roomWebSocketProtocols(accessToken?: string | null): string[] | undefined {
+  return accessToken ? [`quickdrop-access.${accessToken}`] : undefined;
 }
 
 function parseNumber(value: unknown): number | null {
@@ -229,16 +234,24 @@ function parseLifecycle(value: object): RoomLifecycle | null {
 export function formatRoomExpiry(
   lifecycle: Pick<RoomLifecycle, "expiresAfterMinutes" | "expiresAt" | "presence">,
   now: Date,
+  style: "full" | "compact" = "full",
 ): string {
   const idle = formatIdleWindow(lifecycle.expiresAfterMinutes);
   if (lifecycle.presence > 0 || !lifecycle.expiresAt) {
-    return `Segura · some ${idle} depois que todos saírem`;
+    if (style === "compact") return `Held open · ${formatCompactIdleWindow(lifecycle.expiresAfterMinutes)} idle`;
+    return `Held open · expires ${idle} after everyone leaves`;
   }
   const remainingMs = Date.parse(lifecycle.expiresAt) - now.getTime();
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    return "Encerrando…";
+    return "Expiring…";
   }
-  return `Some em ${formatRemaining(remainingMs)}`;
+  return style === "compact"
+    ? `Expires ${formatRemaining(remainingMs)}`
+    : `Expires in ${formatRemaining(remainingMs)}`;
+}
+
+export function formatRoomPresence(count: number): string {
+  return `${count} ${count === 1 ? "person" : "people"} online`;
 }
 
 function formatIdleWindow(minutes: number): string {
@@ -246,6 +259,10 @@ function formatIdleWindow(minutes: number): string {
     return `${minutes / 60}h`;
   }
   return `${minutes} min`;
+}
+
+function formatCompactIdleWindow(minutes: number): string {
+  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
 }
 
 function formatRemaining(ms: number): string {
@@ -283,14 +300,15 @@ function parseTextDrop(value: unknown): TextDrop | null {
 }
 
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
+  const nativeHeaders: Record<string, string> = textClientBaseUrl ? { "x-quickdrop-native": "1" } : {};
   if (!body) {
-    return { method: "POST", credentials: textRequestCredentials() };
+    return { method: "POST", credentials: textRequestCredentials(), headers: nativeHeaders };
   }
 
   return {
     method: "POST",
     credentials: textRequestCredentials(),
-    headers: { "content-type": "application/json" },
+    headers: { ...nativeHeaders, "content-type": "application/json" },
     body: JSON.stringify(body),
   };
 }
@@ -305,14 +323,14 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
 
   if (!response.ok) {
     throw new RoomAccessError(
-      getErrorMessage(payload, `Falha ao criar sala (${response.status})`),
+      getErrorMessage(payload, `Failed to create room (${response.status})`),
       getErrorCode(payload),
       response.status,
     );
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
+    throw new RoomAccessError("Invalid create-room response", null, response.status);
   }
 
   const code = "code" in payload ? parseString(payload.code) : null;
@@ -320,13 +338,14 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (!code || protectedRoom === null || kind === null || !lifecycle) {
-    throw new RoomAccessError("Resposta inválida ao criar sala", null, response.status);
+    throw new RoomAccessError("Invalid create-room response", null, response.status);
   }
 
   return {
     code: code.trim().toUpperCase(),
     protected: protectedRoom,
-    accessExpiresAt: null,
+    accessToken: "accessToken" in payload ? parseString(payload.accessToken) : null,
+    accessExpiresAt: "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null,
     kind,
     ...lifecycle,
   };
@@ -343,30 +362,32 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
 
   if (!response.ok) {
     throw new RoomAccessError(
-      getErrorMessage(payload, `Falha ao abrir clipboard (${response.status})`),
+      getErrorMessage(payload, `Failed to open clipboard (${response.status})`),
       getErrorCode(payload),
       response.status,
     );
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
+    throw new RoomAccessError("Invalid open-clipboard response", null, response.status);
   }
 
   const returnedCode = "code" in payload ? parseString(payload.code) : null;
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const created = "created" in payload ? parseBoolean(payload.created) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
+  const accessToken = "accessToken" in payload ? parseString(payload.accessToken) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (!returnedCode || protectedRoom === null || created === null || kind === null || !lifecycle) {
-    throw new RoomAccessError("Resposta inválida ao abrir clipboard", null, response.status);
+    throw new RoomAccessError("Invalid open-clipboard response", null, response.status);
   }
 
   return {
     code: returnedCode.trim().toUpperCase(),
     protected: protectedRoom,
     created,
+    accessToken,
     accessExpiresAt,
     kind,
     ...lifecycle,
@@ -383,27 +404,29 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
 
   if (!response.ok) {
     throw new RoomAccessError(
-      getErrorMessage(payload, `Falha ao entrar na sala (${response.status})`),
+      getErrorMessage(payload, `Failed to join room (${response.status})`),
       getErrorCode(payload),
       response.status,
     );
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
+    throw new RoomAccessError("Invalid join-room response", null, response.status);
   }
 
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
+  const accessToken = "accessToken" in payload ? parseString(payload.accessToken) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (protectedRoom === null || kind === null || !lifecycle) {
-    throw new RoomAccessError("Resposta inválida ao entrar na sala", null, response.status);
+    throw new RoomAccessError("Invalid join-room response", null, response.status);
   }
 
   return {
     code: code.trim().toUpperCase(),
     protected: protectedRoom,
+    accessToken,
     accessExpiresAt,
     kind,
     ...lifecycle,
@@ -426,14 +449,14 @@ export async function fetchSnapshot(code: string): Promise<{
 
   if (!response.ok) {
     throw new RoomAccessError(
-      getErrorMessage(payload, `Falha ao carregar sala (${response.status})`),
+      getErrorMessage(payload, `Failed to load room (${response.status})`),
       getErrorCode(payload),
       response.status,
     );
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
+    throw new RoomAccessError("Invalid room response", null, response.status);
   }
 
   const text = "text" in payload ? parseString(payload.text) : null;
@@ -442,13 +465,17 @@ export async function fetchSnapshot(code: string): Promise<{
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (text === null || version === null || protectedRoom === null || kind === null || !lifecycle) {
-    throw new RoomAccessError("Resposta inválida ao carregar sala", null, response.status);
+    throw new RoomAccessError("Invalid room response", null, response.status);
   }
 
   return { text, version, protected: protectedRoom, kind, ...lifecycle };
 }
 
-export function connectRoom(code: string, handlers: RoomHandlers): RoomController {
+export function connectRoom(
+  code: string,
+  handlers: RoomHandlers,
+  accessToken?: string | null,
+): RoomController {
   let socket: WebSocket | null = null;
   let reconnectTimer: number | null = null;
   let closedByUser = false;
@@ -504,7 +531,7 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
     readyForWrites = false;
 
     try {
-      socket = new WebSocket(getRoomUrl(code));
+      socket = new WebSocket(roomWebSocketUrl(code), roomWebSocketProtocols(accessToken));
     } catch {
       scheduleReconnect();
       return;
@@ -705,7 +732,7 @@ export function connectRoom(code: string, handlers: RoomHandlers): RoomControlle
       if (payload.type === "error") {
         const messageText = "message" in payload ? parseString(payload.message) : null;
         const code = "error" in payload ? parseString(payload.error) : null;
-        handlers.onError({ code: code as RoomErrorCode, message: messageText ?? "Erro na sala" });
+        handlers.onError({ code: code as RoomErrorCode, message: messageText ?? "Room error" });
       }
     };
 
