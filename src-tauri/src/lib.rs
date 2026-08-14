@@ -97,6 +97,8 @@ const TRAY_ID: &str = "quickdrop-tray";
 const TRAY_MENU_OPEN_ID: &str = "open";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const TRAY_MENU_UPDATE_ID: &str = "check_for_updates";
 #[cfg(target_os = "windows")]
 const TRAY_MENU_AUTOSTART_LABEL: &str = "Iniciar com Windows";
 #[cfg(target_os = "macos")]
@@ -1010,9 +1012,19 @@ fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
         app.handle().autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
+    let update_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_UPDATE_ID,
+        "Verificar atualizações…",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open_item, &autostart_item, &separator, &quit_item])?;
+    let menu = Menu::with_items(
+        app,
+        &[&open_item, &autostart_item, &update_item, &separator, &quit_item],
+    )?;
     let autostart_item_for_menu = autostart_item.clone();
     #[cfg(target_os = "windows")]
     let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
@@ -1031,6 +1043,13 @@ fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
             TRAY_MENU_OPEN_ID => {
                 if let Err(error) = show_quickdrop_window(app) {
                     eprintln!("Failed to show QuickDrop from tray menu: {error}");
+                }
+            }
+            TRAY_MENU_UPDATE_ID => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(error) = window.emit("quickdrop://check-for-updates", ()) {
+                        eprintln!("Failed to request a QuickDrop update check: {error}");
+                    }
                 }
             }
             TRAY_MENU_AUTOSTART_ID => {
@@ -1416,6 +1435,8 @@ pub fn run() {
     }
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())

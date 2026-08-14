@@ -27,3 +27,5 @@ tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
 png = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

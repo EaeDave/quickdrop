@@ -42,7 +42,7 @@ jobs:
         run: |
           bun run typecheck
           bun run desktop:build:web
-          bun test scripts/install-macos.test.ts
+          bun test scripts/install-macos.test.ts scripts/generate-tauri-update-manifest.test.ts
           bash -n scripts/install-macos.sh
 
       - name: Test native applications
@@ -54,6 +54,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: macos-check
     runs-on: macos-14
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v5
         with:

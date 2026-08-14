@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, message, open } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import { zip } from "fflate";
 
 export type UploadResponse = { id: string; url: string; expiresAt: string };
@@ -11,6 +13,79 @@ export type UploadInput = string | File | LocalUploadInput;
 export const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 
 let progressListeners: ((progress: UploadProgress) => void)[] = [];
+let updateCheckPromise: Promise<void> | null = null;
+
+export const DESKTOP_UPDATE_EVENT = "quickdrop://check-for-updates";
+
+export function setupDesktopUpdater(): () => void {
+  if (!isTauri) {
+    return () => {};
+  }
+
+  const timer = window.setTimeout(() => {
+    void checkForDesktopUpdate(false);
+  }, 3_000);
+  const unlistenPromise = listen(DESKTOP_UPDATE_EVENT, () => checkForDesktopUpdate(true));
+
+  return () => {
+    window.clearTimeout(timer);
+    void unlistenPromise.then((unlisten) => unlisten());
+  };
+}
+
+async function checkForDesktopUpdate(interactive: boolean): Promise<void> {
+  if (updateCheckPromise) {
+    return updateCheckPromise;
+  }
+
+  updateCheckPromise = performDesktopUpdateCheck(interactive).finally(() => {
+    updateCheckPromise = null;
+  });
+  return updateCheckPromise;
+}
+
+async function performDesktopUpdateCheck(interactive: boolean): Promise<void> {
+  try {
+    const update = await check();
+    if (!update) {
+      if (interactive) {
+        await message("Você já está usando a versão mais recente do QuickDrop.", {
+          title: "QuickDrop",
+          kind: "info",
+        });
+      }
+      return;
+    }
+
+    const accepted = await confirm(
+      `QuickDrop ${update.version} está disponível. Deseja atualizar e reiniciar agora?`,
+      {
+        title: "Atualização do QuickDrop",
+        kind: "info",
+        okLabel: "Atualizar e reiniciar",
+        cancelLabel: "Depois",
+      },
+    );
+    if (!accepted) {
+      return;
+    }
+
+    await update.downloadAndInstall();
+    await relaunch();
+  } catch (error) {
+    console.error("Falha ao atualizar o QuickDrop", error);
+    if (interactive) {
+      await message(`Não foi possível verificar ou instalar a atualização: ${formatTauriError(error)}`, {
+        title: "Atualização do QuickDrop",
+        kind: "error",
+      });
+    }
+  }
+}
+
+function formatTauriError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export function emitWebProgress(percent: number) {
   for (const listener of progressListeners) {
