@@ -110,8 +110,13 @@ async function output(command: string[]): Promise<string> {
 }
 
 async function run(command: string[]): Promise<void> {
-  const process = Bun.spawn(command, { stdout: "inherit", stderr: "inherit", stdin: "inherit" });
-  if ((await process.exited) !== 0) throw new Error(`Command failed: ${command.join(" ")}`);
+  const child = Bun.spawn(command, {
+    env: process.env,
+    stdout: "inherit",
+    stderr: "inherit",
+    stdin: "inherit",
+  });
+  if ((await child.exited) !== 0) throw new Error(`Command failed: ${command.join(" ")}`);
 }
 
 async function configureUpdaterSigning(): Promise<void> {
