@@ -265,22 +265,33 @@ export async function startServer(): Promise<void> {
 }
 
 export function redactTextCodeFromUrl(rawUrl: string): string {
-  const redactedRoomUrl = canonicalRoomCodeFromRawUrl(rawUrl)
-    ? rawUrl.replace(/^\/[^/?#]+/, "/[code]")
-    : rawUrl;
+  const roomRoute = roomCodeRouteFromRawUrl(rawUrl);
+  const redactedRoomUrl = roomRoute?.kind === "text"
+    ? rawUrl.replace(/^\/t\/[^/?#]+/, "/t/[code]")
+    : roomRoute
+      ? rawUrl.replace(/^\/[^/?#]+/, "/[code]")
+      : rawUrl;
   return redactedRoomUrl
     .replace(/^(\/api\/text\/)[^/?]+/, "$1[code]")
     .replace(/([?&]c=)[^&]*/gi, "$1[code]");
 }
 
 function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {
-  const rawSegment = rawUrl.match(/^\/([^/?#]+)(?=\/?(?:[?#]|$))/)?.[1];
+  return roomCodeRouteFromRawUrl(rawUrl)?.code ?? null;
+}
+
+function roomCodeRouteFromRawUrl(rawUrl: string): { code: string; kind: "root" | "text" } | null {
+  const textSegment = rawUrl.match(/^\/t\/([^/?#]+)(?=\/?(?:[?#]|$))/)?.[1];
+  const rootSegment = rawUrl.match(/^\/([^/?#]+)(?=\/?(?:[?#]|$))/)?.[1];
+  const rawSegment = textSegment ?? rootSegment;
   if (!rawSegment) {
     return null;
   }
   try {
     const code = decodeURIComponent(rawSegment);
-    return /^[A-Za-z0-9_-]{1,16}$/.test(code) ? code : null;
+    return /^[A-Za-z0-9_-]{1,16}$/.test(code)
+      ? { code, kind: textSegment ? "text" : "root" }
+      : null;
   } catch {
     return null;
   }

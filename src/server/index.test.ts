@@ -177,6 +177,8 @@ describe("buildApp", () => {
 
       expect(valid.statusCode).toBe(200);
       expect(valid.body).toContain('<div id="root"></div>');
+      expect(valid.headers["cache-control"]).toBe("no-store, max-age=0");
+      expect(valid.headers["referrer-policy"]).toBe("no-referrer");
       expect(invalid.statusCode).toBe(404);
     } finally {
       await app.close();
@@ -747,6 +749,9 @@ describe("redactTextCodeFromUrl", () => {
       "/[code]?source=test",
     );
     expect(redactTextCodeFromUrl("/SECRET/")).toBe("/[code]/");
+    expect(redactTextCodeFromUrl("/t/SECRET?source=panel")).toBe(
+      "/t/[code]?source=panel",
+    );
     expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
       "/?c=[code]&source=test&c=[code]",
     );
