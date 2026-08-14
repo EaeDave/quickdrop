@@ -10,4 +10,4 @@ Include the affected version, impact, reproduction steps, and any suggested miti
 
 ## Supported versions
 
-QuickDrop currently supports the latest published release. Desktop update bundles are accepted only when signed by the updater key embedded at build time.
+QuickDrop currently supports the latest published release. Desktop update bundles are accepted only when signed with the private key corresponding to the updater public key embedded at build time.

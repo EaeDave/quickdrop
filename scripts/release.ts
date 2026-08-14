@@ -42,6 +42,14 @@ export function assertReleasePlatform(platform: NodeJS.Platform, arch: string): 
   }
 }
 
+export function assertReleaseRepository(configured: string, checkout: string): void {
+  if (configured.toLowerCase() !== checkout.toLowerCase()) {
+    throw new Error(
+      `QUICKDROP_GITHUB_REPOSITORY (${configured}) does not match the current checkout (${checkout})`,
+    );
+  }
+}
+
 async function manifestVersions(): Promise<Map<string, string>> {
   const versions = new Map<string, string>();
   const tauriConfig = (await Bun.file(VERSION_FILES[0]).json()) as { version?: string };
@@ -136,13 +144,23 @@ async function configureUpdaterSigning(): Promise<void> {
   process.env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
 }
 
-async function preflight(tag: string): Promise<void> {
+async function preflight(tag: string, repository: string): Promise<void> {
   if ((await output(["git", "branch", "--show-current"])) !== "main") {
     throw new Error("Releases must be created from main");
   }
   if (await output(["git", "status", "--porcelain"])) {
     throw new Error("Working tree must be clean before releasing");
   }
+  const checkoutRepository = await output([
+    "gh",
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+  assertReleaseRepository(repository, checkoutRepository);
   await run(["git", "fetch", "origin", "main", "--tags"]);
   if ((await output(["git", "rev-parse", "HEAD"])) !== (await output(["git", "rev-parse", "origin/main"]))) {
     throw new Error("Local main must match origin/main before releasing");
@@ -154,7 +172,7 @@ async function preflight(tag: string): Promise<void> {
 
 type ReleaseAsset = { name: string; digest: string };
 
-async function waitForPlatformWorkflow(tag: string): Promise<void> {
+async function waitForPlatformWorkflow(tag: string, repository: string): Promise<void> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const raw = await output([
       "gh",
@@ -170,10 +188,20 @@ async function waitForPlatformWorkflow(tag: string): Promise<void> {
       "1",
       "--json",
       "databaseId",
+      "--repo",
+      repository,
     ]);
     const runs = JSON.parse(raw) as Array<{ databaseId: number }>;
     if (runs[0]) {
-      await run(["gh", "run", "watch", String(runs[0].databaseId), "--exit-status"]);
+      await run([
+        "gh",
+        "run",
+        "watch",
+        String(runs[0].databaseId),
+        "--exit-status",
+        "--repo",
+        repository,
+      ]);
       return;
     }
     await Bun.sleep(2_000);
@@ -209,7 +237,16 @@ async function verifyPublicAssets(
   deploymentBaseUrl: string,
   repository: string,
 ): Promise<void> {
-  const raw = await output(["gh", "release", "view", tag, "--json", "assets"]);
+  const raw = await output([
+    "gh",
+    "release",
+    "view",
+    tag,
+    "--json",
+    "assets",
+    "--repo",
+    repository,
+  ]);
   const release = JSON.parse(raw) as { assets: ReleaseAsset[] };
   const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
   const endpoints = new Map([
@@ -335,7 +372,8 @@ async function main(): Promise<void> {
   const tag = `v${next}`;
   const deploymentBaseUrl = publicBaseUrl();
   const repository = githubReleaseRepository();
-  await preflight(tag);
+  process.env.QUICKDROP_PUBLIC_BASE_URL = deploymentBaseUrl;
+  await preflight(tag, repository);
   await configureUpdaterSigning();
 
   for (const path of VERSION_FILES) await replaceVersion(path, current, next);
@@ -381,8 +419,10 @@ async function main(): Promise<void> {
     "--generate-notes",
     "--title",
     tag,
+    "--repo",
+    repository,
   ]);
-  await waitForPlatformWorkflow(tag);
+  await waitForPlatformWorkflow(tag, repository);
   await verifyPublicAssets(tag, next, deploymentBaseUrl, repository);
   console.log(`Published and verified ${tag} for Linux, Windows, and macOS.`);
 }

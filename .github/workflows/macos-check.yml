@@ -12,6 +12,7 @@ on:
       - "scripts/package-macos-qd-release.ts"
       - "scripts/public-config.ts"
       - "scripts/run-tauri.ts"
+      - "scripts/run-tauri.test.ts"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
@@ -48,7 +49,7 @@ jobs:
         run: |
           bun run typecheck
           bun run desktop:build:web
-          bun test scripts/install-macos.test.ts scripts/generate-tauri-update-manifest.test.ts
+          bun test scripts/install-macos.test.ts scripts/generate-tauri-update-manifest.test.ts scripts/public-config.test.ts scripts/run-tauri.test.ts
           bash -n scripts/install-macos.sh
 
       - name: Test native applications

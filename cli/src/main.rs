@@ -775,6 +775,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn build_default_api_url_is_normalized() {
+        assert_eq!(
+            DEFAULT_API_BASE_URL,
+            DEFAULT_API_BASE_URL.trim().trim_end_matches('/')
+        );
+    }
+
+    #[test]
     fn parses_tui_chooser_room_and_pin_forms() {
         let chooser = parse_command(Vec::new()).unwrap();
         assert_eq!(

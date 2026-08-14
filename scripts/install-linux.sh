@@ -199,7 +199,7 @@ read_config_api_base_url() {
 
 write_config() {
   local configured_base_url effective_base_url="$base_url"
-  if [[ -z "${QUICKDROP_API_BASE_URL:-}" ]]; then
+  if [[ -z "${QUICKDROP_API_BASE_URL:-}" && -z "${QUICKDROP_PUBLIC_BASE_URL:-}" ]]; then
     configured_base_url="$(read_config_api_base_url)"
     [[ -z "$configured_base_url" ]] || effective_base_url="${configured_base_url%/}"
   fi

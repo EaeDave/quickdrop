@@ -9,5 +9,4 @@ fn main() {
         };
         println!("cargo:rustc-env=QUICKDROP_PUBLIC_BASE_URL={normalized}");
     }
-    tauri_build::build()
 }

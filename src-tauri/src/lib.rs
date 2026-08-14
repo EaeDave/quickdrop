@@ -1283,6 +1283,13 @@ mod tests {
     }
 
     #[test]
+    fn build_default_api_url_is_normalized() {
+        if let Some(url) = BUILD_API_BASE_URL {
+            assert_eq!(url, url.trim().trim_end_matches('/'));
+        }
+    }
+
+    #[test]
     fn desktop_config_trims_api_url_env_override() {
         let _lock = ENV_LOCK.lock().unwrap();
         let _guard = set_env_var_for_test("QUICKDROP_API_BASE_URL", "https://example.com///");

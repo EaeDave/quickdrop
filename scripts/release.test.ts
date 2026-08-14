@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { assertReleasePlatform, nextVersion, parseVersion, replacePackageVersion } from "./release";
+import {
+  assertReleasePlatform,
+  assertReleaseRepository,
+  nextVersion,
+  parseVersion,
+  replacePackageVersion,
+} from "./release";
 
 describe("release version selection", () => {
   test("increments semantic versions", () => {
@@ -34,5 +40,12 @@ describe("release host validation", () => {
     expect(() => assertReleasePlatform("linux", "x64")).not.toThrow();
     expect(() => assertReleasePlatform("linux", "arm64")).toThrow("x86_64 Linux");
     expect(() => assertReleasePlatform("win32", "x64")).toThrow("x86_64 Linux");
+  });
+
+  test("rejects a release repository different from the checkout", () => {
+    expect(() => assertReleaseRepository("owner/quickdrop", "owner/quickdrop")).not.toThrow();
+    expect(() => assertReleaseRepository("owner/fork", "owner/quickdrop")).toThrow(
+      "does not match the current checkout",
+    );
   });
 });

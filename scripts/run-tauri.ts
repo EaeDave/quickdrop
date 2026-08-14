@@ -11,9 +11,10 @@ if (isDevelopment && !process.env.QUICKDROP_PUBLIC_BASE_URL) {
 
 const baseUrl = publicBaseUrl(process.env, { allowLocal: isDevelopment });
 const updaterPublicKey = process.env.TAURI_UPDATER_PUBLIC_KEY?.trim();
-if (!updaterPublicKey) {
-  throw new Error("TAURI_UPDATER_PUBLIC_KEY is required to build or run the Tauri application");
+if (!updaterPublicKey && !isDevelopment) {
+  throw new Error("TAURI_UPDATER_PUBLIC_KEY is required to build the Tauri application");
 }
+process.env.QUICKDROP_PUBLIC_BASE_URL = baseUrl;
 
 let inheritedConfig: Record<string, unknown> = {};
 if (process.env.TAURI_CONFIG?.trim()) {
@@ -32,7 +33,7 @@ process.env.TAURI_CONFIG = JSON.stringify({
     ...inheritedPlugins,
     updater: {
       ...inheritedUpdater,
-      pubkey: updaterPublicKey,
+      ...(updaterPublicKey ? { pubkey: updaterPublicKey } : {}),
       endpoints: [`${baseUrl}/desktop/update/latest.json`],
     },
   },
