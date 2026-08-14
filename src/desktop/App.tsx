@@ -2,12 +2,14 @@ import { type ChangeEvent, type DragEvent, type MouseEvent, type ReactNode, useC
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, setupDesktopUpdater, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
+import QuickPanel from "./QuickPanel";
 
 const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
 const MACOS_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash";
 const LINUX_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash";
 
 type InstallPlatform = "windows" | "macos" | "linux";
+type PanelMode = "files" | "text";
 
 const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; command: string; scriptHref: string }> = {
   windows: { label: "Windows", prompt: "PS", command: WINDOWS_INSTALL_COMMAND, scriptHref: "/install.ps1" },
@@ -22,6 +24,7 @@ type UploadState =
   | { status: "error"; message: string };
 
 export function App() {
+  const [panelMode, setPanelMode] = useState<PanelMode>("files");
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
@@ -29,6 +32,7 @@ export function App() {
   const [copiedInstallCommand, setCopiedInstallCommand] = useState(false);
   const [installCopyError, setInstallCopyError] = useState<string | null>(null);
   const stateRef = useRef(state);
+  const panelModeRef = useRef(panelMode);
   const copiedInstallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback(() => {
@@ -74,6 +78,10 @@ export function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    panelModeRef.current = panelMode;
+  }, [panelMode]);
 
   useEffect(() => setupDesktopUpdater(), []);
 
@@ -195,7 +203,7 @@ export function App() {
   }, []);
 
   const handleNativeClipboardPaste = useCallback(async () => {
-    if (!isTauri || stateRef.current.status === "uploading") {
+    if (!isTauri || panelModeRef.current !== "files" || stateRef.current.status === "uploading") {
       return;
     }
 
@@ -309,7 +317,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTauri && useNativeClipboardPaste && isPasteShortcut(event)) {
+      if (isTauri && panelModeRef.current === "files" && useNativeClipboardPaste && isPasteShortcut(event)) {
         event.preventDefault();
         void handleNativeClipboardPaste();
         return;
@@ -325,6 +333,9 @@ export function App() {
   }, [closeWindow, handleNativeClipboardPaste, useNativeClipboardPaste]);
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
+      if (panelModeRef.current !== "files") {
+        return;
+      }
       setState((current) => {
         if (current.status === "uploading") {
           return current;
@@ -405,12 +416,17 @@ export function App() {
       >
         <header className="quickdrop-header" onMouseDown={startWindowDrag}>
           <h1 className="quickdrop-title">QuickDrop</h1>
+          <nav className="quickdrop-mode-tabs" aria-label="Modo do QuickPanel">
+            <button type="button" className={panelMode === "files" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("files")}>Arquivo</button>
+            <button type="button" className={panelMode === "text" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("text")}>Texto</button>
+          </nav>
           <button className="quickdrop-close" type="button" aria-label="Fechar QuickDrop" onClick={closeWindow}>
             ×
           </button>
         </header>
         {fileInput}
-        {uploadState}
+        <div className="quickdrop-mode-content" hidden={panelMode !== "files"}>{uploadState}</div>
+        <div className="quickdrop-mode-content" hidden={panelMode !== "text"}><QuickPanel /></div>
       </section>
     </main>
   );

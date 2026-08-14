@@ -60,6 +60,7 @@ export function buildApp() {
 
   app.register(cors, {
     origin: true,
+    credentials: true,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["content-type", "x-quickdrop-file-size"],
   });

@@ -64,6 +64,7 @@ describe("buildApp", () => {
 
       expect(response.statusCode).toBe(204);
       expect(response.headers["access-control-allow-origin"]).toBe("tauri://localhost");
+      expect(response.headers["access-control-allow-credentials"]).toBe("true");
       expect(String(response.headers["access-control-allow-headers"]).toLowerCase()).toContain(
         "x-quickdrop-file-size",
       );

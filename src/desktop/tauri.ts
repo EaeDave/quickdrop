@@ -216,6 +216,34 @@ function localPathOf(input: string | LocalUploadInput): string {
   return typeof input === "string" ? input : input.path;
 }
 
+export async function getApiBaseUrl(): Promise<string> {
+  if (!isTauri) {
+    return window.location.origin;
+  }
+  return invoke<string>("get_api_base_url");
+}
+
+export async function readClipboardText(): Promise<string> {
+  if (!isTauri) {
+    return navigator.clipboard?.readText?.() ?? "";
+  }
+  return invoke<string>("read_clipboard_text");
+}
+
+export async function notifyTextDrop(code: string): Promise<void> {
+  if (isTauri) {
+    await invoke("notify_text_drop", { code });
+  }
+}
+
+export async function openTextClipboard(code: string): Promise<void> {
+  if (isTauri) {
+    await invoke("open_text_clipboard", { code });
+    return;
+  }
+  window.open(`/t/${encodeURIComponent(code)}`, "_blank", "noopener,noreferrer");
+}
+
 export async function readClipboardUploadInputs(): Promise<LocalUploadInput[]> {
   if (!isTauri) {
     return [];
@@ -251,16 +279,20 @@ export function dismissWindow(): Promise<void> {
   return Promise.resolve();
 }
 
-export function copyLink(link: string): Promise<void> {
+export function copyText(text: string): Promise<void> {
   if (isTauri) {
-    return invoke("copy_link", { link });
+    return invoke("copy_link", { link: text });
   }
 
   if (typeof navigator !== "undefined" && navigator.clipboard) {
-    return navigator.clipboard.writeText(link);
+    return navigator.clipboard.writeText(text);
   }
 
   return Promise.reject(new Error("Clipboard API não disponível"));
+}
+
+export function copyLink(link: string): Promise<void> {
+  return copyText(link);
 }
 
 export function notifySuccess(fileCount: number): Promise<void> {
