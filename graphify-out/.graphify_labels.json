@@ -6,7 +6,7 @@
   "4": "TextSession.tsx",
   "5": "Contributing",
   "6": "storage-quota.ts",
-  "7": "Build Configuration",
+  "7": "compilerOptions",
   "8": "tauri.ts",
   "9": "text-funnel-metrics.ts",
   "10": "scripts",
@@ -62,7 +62,7 @@
   "60": "TerminalGuard",
   "61": "text-client.ts",
   "62": "C",
-  "63": "text-session-service.test.ts",
+  "63": "InMemoryTextDropsRepository",
   "64": "text-drops-repository.ts",
   "65": "Client",
   "66": "QuickPanel.tsx",
@@ -80,5 +80,14 @@
   "78": "Result",
   "79": "Self",
   "80": "String",
-  "81": "Vec"
+  "81": "Vec",
+  "82": "text-session-service.test.ts",
+  "83": "InMemoryTextRoomsRepository",
+  "84": "install-linux.test.ts",
+  "85": "bun",
+  "86": "DelayedExpiryTextRoomsRepository",
+  "87": "config.ts",
+  "88": "install-bar-integration.test.ts",
+  "89": "lib",
+  "90": "cli/build.rs"
 }
