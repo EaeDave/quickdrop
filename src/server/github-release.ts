@@ -11,6 +11,7 @@ export const MISSING_GITHUB_TOKEN_MESSAGE =
 
 type GitHubReleaseAsset = {
   name: string;
+  size?: number;
   url: string;
 };
 
@@ -49,6 +50,12 @@ export async function handleReleaseAssetDownload(
   if (!asset) {
     return reply.code(404).type("text/plain; charset=utf-8").send(options.assetNotFoundMessage);
   }
+  if (asset.size === 0) {
+    return reply
+      .code(502)
+      .type("text/plain; charset=utf-8")
+      .send("GitHub returned an empty QuickDrop release asset.");
+  }
 
   const download = await fetchReleaseAsset(asset.url, options.token);
   if (!download.ok) {
@@ -58,7 +65,7 @@ export async function handleReleaseAssetDownload(
       .send(`Could not download QuickDrop release asset from GitHub (${download.status}).`);
   }
 
-  if (!download.value.body) {
+  if (!download.value.body || download.value.headers.get("content-length") === "0") {
     return reply
       .code(502)
       .type("text/plain; charset=utf-8")
@@ -82,6 +89,7 @@ async function fetchRelease(
   const releasePath = releaseTag ? `releases/tags/${encodeURIComponent(releaseTag)}` : "releases/latest";
   const response = await fetch(`${GITHUB_API_BASE_URL}/repos/${repository}/${releasePath}`, {
     headers: githubHeaders(token, "application/vnd.github+json"),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
@@ -97,6 +105,7 @@ async function fetchReleaseAsset(
 ): Promise<{ ok: true; value: Response } | { ok: false; status: number }> {
   const response = await fetch(assetApiUrl, {
     headers: githubHeaders(token, "application/octet-stream"),
+    signal: AbortSignal.timeout(5 * 60_000),
   });
 
   if (!response.ok) {
