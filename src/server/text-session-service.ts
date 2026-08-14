@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RawData, WebSocket } from "ws";
 import { generateSessionCode, isValidCustomSessionCode, normalizeSessionCode } from "./ids";
+import { isTauriWebviewOrigin } from "./native-origins";
 import {
   clearRoomAccessCookie,
   createRoomAccessCookie,
@@ -850,8 +851,11 @@ function grantProtectedRoomAccess(
       token: grant.token,
     }),
   );
+  const returnNativeToken =
+    request.headers["x-quickdrop-native"] === "1" &&
+    isTauriWebviewOrigin(request.headers.origin);
   return {
-    ...(request.headers["x-quickdrop-native"] === "1" ? { accessToken: grant.token } : {}),
+    ...(returnNativeToken ? { accessToken: grant.token } : {}),
     accessExpiresAt: grant.expiresAt.toISOString(),
   };
 }

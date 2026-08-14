@@ -32,6 +32,7 @@ export default function QuickPanel() {
   const [showPin, setShowPin] = useState(false);
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [status, setStatus] = useState<PanelStatus>("idle");
+  const [snapshotReady, setSnapshotReady] = useState(false);
   const [composer, setComposer] = useState("");
   const [drops, setDrops] = useState<TextDrop[]>([]);
   const [recentCodes, setRecentCodes] = useState(readRecentCodes);
@@ -73,6 +74,7 @@ export default function QuickPanel() {
 
     const controller = connectRoom(activeCode, {
       onSnapshot(payload) {
+        setSnapshotReady(true);
         clientIdRef.current = payload.clientId;
         setDrops(sortDrops(payload.drops));
         setLifecycle(roomLifecycle(payload));
@@ -131,6 +133,7 @@ export default function QuickPanel() {
           controllerRef.current?.close();
           setActiveCode(null);
           setStatus("idle");
+          setSnapshotReady(false);
           setDrops([]);
           setLifecycle(null);
           setShowPin(true);
@@ -139,6 +142,7 @@ export default function QuickPanel() {
       },
       onStatus(nextStatus) {
         setStatus(nextStatus);
+        if (nextStatus !== "open") setSnapshotReady(false);
       },
     }, accessTokenRef.current);
     controllerRef.current = controller;
@@ -157,14 +161,16 @@ export default function QuickPanel() {
 
   const connect = useCallback(async (requestedCode = joinCode) => {
     const code = normalizeCode(requestedCode);
-    if (!apiReady || !code || (showPin && joinPin.length < 4)) return;
+    const normalizedPin = joinPin.trim();
+    if (!apiReady || !code || (showPin && !isPinReady(joinPin))) return;
 
     const requestId = ++connectRequestRef.current;
     controllerRef.current?.close();
+    setSnapshotReady(false);
     setStatus("opening");
     setMessage(null);
     try {
-      const opened = await openRoom(code, showPin ? joinPin : undefined);
+      const opened = await openRoom(code, showPin ? normalizedPin : undefined);
       if (requestId !== connectRequestRef.current) return;
       accessTokenRef.current = opened.accessToken;
       setLifecycle(roomLifecycle(opened));
@@ -198,6 +204,7 @@ export default function QuickPanel() {
     controllerRef.current = null;
     setActiveCode(null);
     setStatus("idle");
+    setSnapshotReady(false);
     setDrops([]);
     accessTokenRef.current = null;
     setLifecycle(null);
@@ -205,11 +212,11 @@ export default function QuickPanel() {
   }, []);
 
   const send = useCallback((content = composer, clearComposer = true) => {
-    if (status !== "open" || !content.trim()) return;
+    if (!isRoomWritable(status, snapshotReady) || !content.trim()) return;
     clearComposerAfterSendRef.current = clearComposer;
     controllerRef.current?.addDrop(content);
     setMessage("Sending…");
-  }, [composer, status]);
+  }, [composer, snapshotReady, status]);
 
   const pasteAndSend = useCallback(async () => {
     try {
@@ -230,10 +237,10 @@ export default function QuickPanel() {
   }, []);
 
   const deleteDrop = useCallback((drop: TextDrop) => {
-    if (status !== "open") return;
+    if (!isRoomWritable(status, snapshotReady)) return;
     controllerRef.current?.deleteDrop(drop.id);
     setMessage("Deleting…");
-  }, [status]);
+  }, [snapshotReady, status]);
 
   const openFullClipboard = useCallback(async (code: string) => {
     try {
@@ -259,7 +266,7 @@ export default function QuickPanel() {
               if (event.key === "Enter") void connect();
             }}
           />
-          <button className="quickpanel-primary" type="button" disabled={!apiReady || status === "opening" || !joinCode || (showPin && joinPin.length < 4)} onClick={() => void connect()}>
+          <button className="quickpanel-primary" type="button" disabled={!apiReady || status === "opening" || !joinCode || (showPin && !isPinReady(joinPin))} onClick={() => void connect()}>
             {status === "opening" ? "Opening" : "Connect"}
           </button>
           <button className={`quickpanel-open${showPin ? " quickpanel-open--active" : ""}`} type="button" title="Use PIN" aria-label="Use PIN" aria-pressed={showPin} onClick={() => {
@@ -302,9 +309,9 @@ export default function QuickPanel() {
     );
   }
 
-  const connected = status === "open";
+  const connected = isRoomWritable(status, snapshotReady);
   return (
-    <section className="quickpanel-text" aria-label={`Canal ${activeCode}`}>
+    <section className="quickpanel-text" aria-label={`Room ${activeCode}`}>
       <div className="quickpanel-channel-row">
         <div>
           <strong>{activeCode}</strong>
@@ -365,6 +372,14 @@ export function shouldNotifyRemoteDrop(
   muted: boolean,
 ): boolean {
   return clientId !== null && senderId !== clientId && !muted;
+}
+
+export function isPinReady(pin: string): boolean {
+  return pin.trim().length >= 4;
+}
+
+export function isRoomWritable(status: PanelStatus, snapshotReady: boolean): boolean {
+  return status === "open" && snapshotReady;
 }
 
 function normalizeCode(value: string): string {

@@ -891,7 +891,7 @@ describe("text session routes", () => {
       const created = await server.app.inject({
         method: "POST",
         url: "/api/text/SECRET/open",
-        headers: { "x-quickdrop-native": "1" },
+        headers: { "x-quickdrop-native": "1", origin: "tauri://localhost" },
         payload: { pin: "1234" },
       });
       expect(created.statusCode).toBe(200);
@@ -914,7 +914,7 @@ describe("text session routes", () => {
       const opened = await server.app.inject({
         method: "POST",
         url: "/api/text/SECRET/open",
-        headers: { "x-quickdrop-native": "1" },
+        headers: { "x-quickdrop-native": "1", origin: "tauri://localhost" },
         payload: { pin: "1234" },
       });
       expect(opened.statusCode).toBe(200);
@@ -1137,6 +1137,18 @@ describe("text session routes", () => {
       const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
       expect(created.protected).toBe(true);
       expect(JSON.parse(createResponse.body).accessToken).toBeUndefined();
+
+      const spoofedNativeAccess = await server.app.inject({
+        method: "POST",
+        url: `/api/text/${created.code}/access`,
+        headers: {
+          "x-quickdrop-native": "1",
+          origin: "https://quickdrop.eaedave.xyz",
+          cookie: String(createResponse.headers["set-cookie"]),
+        },
+      });
+      expect(spoofedNativeAccess.statusCode).toBe(200);
+      expect(spoofedNativeAccess.json().accessToken).toBeUndefined();
       const creatorCookie = String(createResponse.headers["set-cookie"]);
 
       const anonymousRead = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });

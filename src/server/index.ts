@@ -34,6 +34,7 @@ import {
   type MacOsArchitecture,
 } from "./macos-installer-service";
 import { TextSessionHub } from "./text-session-hub";
+import { TAURI_WEBVIEW_ORIGINS } from "./native-origins";
 import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
 import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
 import {
@@ -59,12 +60,7 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: [
-      "tauri://localhost",
-      "http://tauri.localhost",
-      "http://127.0.0.1:1420",
-      "http://localhost:1420",
-    ],
+    origin: [...TAURI_WEBVIEW_ORIGINS],
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["content-type", "x-quickdrop-file-size", "x-quickdrop-native"],
   });
@@ -237,7 +233,8 @@ export function buildApp() {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {
       return reply.callNotFound();
     }
-    return reply.redirect(`/${encodeURIComponent(request.params.code.toUpperCase())}`, 308);
+    const query = request.raw.url?.match(/\?[^#]*/)?.[0] ?? "";
+    return reply.redirect(`/${encodeURIComponent(request.params.code.toUpperCase())}${query}`, 308);
   });
   app.get<{ Params: { code: string } }>("/:code", async (request, reply) => {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {

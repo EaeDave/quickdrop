@@ -121,7 +121,7 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(503);
       expect(JSON.parse(response.body)).toEqual({
         error: "uploads_disabled",
-        message: "Uploads temporariamente desativados.",
+        message: "Uploads are temporarily disabled.",
       });
     } finally {
       await app.close();
@@ -176,11 +176,11 @@ describe("buildApp", () => {
   test("redirects the legacy text route to the canonical room URL", async () => {
     const { app } = buildApp();
     try {
-      const valid = await app.inject({ method: "GET", url: "/t/DEV-1" });
+      const valid = await app.inject({ method: "GET", url: "/t/DEV-1?source=panel" });
       const invalid = await app.inject({ method: "GET", url: "/t/not%20valid" });
 
       expect(valid.statusCode).toBe(308);
-      expect(valid.headers.location).toBe("/DEV-1");
+      expect(valid.headers.location).toBe("/DEV-1?source=panel");
       expect(valid.headers["cache-control"]).toBe("no-store, max-age=0");
       expect(valid.headers["referrer-policy"]).toBe("no-referrer");
       expect(invalid.statusCode).toBe(404);

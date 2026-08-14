@@ -89,12 +89,12 @@ export async function handleUpload(
   deps: UploadDeps,
 ): Promise<UploadResponse | void> {
   if (!request.isMultipart()) {
-    sendUploadError(reply, 415, "invalid_multipart", "Envie multipart/form-data com o campo file.");
+    sendUploadError(reply, 415, "invalid_multipart", "Send multipart/form-data with the file field.");
     return;
   }
 
   if (!deps.config.uploadsEnabled) {
-    sendUploadError(reply, 503, "uploads_disabled", "Uploads temporariamente desativados.");
+    sendUploadError(reply, 503, "uploads_disabled", "Uploads are temporarily disabled.");
     return;
   }
 
@@ -153,7 +153,7 @@ export async function handleUpload(
     }
 
     if (hasErrorCode(error, "QUICKDROP_UPLOADS_DISABLED")) {
-      sendUploadError(reply, 503, "uploads_disabled", "Uploads temporariamente desativados.");
+      sendUploadError(reply, 503, "uploads_disabled", "Uploads are temporarily disabled.");
       return;
     }
 
@@ -375,4 +375,3 @@ function hasErrorCode(error: unknown, expectedCode: string): boolean {
 
   return typeof error.code === "string" && error.code === expectedCode;
 }
-
