@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::process;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
@@ -1097,16 +1097,18 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::io::Read as _;
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    #[cfg(target_os = "linux")]
     struct PathGuard {
         original: Option<OsString>,
     }
 
+    #[cfg(target_os = "linux")]
     impl Drop for PathGuard {
         fn drop(&mut self) {
             match &self.original {
@@ -1116,6 +1118,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn prepend_path_for_test(dir: &Path) -> PathGuard {
         let original = env::var_os("PATH");
         let mut paths = vec![dir.to_path_buf()];
@@ -1158,7 +1161,7 @@ mod tests {
         EnvVarGuard { key, original }
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn write_executable(path: &Path, contents: &str) {
         fs::write(path, contents).unwrap();
         let mut permissions = fs::metadata(path).unwrap().permissions();
@@ -1260,7 +1263,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn wayland_clipboard_payload_reads_image_bytes() {
         let _lock = ENV_LOCK.lock().unwrap();

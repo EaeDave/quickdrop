@@ -20,7 +20,28 @@ info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+release_app_lock() {
+  if [[ "${app_lock_acquired:-0}" == "1" ]]; then
+    rmdir "$app_lock_path" >/dev/null 2>&1 || true
+    app_lock_acquired=0
+  fi
+}
+
+acquire_app_lock() {
+  local attempt
+  app_lock_path="$applications_dir/.quickdrop-install.lock"
+  for attempt in {1..300}; do
+    if mkdir "$app_lock_path" 2>/dev/null; then
+      app_lock_acquired=1
+      return
+    fi
+    sleep 0.1
+  done
+  fail "Another QuickDrop installation is still in progress."
+}
+
 cleanup() {
+  release_app_lock
   if [[ -n "${mount_dir:-}" ]] && mount | grep -Fq "on $mount_dir "; then
     hdiutil detach "$mount_dir" -quiet >/dev/null 2>&1 || true
   fi
@@ -108,6 +129,7 @@ if [[ "${QUICKDROP_SKIP_DESKTOP:-0}" != "1" ]]; then
   ditto "$mount_dir/QuickDrop.app" "$staged_app_path" ||
     fail "Failed to stage the QuickDrop menu bar app. The installed app was not changed."
 
+  acquire_app_lock
   if [[ -e "$app_path" ]]; then
     mv "$app_path" "$backup_app_path" ||
       fail "Failed to prepare the installed QuickDrop app for replacement."
@@ -120,6 +142,7 @@ if [[ "${QUICKDROP_SKIP_DESKTOP:-0}" != "1" ]]; then
     fail "Failed to install QuickDrop. The previous app was restored."
   fi
   rm -rf "$backup_app_path"
+  release_app_lock
 
   hdiutil detach "$mount_dir" -quiet
   mount_dir=""

@@ -119,4 +119,66 @@ exec /bin/mv "$@"
     expect(await child.exited).toBe(1);
     expect(await readFile(installedExecutable, "utf8")).toBe("previous app");
   });
+
+  test("serializes concurrent desktop replacements", async () => {
+    const root = await mkdtemp(join(tmpdir(), "quickdrop-macos-concurrent-test-"));
+    temporaryDirectories.push(root);
+    const mockBin = join(root, "mock-bin");
+    const home = join(root, "home");
+    const applications = join(root, "Applications");
+    const appPath = join(applications, "QuickDrop.app");
+    const installedExecutable = join(appPath, "Contents", "MacOS", "quickdrop");
+    const sourceQd = join(root, "qd");
+    const sourceDmg = join(root, "QuickDrop.dmg");
+    await mkdir(mockBin, { recursive: true });
+    await mkdir(home, { recursive: true });
+    await mkdir(join(appPath, "Contents", "MacOS"), { recursive: true });
+    await writeFile(installedExecutable, "previous");
+    await executable(sourceQd, "#!/bin/sh\nexit 0\n");
+    await writeFile(sourceDmg, "local test dmg");
+
+    await executable(
+      join(mockBin, "uname"),
+      '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) exit 1 ;; esac\n',
+    );
+    await executable(
+      join(mockBin, "hdiutil"),
+      '#!/bin/sh\nif [ "$1" = attach ]; then while [ "$#" -gt 0 ]; do if [ "$1" = -mountpoint ]; then shift; mount_dir="$1"; fi; shift; done; mkdir -p "$mount_dir/QuickDrop.app/Contents/MacOS"; printf %s "$MOCK_APP_VERSION" > "$mount_dir/QuickDrop.app/Contents/MacOS/quickdrop"; fi\n',
+    );
+    await executable(join(mockBin, "ditto"), '#!/bin/sh\ncp -R "$1" "$2"\n');
+    await executable(
+      join(mockBin, "mv"),
+      `#!/bin/sh
+/bin/mv "$@" || exit $?
+case "$1" in */QuickDrop.app) sleep 0.2 ;; esac
+`,
+    );
+
+    const spawnInstaller = (version: string) =>
+      Bun.spawn(["bash", "scripts/install-macos.sh"], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: `${mockBin}:${process.env.PATH}`,
+          HOME: home,
+          MOCK_APP_VERSION: version,
+          QUICKDROP_QD_BINARY: sourceQd,
+          QUICKDROP_MACOS_DMG: sourceDmg,
+          QUICKDROP_BIN_DIR: join(root, "bin"),
+          QUICKDROP_APPLICATIONS_DIR: applications,
+          QUICKDROP_LAUNCH_AFTER_INSTALL: "0",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+    const first = spawnInstaller("first");
+    const second = spawnInstaller("second");
+    expect(await Promise.all([first.exited, second.exited])).toEqual([0, 0]);
+    expect(["first", "second"]).toContain(await readFile(installedExecutable, "utf8"));
+    expect(await Bun.file(join(appPath, "QuickDrop.app", "Contents", "MacOS", "quickdrop")).exists()).toBe(
+      false,
+    );
+    expect(await Bun.file(join(applications, ".quickdrop-install.lock")).exists()).toBe(false);
+  });
 });
