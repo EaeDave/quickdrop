@@ -37,6 +37,7 @@ export default function QuickPanel() {
   const activeCodeRef = useRef<string | null>(null);
   const mutedRef = useRef(notificationsMuted);
   const clearComposerAfterSendRef = useRef(true);
+  const connectRequestRef = useRef(0);
 
   useEffect(() => {
     let disposed = false;
@@ -128,11 +129,13 @@ export default function QuickPanel() {
     const code = normalizeCode(requestedCode);
     if (!apiReady || !code) return;
 
+    const requestId = ++connectRequestRef.current;
     controllerRef.current?.close();
     setStatus("opening");
     setMessage(null);
     try {
       const opened = await openRoom(code);
+      if (requestId !== connectRequestRef.current) return;
       setActiveCode(opened.code);
       setJoinCode(opened.code);
       const nextRecent = [opened.code, ...recentCodes.filter((recent) => recent !== opened.code)]
@@ -140,6 +143,7 @@ export default function QuickPanel() {
       setRecentCodes(nextRecent);
       writeLocalSetting(RECENT_CODES_KEY, JSON.stringify(nextRecent));
     } catch (error) {
+      if (requestId !== connectRequestRef.current) return;
       setStatus("idle");
       setMessage(
         error instanceof RoomAccessError && error.code === "pin_required"
@@ -150,6 +154,7 @@ export default function QuickPanel() {
   }, [apiReady, joinCode, recentCodes]);
 
   const disconnect = useCallback(() => {
+    connectRequestRef.current += 1;
     controllerRef.current?.close();
     controllerRef.current = null;
     setActiveCode(null);

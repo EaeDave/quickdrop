@@ -259,6 +259,10 @@ export function App() {
     let disposed = false;
 
     getCurrentWebview().onDragDropEvent((event) => {
+      if (panelModeRef.current !== "files") {
+        return;
+      }
+
       if (event.payload.type === "over") {
         setDropActive(true);
         return;

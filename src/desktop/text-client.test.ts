@@ -34,7 +34,7 @@ describe("room expiry labels", () => {
 });
 
 describe("desktop text API base URL", () => {
-  test("opens rooms through the configured production backend with credentials", async () => {
+  test("opens public rooms through the configured production backend without cookies", async () => {
     let requestedUrl = "";
     let requestedInit: RequestInit | undefined;
     globalThis.fetch = (async (input, init) => {
@@ -56,6 +56,6 @@ describe("desktop text API base URL", () => {
     await openRoom("dev");
 
     expect(requestedUrl).toBe("https://quickdrop.example/api/text/DEV/open");
-    expect(requestedInit?.credentials).toBe("include");
+    expect(requestedInit?.credentials).toBe("omit");
   });
 });

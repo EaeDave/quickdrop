@@ -59,8 +59,12 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: true,
-    credentials: true,
+    origin: [
+      "tauri://localhost",
+      "http://tauri.localhost",
+      "http://127.0.0.1:1420",
+      "http://localhost:1420",
+    ],
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["content-type", "x-quickdrop-file-size"],
   });
@@ -228,6 +232,12 @@ export function buildApp() {
 
   app.get<{ Params: { shortId: string } }>("/f/:shortId", async (request, reply) => {
     await handleDownload(request.params.shortId, reply, { config, r2Client });
+  });
+  app.get<{ Params: { code: string } }>("/t/:code", async (request, reply) => {
+    if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {
+      return reply.callNotFound();
+    }
+    return reply.sendFile("index.html");
   });
   app.get<{ Params: { code: string } }>("/:code", async (request, reply) => {
     if (!/^[A-Za-z0-9_-]{1,16}$/.test(request.params.code)) {

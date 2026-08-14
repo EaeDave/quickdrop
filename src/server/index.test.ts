@@ -64,10 +64,29 @@ describe("buildApp", () => {
 
       expect(response.statusCode).toBe(204);
       expect(response.headers["access-control-allow-origin"]).toBe("tauri://localhost");
-      expect(response.headers["access-control-allow-credentials"]).toBe("true");
+      expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
       expect(String(response.headers["access-control-allow-headers"]).toLowerCase()).toContain(
         "x-quickdrop-file-size",
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("rejects credentialed CORS from untrusted origins", async () => {
+    const { app } = buildApp();
+    try {
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/api/text/DEV/open",
+        headers: {
+          origin: "https://untrusted.example",
+          "access-control-request-method": "POST",
+        },
+      });
+
+      expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+      expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
     } finally {
       await app.close();
     }
@@ -145,6 +164,20 @@ describe("buildApp", () => {
       });
       expect(encodedResponse.statusCode).toBe(200);
       expect(encodedResponse.headers["cache-control"]).toBe("no-store, max-age=0");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("serves and validates the human-readable text deep link", async () => {
+    const { app } = buildApp();
+    try {
+      const valid = await app.inject({ method: "GET", url: "/t/DEV-1" });
+      const invalid = await app.inject({ method: "GET", url: "/t/not%20valid" });
+
+      expect(valid.statusCode).toBe(200);
+      expect(valid.body).toContain('<div id="root"></div>');
+      expect(invalid.statusCode).toBe(404);
     } finally {
       await app.close();
     }

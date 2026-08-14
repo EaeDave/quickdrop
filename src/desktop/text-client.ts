@@ -115,6 +115,12 @@ function textApiUrl(path: string): string {
   return textClientBaseUrl ? `${textClientBaseUrl}${path}` : path;
 }
 
+function textRequestCredentials(): RequestCredentials {
+  // The native QuickPanel supports public channels only. PIN cookies stay in the
+  // same-origin browser experience instead of crossing into the desktop WebView.
+  return textClientBaseUrl ? "omit" : "same-origin";
+}
+
 export class RoomAccessError extends Error {
   code: RoomErrorCode;
   status: number;
@@ -131,7 +137,7 @@ export async function recordTextMetric(metric: ClientTextMetric): Promise<void> 
   try {
     await fetch(textApiUrl("/api/text/metrics"), {
       method: "POST",
-      credentials: "include",
+      credentials: textRequestCredentials(),
       keepalive: true,
       headers: { "content-type": "application/json" },
       body: JSON.stringify(metric),
@@ -278,12 +284,12 @@ function parseTextDrop(value: unknown): TextDrop | null {
 
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
   if (!body) {
-    return { method: "POST", credentials: "include" };
+    return { method: "POST", credentials: textRequestCredentials() };
   }
 
   return {
     method: "POST",
-    credentials: "include",
+    credentials: textRequestCredentials(),
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   };
@@ -413,7 +419,9 @@ export async function fetchSnapshot(code: string): Promise<{
   expiresAt: string | null;
   presence: number;
 }> {
-  const response = await fetch(textApiUrl(`/api/text/${encodeURIComponent(code)}`), { credentials: "include" });
+  const response = await fetch(textApiUrl(`/api/text/${encodeURIComponent(code)}`), {
+    credentials: textRequestCredentials(),
+  });
   const payload = await readJsonResponse(response);
 
   if (!response.ok) {
