@@ -73,6 +73,16 @@ describe("loadConfig", () => {
     expect(config.publicBaseUrl).toBe("https://drop.example");
   });
 
+  test("accepts the canonical deployment URL without the legacy variable", () => {
+    const { PUBLIC_BASE_URL: _legacyUrl, ...env } = requiredEnv;
+    const config = loadConfig({
+      ...env,
+      QUICKDROP_PUBLIC_BASE_URL: "https://drop.example/",
+    });
+
+    expect(config.publicBaseUrl).toBe("https://drop.example");
+  });
+
   test("rejects a public base URL with credentials or a deployment path", () => {
     expect(() => loadConfig({
       ...requiredEnv,
