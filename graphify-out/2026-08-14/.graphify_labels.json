@@ -67,7 +67,7 @@
   "65": "github-release.ts",
   "66": "QuickPanel.tsx",
   "67": "text-rooms-repository.ts",
-  "68": "DelayedListTextDropsRepository",
+  "68": "schema.ts",
   "69": "install-macos.test.ts",
   "82": "text-session-service.test.ts",
   "83": "InMemoryTextRoomsRepository",
