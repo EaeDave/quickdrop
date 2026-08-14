@@ -243,10 +243,11 @@ Build for the current platform:
 bun run desktop:build
 ```
 
-Build the Windows client from Windows or a configured Windows CI runner:
+Build platform bundles from their native runners:
 
 ```bash
 bun run desktop:build:windows
+bun run desktop:build:macos   # Apple Silicon and Intel DMGs
 ```
 
 Package the Linux release:
@@ -265,7 +266,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets plus the Apple Silicon and Intel macOS CLI/TUI assets. The command waits for that workflow and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets plus the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets. The command waits for that workflow and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
 
 ### End-user installation
 
@@ -284,13 +285,13 @@ https://quickdrop.eaedave.xyz/windows/qd/latest.exe
 https://quickdrop.eaedave.xyz/windows/qd/latest.sha256
 ```
 
-macOS CLI/TUI installation (automatically detects Apple Silicon or Intel):
+macOS menu bar app and CLI/TUI installation (automatically detects Apple Silicon or Intel):
 
 ```bash
 curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash
 ```
 
-The installer verifies the release checksum and writes `qd` to `~/.local/bin`. Standalone assets are available below `/macos/qd/aarch64/` and `/macos/qd/x86_64/`. The desktop client is not included in the macOS installer.
+The installer verifies both release checksums, installs the menu bar app to `~/Applications/QuickDrop.app`, writes `qd` to `~/.local/bin`, and launches QuickDrop. The app stays in the macOS menu bar without a Dock icon, supports uploads from the file picker, drag-and-drop, and image/text clipboard paste, and offers an “Open at Login” toggle. Standalone CLI assets remain available below `/macos/qd/aarch64/` and `/macos/qd/x86_64/`.
 
 Linux full installation:
 

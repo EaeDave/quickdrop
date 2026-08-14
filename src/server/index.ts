@@ -22,6 +22,8 @@ import {
   handleWindowsQdDownload,
 } from "./windows-installer-service";
 import {
+  handleMacOsDesktopChecksumDownload,
+  handleMacOsDesktopDownload,
   handleMacOsQdChecksumDownload,
   handleMacOsQdDownload,
   type MacOsArchitecture,
@@ -125,6 +127,26 @@ export function buildApp() {
   );
   app.get("/linux/qd/latest", async (_request, reply) =>
     handleLinuxQdDownload(reply, { config }),
+  );
+  app.get<{ Params: { architecture: MacOsArchitecture } }>(
+    "/macos/:architecture/latest.dmg",
+    async (request, reply) => {
+      if (!isMacOsArchitecture(request.params.architecture)) return reply.callNotFound();
+      return handleMacOsDesktopDownload(reply, {
+        config,
+        architecture: request.params.architecture,
+      });
+    },
+  );
+  app.get<{ Params: { architecture: MacOsArchitecture } }>(
+    "/macos/:architecture/latest.dmg.sha256",
+    async (request, reply) => {
+      if (!isMacOsArchitecture(request.params.architecture)) return reply.callNotFound();
+      return handleMacOsDesktopChecksumDownload(reply, {
+        config,
+        architecture: request.params.architecture,
+      });
+    },
   );
   app.get<{ Params: { architecture: MacOsArchitecture } }>(
     "/macos/qd/:architecture/latest",

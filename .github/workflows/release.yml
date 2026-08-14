@@ -86,17 +86,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: cli
+          workspaces: |
+            cli
+            src-tauri
 
       - name: Install JavaScript dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build macOS qd for Apple Silicon and Intel
+      - name: Build macOS desktop and qd for Apple Silicon and Intel
         run: |
+          bun tauri build --ci --target aarch64-apple-darwin --bundles dmg
           cargo build --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
+          bun tauri build --ci --target x86_64-apple-darwin --bundles dmg
           cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
 
-      - name: Package macOS qd assets
+      - name: Package macOS release assets
         run: bun run scripts/package-macos-qd-release.ts
 
       - uses: actions/upload-artifact@v4
@@ -105,6 +109,10 @@ jobs:
           path: |
             cli/target/release/qd_*-macos
             cli/target/release/qd_*-macos.sha256
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg.sha256
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg.sha256
           if-no-files-found: error
 
       - name: Upload macOS assets to release
@@ -118,4 +126,8 @@ jobs:
             "cli/target/release/qd_${version}_aarch64-macos.sha256" \
             "cli/target/release/qd_${version}_x86_64-macos" \
             "cli/target/release/qd_${version}_x86_64-macos.sha256" \
+            "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg" \
+            "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg.sha256" \
+            "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg" \
+            "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg.sha256" \
             --clobber

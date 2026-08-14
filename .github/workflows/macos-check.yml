@@ -1,0 +1,88 @@
+name: Verify macOS desktop
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/macos-check.yml"
+      - "src-tauri/**"
+      - "src/desktop/**"
+      - "cli/**"
+      - "scripts/install-macos.sh"
+      - "scripts/install-macos.test.ts"
+      - "scripts/package-macos-qd-release.ts"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-check:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cli
+            src-tauri
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate frontend and installer
+        run: |
+          bun run typecheck
+          bun run desktop:build:web
+          bun test scripts/install-macos.test.ts
+          bash -n scripts/install-macos.sh
+
+      - name: Test native applications
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path cli/Cargo.toml
+
+  macos-full-build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: macos-check
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cli
+            src-tauri
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Apple Silicon desktop and qd
+        run: |
+          bun tauri build --ci --target aarch64-apple-darwin --bundles dmg
+          cargo build --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
+
+      - name: Build Intel desktop and qd
+        run: |
+          bun tauri build --ci --target x86_64-apple-darwin --bundles dmg
+          cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
+
+      - name: Validate release packaging and checksums
+        run: bun run scripts/package-macos-qd-release.ts

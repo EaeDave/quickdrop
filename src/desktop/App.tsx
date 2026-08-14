@@ -4,12 +4,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 
 const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
+const MACOS_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash";
 const LINUX_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash";
 
-type InstallPlatform = "windows" | "linux";
+type InstallPlatform = "windows" | "macos" | "linux";
 
 const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; command: string; scriptHref: string }> = {
   windows: { label: "Windows", prompt: "PS", command: WINDOWS_INSTALL_COMMAND, scriptHref: "/install.ps1" },
+  macos: { label: "macOS", prompt: "$", command: MACOS_INSTALL_COMMAND, scriptHref: "/install-macos.sh" },
   linux: { label: "Linux", prompt: "$", command: LINUX_INSTALL_COMMAND, scriptHref: "/install.sh" },
 };
 
