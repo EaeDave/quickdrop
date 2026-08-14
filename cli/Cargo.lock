@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "quickdrop-cli"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "chrono",
  "crossterm",
