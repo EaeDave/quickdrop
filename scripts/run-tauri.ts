@@ -2,6 +2,18 @@ import { publicBaseUrl } from "./public-config";
 
 const args = process.argv.slice(2);
 const command = args.find((argument) => !argument.startsWith("-"));
+const acceptsConfig = command === "build" || command === "dev";
+
+if (!acceptsConfig) {
+  const child = Bun.spawn(["bunx", "tauri", ...args], {
+    env: process.env,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  process.exit(await child.exited);
+}
+
 const isDevelopment = command === "dev";
 
 if (isDevelopment && !process.env.QUICKDROP_PUBLIC_BASE_URL) {
