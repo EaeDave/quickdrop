@@ -1,6 +1,6 @@
 [package]
 name = "quickdrop"
-version = "0.1.10"
+version = "0.1.11"
 description = "QuickDrop desktop app"
 edition = "2021"
 
