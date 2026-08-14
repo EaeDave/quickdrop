@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::process;
-#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
