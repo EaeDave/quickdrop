@@ -20,9 +20,9 @@ export const updaterAssets = (version: string) => ({
 
 export function createTauriUpdateManifest(
   version: string,
-  repository: string,
   tag: string,
   signatures: Record<string, string>,
+  updateBaseUrl = "https://quickdrop.eaedave.xyz/desktop/update",
 ): TauriUpdateManifest {
   const platforms: Record<string, TauriUpdatePlatform> = {};
   for (const [platform, asset] of Object.entries(updaterAssets(version))) {
@@ -32,7 +32,7 @@ export function createTauriUpdateManifest(
     }
     platforms[platform] = {
       signature,
-      url: `https://github.com/${repository}/releases/download/${tag}/${asset}`,
+      url: `${updateBaseUrl}/${version}/${platform}`,
     };
   }
 
@@ -50,8 +50,10 @@ async function main(): Promise<void> {
     throw new Error("src-tauri/tauri.conf.json has no version");
   }
 
-  const repository = process.env.GITHUB_REPOSITORY ?? "EaeDave/quickdrop";
   const tag = process.env.RELEASE_TAG ?? `v${version}`;
+  if (tag !== `v${version}`) {
+    throw new Error(`RELEASE_TAG must be v${version}, received ${tag}`);
+  }
   const signatureDirectory = process.env.TAURI_UPDATE_SIGNATURE_DIR ?? "updater-signatures";
   const signatures: Record<string, string> = {};
 
@@ -59,7 +61,7 @@ async function main(): Promise<void> {
     signatures[asset] = await Bun.file(join(signatureDirectory, `${asset}.sig`)).text();
   }
 
-  const manifest = createTauriUpdateManifest(version, repository, tag, signatures);
+  const manifest = createTauriUpdateManifest(version, tag, signatures);
   const outputPath = process.env.TAURI_UPDATE_MANIFEST_PATH ?? "latest.json";
   await Bun.write(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(outputPath);

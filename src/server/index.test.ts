@@ -345,6 +345,68 @@ describe("buildApp", () => {
     }
   });
 
+  test("proxies private desktop updater manifests and platform bundles", async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (
+        url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest" ||
+        url === "https://api.github.com/repos/EaeDave/quickdrop/releases/tags/v0.1.15"
+      ) {
+        return Response.json({
+          assets: [
+            {
+              name: "latest.json",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/90",
+            },
+            {
+              name: "QuickDrop_0.1.15_aarch64.app.tar.gz",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/91",
+            },
+          ],
+        });
+      }
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer github-token",
+      );
+      if (url.endsWith("/90")) {
+        return new Response('{"version":"0.1.15"}', {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/91")) return new Response("signed-macos-updater");
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const { app } = buildApp();
+    try {
+      const manifest = await app.inject({
+        method: "GET",
+        url: "/desktop/update/latest.json",
+      });
+      expect(manifest.statusCode).toBe(200);
+      expect(manifest.headers["content-type"]).toContain("application/json");
+      expect(JSON.parse(manifest.body)).toEqual({ version: "0.1.15" });
+
+      const bundle = await app.inject({
+        method: "GET",
+        url: "/desktop/update/0.1.15/darwin-aarch64",
+      });
+      expect(bundle.statusCode).toBe(200);
+      expect(bundle.headers["content-disposition"]).toContain(
+        "QuickDrop_0.1.15_aarch64.app.tar.gz",
+      );
+      expect(bundle.body).toBe("signed-macos-updater");
+
+      const invalid = await app.inject({
+        method: "GET",
+        url: "/desktop/update/0.1.15/unsupported",
+      });
+      expect(invalid.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("serves the macOS desktop and qd installer script", async () => {
     const { app } = buildApp();
 

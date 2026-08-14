@@ -250,23 +250,39 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
     throw new Error(`Public downloads did not update: ${[...pending.keys()].join(", ")}`);
   }
 
+  const releaseApiRaw = await output([
+    "gh",
+    "api",
+    `repos/EaeDave/quickdrop/releases/tags/${tag}`,
+  ]);
+  const releaseApi = JSON.parse(releaseApiRaw) as {
+    assets: Array<{ name: string; url: string }>;
+  };
+  const releaseApiAssets = new Map(releaseApi.assets.map((asset) => [asset.name, asset]));
   const expectedUpdaterEntries = await Promise.all(
     Object.entries(updaterPayloads).map(async ([platform, asset]) => {
-      const url = `https://github.com/EaeDave/quickdrop/releases/download/${tag}/${asset}`;
-      const signatureResponse = await fetch(`${url}.sig`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!signatureResponse.ok) {
-        throw new Error(`Could not download updater signature for ${asset}: HTTP ${signatureResponse.status}`);
-      }
-      return [platform, { url, signature: (await signatureResponse.text()).trim() }] as const;
+      const signatureAsset = releaseApiAssets.get(`${asset}.sig`);
+      if (!signatureAsset) throw new Error(`Release is missing ${asset}.sig`);
+      const signature = await output([
+        "gh",
+        "api",
+        "-H",
+        "Accept: application/octet-stream",
+        signatureAsset.url,
+      ]);
+      return [
+        platform,
+        {
+          url: `https://quickdrop.eaedave.xyz/desktop/update/${version}/${platform}`,
+          signature: signature.trim(),
+        },
+      ] as const;
     }),
   );
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 18; attempt += 1) {
     try {
       const response = await fetch(
-        "https://github.com/EaeDave/quickdrop/releases/latest/download/latest.json",
+        "https://quickdrop.eaedave.xyz/desktop/update/latest.json",
         { cache: "no-store", signal: AbortSignal.timeout(15_000) },
       );
       const manifest = (await response.json()) as {

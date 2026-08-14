@@ -21,7 +21,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwOUE4M0U3Qzk1RUFBQkQKUldTOXFsN0o1NE9hb01OVXptMDB5MXJzcHJlL1Vva21yY1dTUnJyNVc1OFRNMnl5VkE1MzkrWDIK",
       "endpoints": [
-        "https://github.com/EaeDave/quickdrop/releases/latest/download/latest.json"
+        "https://quickdrop.eaedave.xyz/desktop/update/latest.json"
       ]
     }
   }
