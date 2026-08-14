@@ -98,19 +98,6 @@
       "id": "src_server_upload_service_storagequotagateway"
     },
     {
-      "label": "UploadDeps",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.ts",
-      "source_location": "L29",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "uploaddeps",
-      "id": "src_server_upload_service_uploaddeps"
-    },
-    {
       "label": "UploadedObject",
       "file_type": "code",
       "source_file": "src/server/upload-service.ts",
@@ -158,22 +145,9 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "appconfig",
       "id": "src_server_config_appconfig"
-    },
-    {
-      "label": "DownloadDeps",
-      "file_type": "code",
-      "source_file": "src/server/download-service.ts",
-      "source_location": "L8",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "downloaddeps",
-      "id": "src_server_download_service_downloaddeps"
     },
     {
       "label": "ReleaseAsset",
@@ -592,19 +566,6 @@
       "id": "src_server_text_drops_repository_cleartextdropsresult"
     },
     {
-      "label": "CreateTextDropInput",
-      "file_type": "code",
-      "source_file": "src/server/text-drops-repository.ts",
-      "source_location": "L15",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "text-session-service.test.ts",
-      "norm_label": "createtextdropinput",
-      "id": "src_server_text_drops_repository_createtextdropinput"
-    },
-    {
       "label": "CreateTextDropResult",
       "file_type": "code",
       "source_file": "src/server/text-drops-repository.ts",
@@ -668,6 +629,19 @@
       "community_name": "text-session-service.test.ts",
       "norm_label": "updatetextdropresult",
       "id": "src_server_text_drops_repository_updatetextdropresult"
+    },
+    {
+      "label": "TextRoomsRepository",
+      "file_type": "code",
+      "source_file": "src/server/text-rooms-repository.ts",
+      "source_location": "L35",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "text-session-service.test.ts",
+      "norm_label": "textroomsrepository",
+      "id": "src_server_text_rooms_repository_textroomsrepository"
     },
     {
       "label": "MutableClock",
@@ -746,19 +720,6 @@
       "community_name": "InMemoryTextRoomsRepository",
       "norm_label": "textroomrow",
       "id": "src_server_text_rooms_repository_textroomrow"
-    },
-    {
-      "label": "TextRoomsRepository",
-      "file_type": "code",
-      "source_file": "src/server/text-rooms-repository.ts",
-      "source_location": "L35",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 58,
-      "community_name": "InMemoryTextRoomsRepository",
-      "norm_label": "textroomsrepository",
-      "id": "src_server_text_rooms_repository_textroomsrepository"
     },
     {
       "label": "BarrierTextRoomsRepository",
@@ -982,6 +943,19 @@
       "id": "src_server_text_session_service_test_inmemorytextdropsrepository"
     },
     {
+      "label": "CreateTextDropInput",
+      "file_type": "code",
+      "source_file": "src/server/text-drops-repository.ts",
+      "source_location": "L15",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 64,
+      "community_name": "text-drops-repository.ts",
+      "norm_label": "createtextdropinput",
+      "id": "src_server_text_drops_repository_createtextdropinput"
+    },
+    {
       "label": "TextDropMutationResult",
       "file_type": "code",
       "source_file": "src/server/text-drops-repository.ts",
@@ -1060,6 +1034,19 @@
       "id": "src_server_github_release_releaseassetdownloadoptions"
     },
     {
+      "label": "DownloadDeps",
+      "file_type": "code",
+      "source_file": "src/server/download-service.ts",
+      "source_location": "L8",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "downloaddeps",
+      "id": "src_server_download_service_downloaddeps"
+    },
+    {
       "label": "Sandbox",
       "file_type": "code",
       "source_file": "scripts/install-linux.test.ts",
@@ -1071,6 +1058,19 @@
       "community_name": "Build Configuration",
       "norm_label": "sandbox",
       "id": "scripts_install_linux_test_sandbox"
+    },
+    {
+      "label": "UploadDeps",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.ts",
+      "source_location": "L29",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "uploaddeps",
+      "id": "src_server_upload_service_uploaddeps"
     },
     {
       "label": "InstallPlatform",
@@ -1702,42 +1702,6 @@
       "id": "src_server_upload_service_test_injectupload"
     },
     {
-      "label": "registerUploadWithStorageReservation()",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L63",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "registeruploadwithstoragereservation()",
-      "id": "src_server_upload_service_test_registeruploadwithstoragereservation"
-    },
-    {
-      "label": "releaseUploadStorageReservation()",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L67",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "releaseuploadstoragereservation()",
-      "id": "src_server_upload_service_test_releaseuploadstoragereservation"
-    },
-    {
-      "label": "reserveUploadStorage()",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L59",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "reserveuploadstorage()",
-      "id": "src_server_upload_service_test_reserveuploadstorage"
-    },
-    {
       "label": "uploadMultipartFile()",
       "file_type": "code",
       "source_file": "src/server/upload-service.ts",
@@ -1769,7 +1733,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "cleanupexpireduploads()",
       "id": "src_server_cleanup_cleanupexpireduploads"
     },
@@ -1781,57 +1745,9 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "startcleanupjob()",
       "id": "src_server_cleanup_startcleanupjob"
-    },
-    {
-      "label": "handleDownload()",
-      "file_type": "code",
-      "source_file": "src/server/download-service.ts",
-      "source_location": "L10",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "handledownload()",
-      "id": "src_server_download_service_handledownload"
-    },
-    {
-      "label": "computeExpiresAt()",
-      "file_type": "code",
-      "source_file": "src/server/expiration.ts",
-      "source_location": "L1",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "computeexpiresat()",
-      "id": "src_server_expiration_computeexpiresat"
-    },
-    {
-      "label": "computeSignedUrlExpirySeconds()",
-      "file_type": "code",
-      "source_file": "src/server/expiration.ts",
-      "source_location": "L5",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "computesignedurlexpiryseconds()",
-      "id": "src_server_expiration_computesignedurlexpiryseconds"
-    },
-    {
-      "label": "isExpired()",
-      "file_type": "code",
-      "source_file": "src/server/expiration.ts",
-      "source_location": "L9",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "isexpired()",
-      "id": "src_server_expiration_isexpired"
     },
     {
       "label": "createR2Client()",
@@ -1841,7 +1757,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "creater2client()",
       "id": "src_server_r2_creater2client"
     },
@@ -1853,21 +1769,9 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "deleteobject()",
       "id": "src_server_r2_deleteobject"
-    },
-    {
-      "label": "signedDownloadUrl()",
-      "file_type": "code",
-      "source_file": "src/server/r2.ts",
-      "source_location": "L49",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "signeddownloadurl()",
-      "id": "src_server_r2_signeddownloadurl"
     },
     {
       "label": "releaseExpiredStorageReservations()",
@@ -1877,21 +1781,21 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "releaseexpiredstoragereservations()",
       "id": "src_server_storage_quota_releaseexpiredstoragereservations"
     },
     {
-      "label": "incrementDownloadCount()",
+      "label": "findExpired()",
       "file_type": "code",
       "source_file": "src/server/uploads-repository.ts",
-      "source_location": "L61",
+      "source_location": "L68",
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "incrementdownloadcount()",
-      "id": "src_server_uploads_repository_incrementdownloadcount"
+      "community_name": "cleanup.ts",
+      "norm_label": "findexpired()",
+      "id": "src_server_uploads_repository_findexpired"
     },
     {
       "label": "markDeleted()",
@@ -1901,7 +1805,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "markdeleted()",
       "id": "src_server_uploads_repository_markdeleted"
     },
@@ -2362,16 +2266,16 @@
       "id": "src_server_macos_installer_service_macosqdchecksumassetpattern"
     },
     {
-      "label": "registerTextFunnelMetricsRoute()",
+      "label": "createTextFunnelMetrics()",
       "file_type": "code",
-      "source_file": "src/server/text-funnel-metrics-route.ts",
-      "source_location": "L14",
+      "source_file": "src/server/text-funnel-metrics.ts",
+      "source_location": "L64",
       "_callable": true,
       "_origin": "ast",
       "community": 28,
       "community_name": "index.ts",
-      "norm_label": "registertextfunnelmetricsroute()",
-      "id": "src_server_text_funnel_metrics_route_registertextfunnelmetricsroute"
+      "norm_label": "createtextfunnelmetrics()",
+      "id": "src_server_text_funnel_metrics_createtextfunnelmetrics"
     },
     {
       "label": "rearmTextRoomsAfterRestart()",
@@ -3670,30 +3574,6 @@
       "id": "src_server_storage_quota_storagereservationexpirederror_constructor"
     },
     {
-      "label": "findActiveByShortId()",
-      "file_type": "code",
-      "source_file": "src/server/uploads-repository.ts",
-      "source_location": "L50",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "storage-quota.ts",
-      "norm_label": "findactivebyshortid()",
-      "id": "src_server_uploads_repository_findactivebyshortid"
-    },
-    {
-      "label": "findExpired()",
-      "file_type": "code",
-      "source_file": "src/server/uploads-repository.ts",
-      "source_location": "L68",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "storage-quota.ts",
-      "norm_label": "findexpired()",
-      "id": "src_server_uploads_repository_findexpired"
-    },
-    {
       "label": "insertUpload()",
       "file_type": "code",
       "source_file": "src/server/uploads-repository.ts",
@@ -4282,6 +4162,90 @@
       "id": "src_server_text_rooms_repository_updatetextroomtext"
     },
     {
+      "label": "handleDownload()",
+      "file_type": "code",
+      "source_file": "src/server/download-service.ts",
+      "source_location": "L10",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "handledownload()",
+      "id": "src_server_download_service_handledownload"
+    },
+    {
+      "label": "computeExpiresAt()",
+      "file_type": "code",
+      "source_file": "src/server/expiration.ts",
+      "source_location": "L1",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "computeexpiresat()",
+      "id": "src_server_expiration_computeexpiresat"
+    },
+    {
+      "label": "computeSignedUrlExpirySeconds()",
+      "file_type": "code",
+      "source_file": "src/server/expiration.ts",
+      "source_location": "L5",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "computesignedurlexpiryseconds()",
+      "id": "src_server_expiration_computesignedurlexpiryseconds"
+    },
+    {
+      "label": "isExpired()",
+      "file_type": "code",
+      "source_file": "src/server/expiration.ts",
+      "source_location": "L9",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "isexpired()",
+      "id": "src_server_expiration_isexpired"
+    },
+    {
+      "label": "signedDownloadUrl()",
+      "file_type": "code",
+      "source_file": "src/server/r2.ts",
+      "source_location": "L49",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "signeddownloadurl()",
+      "id": "src_server_r2_signeddownloadurl"
+    },
+    {
+      "label": "findActiveByShortId()",
+      "file_type": "code",
+      "source_file": "src/server/uploads-repository.ts",
+      "source_location": "L50",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "findactivebyshortid()",
+      "id": "src_server_uploads_repository_findactivebyshortid"
+    },
+    {
+      "label": "incrementDownloadCount()",
+      "file_type": "code",
+      "source_file": "src/server/uploads-repository.ts",
+      "source_location": "L61",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 68,
+      "community_name": "download-service.ts",
+      "norm_label": "incrementdownloadcount()",
+      "id": "src_server_uploads_repository_incrementdownloadcount"
+    },
+    {
       "label": "executable()",
       "file_type": "code",
       "source_file": "scripts/install-macos.test.ts",
@@ -4388,6 +4352,42 @@
       "community_name": "Build Configuration",
       "norm_label": "waitfordatabase()",
       "id": "src_server_migrate_waitfordatabase"
+    },
+    {
+      "label": "registerUploadWithStorageReservation()",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L63",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "registeruploadwithstoragereservation()",
+      "id": "src_server_upload_service_test_registeruploadwithstoragereservation"
+    },
+    {
+      "label": "releaseUploadStorageReservation()",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L67",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "releaseuploadstoragereservation()",
+      "id": "src_server_upload_service_test_releaseuploadstoragereservation"
+    },
+    {
+      "label": "reserveUploadStorage()",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L59",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "reserveuploadstorage()",
+      "id": "src_server_upload_service_test_reserveuploadstorage"
     },
     {
       "label": "App()",
@@ -4738,18 +4738,6 @@
       "id": "scripts_text_metrics_report_readdays"
     },
     {
-      "label": "createTextFunnelMetrics()",
-      "file_type": "code",
-      "source_file": "src/server/text-funnel-metrics.ts",
-      "source_location": "L64",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "text-funnel-metrics.ts",
-      "norm_label": "createtextfunnelmetrics()",
-      "id": "src_server_text_funnel_metrics_createtextfunnelmetrics"
-    },
-    {
       "label": "incrementTextFunnelMetric()",
       "file_type": "code",
       "source_file": "src/server/text-funnel-metrics.ts",
@@ -4820,6 +4808,18 @@
       "community_name": "text-funnel-metrics.ts",
       "norm_label": "parseclienttextmetric()",
       "id": "src_server_text_funnel_metrics_route_parseclienttextmetric"
+    },
+    {
+      "label": "registerTextFunnelMetricsRoute()",
+      "file_type": "code",
+      "source_file": "src/server/text-funnel-metrics-route.ts",
+      "source_location": "L14",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "text-funnel-metrics.ts",
+      "norm_label": "registertextfunnelmetricsroute()",
+      "id": "src_server_text_funnel_metrics_route_registertextfunnelmetricsroute"
     },
     {
       "label": "startTextFunnelMetricsCleanup()",
@@ -4909,10 +4909,25 @@
       "norm_label": "install-macos.sh"
     },
     {
+      "label": "acquire_app_lock()",
+      "file_type": "code",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L30",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "scripts_install_macos_acquire_app_lock",
+      "community": 0,
+      "community_name": "install-macos.sh",
+      "norm_label": "acquire_app_lock()"
+    },
+    {
       "label": "cleanup()",
       "file_type": "code",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L23",
+      "source_location": "L43",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -4954,6 +4969,21 @@
       "norm_label": "info()"
     },
     {
+      "label": "release_app_lock()",
+      "file_type": "code",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L23",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "scripts_install_macos_release_app_lock",
+      "community": 0,
+      "community_name": "install-macos.sh",
+      "norm_label": "release_app_lock()"
+    },
+    {
       "label": "install-macos.sh script",
       "file_type": "code",
       "source_file": "scripts/install-macos.sh",
@@ -4972,7 +5002,7 @@
       "label": "verify_download()",
       "file_type": "code",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L52",
+      "source_location": "L73",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -5156,7 +5186,7 @@
       "label": "autostart_configured_marker_lives_in_app_config_dir()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1203",
+      "source_location": "L1206",
       "_origin": "ast",
       "id": "src_tauri_src_lib_autostart_configured_marker_lives_in_app_config_dir",
       "community": 1,
@@ -5200,7 +5230,7 @@
       "label": "cleanup_only_accepts_quickdrop_clipboard_temp_files()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1398",
+      "source_location": "L1401",
       "_origin": "ast",
       "id": "src_tauri_src_lib_cleanup_only_accepts_quickdrop_clipboard_temp_files",
       "community": 1,
@@ -5222,7 +5252,7 @@
       "label": "clipboard_type_accepts_plain_text_without_file_uris()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1387",
+      "source_location": "L1390",
       "_origin": "ast",
       "id": "src_tauri_src_lib_clipboard_type_accepts_plain_text_without_file_uris",
       "community": 1,
@@ -5233,7 +5263,7 @@
       "label": "clipboard_type_prefers_image_over_text()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1365",
+      "source_location": "L1368",
       "_origin": "ast",
       "id": "src_tauri_src_lib_clipboard_type_prefers_image_over_text",
       "community": 1,
@@ -5354,7 +5384,7 @@
       "label": "create_zip_archive_keeps_files_and_deduplicates_names()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1304",
+      "source_location": "L1307",
       "_origin": "ast",
       "id": "src_tauri_src_lib_create_zip_archive_keeps_files_and_deduplicates_names",
       "community": 1,
@@ -5376,7 +5406,7 @@
       "label": "desktop_config_trims_api_url_env_override()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1184",
+      "source_location": "L1187",
       "_origin": "ast",
       "id": "src_tauri_src_lib_desktop_config_trims_api_url_env_override",
       "community": 1,
@@ -5387,7 +5417,7 @@
       "label": "desktop_config_uses_platform_default_api_url_when_env_missing()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1170",
+      "source_location": "L1173",
       "_origin": "ast",
       "id": "src_tauri_src_lib_desktop_config_uses_platform_default_api_url_when_env_missing",
       "community": 1,
@@ -5475,7 +5505,7 @@
       "label": "EnvVarGuard",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1133",
+      "source_location": "L1136",
       "_origin": "ast",
       "id": "src_tauri_src_lib_envvarguard",
       "community": 1,
@@ -5486,7 +5516,7 @@
       "label": ".drop()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1139",
+      "source_location": "L1142",
       "_origin": "ast",
       "id": "src_tauri_src_lib_envvarguard_drop",
       "community": 1,
@@ -5530,7 +5560,7 @@
       "label": "initial_autostart_only_enables_before_first_configuration()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1195",
+      "source_location": "L1198",
       "_origin": "ast",
       "id": "src_tauri_src_lib_initial_autostart_only_enables_before_first_configuration",
       "community": 1,
@@ -5596,7 +5626,7 @@
       "label": "macos_clipboard_image_is_encoded_as_png()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1381",
+      "source_location": "L1384",
       "_origin": "ast",
       "id": "src_tauri_src_lib_macos_clipboard_image_is_encoded_as_png",
       "community": 1,
@@ -5695,7 +5725,7 @@
       "label": "PathGuard",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1106",
+      "source_location": "L1107",
       "_origin": "ast",
       "id": "src_tauri_src_lib_pathguard",
       "community": 1,
@@ -5706,7 +5736,7 @@
       "label": ".drop()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1111",
+      "source_location": "L1113",
       "_origin": "ast",
       "id": "src_tauri_src_lib_pathguard_drop",
       "community": 1,
@@ -5728,7 +5758,7 @@
       "label": "prepend_path_for_test()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1119",
+      "source_location": "L1122",
       "_origin": "ast",
       "id": "src_tauri_src_lib_prepend_path_for_test",
       "community": 1,
@@ -5794,7 +5824,7 @@
       "label": "remove_env_var_for_test()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1147",
+      "source_location": "L1150",
       "_origin": "ast",
       "id": "src_tauri_src_lib_remove_env_var_for_test",
       "community": 1,
@@ -5805,7 +5835,7 @@
       "label": "run()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1409",
+      "source_location": "L1412",
       "_origin": "ast",
       "id": "src_tauri_src_lib_run",
       "community": 1,
@@ -5827,7 +5857,7 @@
       "label": "set_env_var_for_test()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1154",
+      "source_location": "L1157",
       "_origin": "ast",
       "id": "src_tauri_src_lib_set_env_var_for_test",
       "community": 1,
@@ -5915,7 +5945,7 @@
       "label": "tray_click_anchor_clamps_window_above_taskbar()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1245",
+      "source_location": "L1248",
       "_origin": "ast",
       "id": "src_tauri_src_lib_tray_click_anchor_clamps_window_above_taskbar",
       "community": 1,
@@ -5937,7 +5967,7 @@
       "label": "tray_window_position_handles_top_taskbar()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1229",
+      "source_location": "L1232",
       "_origin": "ast",
       "id": "src_tauri_src_lib_tray_window_position_handles_top_taskbar",
       "community": 1,
@@ -5948,7 +5978,7 @@
       "label": "tray_window_position_uses_bottom_right_work_area()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1213",
+      "source_location": "L1216",
       "_origin": "ast",
       "id": "src_tauri_src_lib_tray_window_position_uses_bottom_right_work_area",
       "community": 1,
@@ -6069,7 +6099,7 @@
       "label": "wayland_clipboard_payload_reads_image_bytes()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1265",
+      "source_location": "L1268",
       "_origin": "ast",
       "id": "src_tauri_src_lib_wayland_clipboard_payload_reads_image_bytes",
       "community": 1,
@@ -6091,7 +6121,7 @@
       "label": "write_executable()",
       "file_type": "code",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1162",
+      "source_location": "L1165",
       "_origin": "ast",
       "id": "src_tauri_src_lib_write_executable",
       "community": 1,
@@ -7120,50 +7150,6 @@
       "community_name": "upload-service.ts",
       "norm_label": "defaultstoragequotagateway",
       "id": "src_server_upload_service_defaultstoragequotagateway"
-    },
-    {
-      "label": "upload-service.test.ts",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "upload-service.test.ts",
-      "id": "src_server_upload_service_test"
-    },
-    {
-      "label": "config",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L8",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "config",
-      "id": "src_server_upload_service_test_config"
-    },
-    {
-      "label": "multipartHeaders",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L39",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "multipartheaders",
-      "id": "src_server_upload_service_test_multipartheaders"
-    },
-    {
-      "label": "multipartPayload",
-      "file_type": "code",
-      "source_file": "src/server/upload-service.test.ts",
-      "source_location": "L40",
-      "_origin": "ast",
-      "community": 13,
-      "community_name": "upload-service.ts",
-      "norm_label": "multipartpayload",
-      "id": "src_server_upload_service_test_multipartpayload"
     },
     {
       "label": "tui.rs",
@@ -8657,53 +8643,9 @@
       "source_location": "L1",
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "cleanup.ts",
       "id": "src_server_cleanup"
-    },
-    {
-      "label": "cleanup-cli.ts",
-      "file_type": "code",
-      "source_file": "src/server/cleanup-cli.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "cleanup-cli.ts",
-      "id": "src_server_cleanup_cli"
-    },
-    {
-      "label": "download-service.ts",
-      "file_type": "code",
-      "source_file": "src/server/download-service.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "download-service.ts",
-      "id": "src_server_download_service"
-    },
-    {
-      "label": "expiration.ts",
-      "file_type": "code",
-      "source_file": "src/server/expiration.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "expiration.ts",
-      "id": "src_server_expiration"
-    },
-    {
-      "label": "expiration.test.ts",
-      "file_type": "code",
-      "source_file": "src/server/expiration.test.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "download-service.ts",
-      "norm_label": "expiration.test.ts",
-      "id": "src_server_expiration_test"
     },
     {
       "label": "r2.ts",
@@ -8712,7 +8654,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "r2.ts",
       "id": "src_server_r2"
     },
@@ -8723,7 +8665,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "r2.test.ts",
       "id": "src_server_r2_test"
     },
@@ -8734,7 +8676,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "community": 15,
-      "community_name": "download-service.ts",
+      "community_name": "cleanup.ts",
       "norm_label": "config",
       "id": "src_server_r2_test_config"
     },
@@ -10653,10 +10595,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "tauri.conf.json"
+      "norm_label": "tauri.conf.json",
+      "id": "src_tauri_tauri_conf"
     },
     {
       "label": "app",
@@ -10664,10 +10606,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L12",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "app"
+      "norm_label": "app",
+      "id": "src_tauri_tauri_conf_app"
     },
     {
       "label": "macOSPrivateApi",
@@ -10675,10 +10617,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L14",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app_macosprivateapi",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "macosprivateapi"
+      "norm_label": "macosprivateapi",
+      "id": "src_tauri_tauri_conf_app_macosprivateapi"
     },
     {
       "label": "windows",
@@ -10686,10 +10628,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L13",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_app_windows",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "windows"
+      "norm_label": "windows",
+      "id": "src_tauri_tauri_conf_app_windows"
     },
     {
       "label": "build",
@@ -10697,10 +10639,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "build"
+      "norm_label": "build",
+      "id": "src_tauri_tauri_conf_build"
     },
     {
       "label": "beforeBuildCommand",
@@ -10708,10 +10650,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L9",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_beforebuildcommand",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "beforebuildcommand"
+      "norm_label": "beforebuildcommand",
+      "id": "src_tauri_tauri_conf_build_beforebuildcommand"
     },
     {
       "label": "beforeDevCommand",
@@ -10719,10 +10661,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_beforedevcommand",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "beforedevcommand"
+      "norm_label": "beforedevcommand",
+      "id": "src_tauri_tauri_conf_build_beforedevcommand"
     },
     {
       "label": "devUrl",
@@ -10730,10 +10672,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L8",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_devurl",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "devurl"
+      "norm_label": "devurl",
+      "id": "src_tauri_tauri_conf_build_devurl"
     },
     {
       "label": "frontendDist",
@@ -10741,10 +10683,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L10",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_build_frontenddist",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "frontenddist"
+      "norm_label": "frontenddist",
+      "id": "src_tauri_tauri_conf_build_frontenddist"
     },
     {
       "label": "bundle",
@@ -10752,10 +10694,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L16",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_bundle",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "bundle"
+      "norm_label": "bundle",
+      "id": "src_tauri_tauri_conf_bundle"
     },
     {
       "label": "active",
@@ -10763,10 +10705,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L17",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_bundle_active",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "active"
+      "norm_label": "active",
+      "id": "src_tauri_tauri_conf_bundle_active"
     },
     {
       "label": "identifier",
@@ -10774,10 +10716,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L5",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_identifier",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "identifier"
+      "norm_label": "identifier",
+      "id": "src_tauri_tauri_conf_identifier"
     },
     {
       "label": "productName",
@@ -10785,10 +10727,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L3",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_productname",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "productname"
+      "norm_label": "productname",
+      "id": "src_tauri_tauri_conf_productname"
     },
     {
       "label": "$schema",
@@ -10796,10 +10738,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L2",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_schema",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "$schema"
+      "norm_label": "$schema",
+      "id": "src_tauri_tauri_conf_schema"
     },
     {
       "label": "version",
@@ -10807,10 +10749,10 @@
       "source_file": "src-tauri/tauri.conf.json",
       "source_location": "L4",
       "_origin": "ast",
-      "id": "src_tauri_tauri_conf_version",
       "community": 20,
       "community_name": "tauri.conf.json",
-      "norm_label": "version"
+      "norm_label": "version",
+      "id": "src_tauri_tauri_conf_version"
     },
     {
       "label": "tauri.macos.conf.json",
@@ -11672,6 +11614,50 @@
       "community_name": "index.ts",
       "norm_label": "index.ts",
       "id": "src_server_index"
+    },
+    {
+      "label": "index.test.ts",
+      "file_type": "code",
+      "source_file": "src/server/index.test.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": "index.ts",
+      "norm_label": "index.test.ts",
+      "id": "src_server_index_test"
+    },
+    {
+      "label": "envKeys",
+      "file_type": "code",
+      "source_file": "src/server/index.test.ts",
+      "source_location": "L14",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": "index.ts",
+      "norm_label": "envkeys",
+      "id": "src_server_index_test_envkeys"
+    },
+    {
+      "label": "previousEnv",
+      "file_type": "code",
+      "source_file": "src/server/index.test.ts",
+      "source_location": "L27",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": "index.ts",
+      "norm_label": "previousenv",
+      "id": "src_server_index_test_previousenv"
+    },
+    {
+      "label": "testEnv",
+      "file_type": "code",
+      "source_file": "src/server/index.test.ts",
+      "source_location": "L4",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": "index.ts",
+      "norm_label": "testenv",
+      "id": "src_server_index_test_testenv"
     },
     {
       "label": "linux-installer-service.ts",
@@ -12611,10 +12597,10 @@
       "source_location": "L1",
       "version": "0.1.12",
       "_origin": "ast",
-      "id": "pkg_quickdrop",
       "community": 52,
       "community_name": "Desktop Crate",
-      "norm_label": "quickdrop"
+      "norm_label": "quickdrop",
+      "id": "pkg_quickdrop"
     },
     {
       "label": "quickdrop-cli",
@@ -12686,6 +12672,17 @@
       "id": "cli_src_update_rs_osstring"
     },
     {
+      "label": "cleanup-cli.ts",
+      "file_type": "code",
+      "source_file": "src/server/cleanup-cli.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "storage-quota.ts",
+      "norm_label": "cleanup-cli.ts",
+      "id": "src_server_cleanup_cli"
+    },
+    {
       "label": "db.ts",
       "file_type": "code",
       "source_file": "src/server/db.ts",
@@ -12695,6 +12692,28 @@
       "community_name": "storage-quota.ts",
       "norm_label": "db.ts",
       "id": "src_server_db"
+    },
+    {
+      "label": "db",
+      "file_type": "code",
+      "source_file": "src/server/db.ts",
+      "source_location": "L7",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "storage-quota.ts",
+      "norm_label": "db",
+      "id": "src_server_db_db"
+    },
+    {
+      "label": "sql",
+      "file_type": "code",
+      "source_file": "src/server/db.ts",
+      "source_location": "L6",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "storage-quota.ts",
+      "norm_label": "sql",
+      "id": "src_server_db_sql"
     },
     {
       "label": "schema.ts",
@@ -12818,28 +12837,6 @@
       "id": "cli_src_update_rs_self"
     },
     {
-      "label": "db",
-      "file_type": "code",
-      "source_file": "src/server/db.ts",
-      "source_location": "L7",
-      "_origin": "ast",
-      "community": 64,
-      "community_name": "text-drops-repository.ts",
-      "norm_label": "db",
-      "id": "src_server_db_db"
-    },
-    {
-      "label": "textRooms",
-      "file_type": "code",
-      "source_file": "src/server/schema.ts",
-      "source_location": "L47",
-      "_origin": "ast",
-      "community": 64,
-      "community_name": "text-drops-repository.ts",
-      "norm_label": "textrooms",
-      "id": "src_server_schema_textrooms"
-    },
-    {
       "label": "text-drops-repository.ts",
       "file_type": "code",
       "source_file": "src/server/text-drops-repository.ts",
@@ -12849,28 +12846,6 @@
       "community_name": "text-drops-repository.ts",
       "norm_label": "text-drops-repository.ts",
       "id": "src_server_text_drops_repository"
-    },
-    {
-      "label": "text-drops-repository.test.ts",
-      "file_type": "code",
-      "source_file": "src/server/text-drops-repository.test.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 64,
-      "community_name": "text-drops-repository.ts",
-      "norm_label": "text-drops-repository.test.ts",
-      "id": "src_server_text_drops_repository_test"
-    },
-    {
-      "label": "createdRoomIds",
-      "file_type": "code",
-      "source_file": "src/server/text-drops-repository.test.ts",
-      "source_location": "L8",
-      "_origin": "ast",
-      "community": 64,
-      "community_name": "text-drops-repository.ts",
-      "norm_label": "createdroomids",
-      "id": "src_server_text_drops_repository_test_createdroomids"
     },
     {
       "label": "github-release.ts",
@@ -12895,6 +12870,39 @@
       "id": "src_server_github_release_missing_github_token_message"
     },
     {
+      "label": "textRooms",
+      "file_type": "code",
+      "source_file": "src/server/schema.ts",
+      "source_location": "L47",
+      "_origin": "ast",
+      "community": 67,
+      "community_name": "text-rooms-repository.ts",
+      "norm_label": "textrooms",
+      "id": "src_server_schema_textrooms"
+    },
+    {
+      "label": "text-drops-repository.test.ts",
+      "file_type": "code",
+      "source_file": "src/server/text-drops-repository.test.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 67,
+      "community_name": "text-rooms-repository.ts",
+      "norm_label": "text-drops-repository.test.ts",
+      "id": "src_server_text_drops_repository_test"
+    },
+    {
+      "label": "createdRoomIds",
+      "file_type": "code",
+      "source_file": "src/server/text-drops-repository.test.ts",
+      "source_location": "L8",
+      "_origin": "ast",
+      "community": 67,
+      "community_name": "text-rooms-repository.ts",
+      "norm_label": "createdroomids",
+      "id": "src_server_text_drops_repository_test_createdroomids"
+    },
+    {
       "label": "text-rooms-repository.ts",
       "file_type": "code",
       "source_file": "src/server/text-rooms-repository.ts",
@@ -12906,48 +12914,37 @@
       "id": "src_server_text_rooms_repository"
     },
     {
-      "label": "index.test.ts",
+      "label": "download-service.ts",
       "file_type": "code",
-      "source_file": "src/server/index.test.ts",
+      "source_file": "src/server/download-service.ts",
       "source_location": "L1",
       "_origin": "ast",
       "community": 68,
-      "community_name": "index.test.ts",
-      "norm_label": "index.test.ts",
-      "id": "src_server_index_test"
+      "community_name": "download-service.ts",
+      "norm_label": "download-service.ts",
+      "id": "src_server_download_service"
     },
     {
-      "label": "envKeys",
+      "label": "expiration.ts",
       "file_type": "code",
-      "source_file": "src/server/index.test.ts",
-      "source_location": "L14",
+      "source_file": "src/server/expiration.ts",
+      "source_location": "L1",
       "_origin": "ast",
       "community": 68,
-      "community_name": "index.test.ts",
-      "norm_label": "envkeys",
-      "id": "src_server_index_test_envkeys"
+      "community_name": "download-service.ts",
+      "norm_label": "expiration.ts",
+      "id": "src_server_expiration"
     },
     {
-      "label": "previousEnv",
+      "label": "expiration.test.ts",
       "file_type": "code",
-      "source_file": "src/server/index.test.ts",
-      "source_location": "L27",
+      "source_file": "src/server/expiration.test.ts",
+      "source_location": "L1",
       "_origin": "ast",
       "community": 68,
-      "community_name": "index.test.ts",
-      "norm_label": "previousenv",
-      "id": "src_server_index_test_previousenv"
-    },
-    {
-      "label": "testEnv",
-      "file_type": "code",
-      "source_file": "src/server/index.test.ts",
-      "source_location": "L4",
-      "_origin": "ast",
-      "community": 68,
-      "community_name": "index.test.ts",
-      "norm_label": "testenv",
-      "id": "src_server_index_test_testenv"
+      "community_name": "download-service.ts",
+      "norm_label": "expiration.test.ts",
+      "id": "src_server_expiration_test"
     },
     {
       "label": "install-macos.test.ts",
@@ -13500,6 +13497,50 @@
       "id": "src_tauri_src_lib_rs_vec"
     },
     {
+      "label": "upload-service.test.ts",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "upload-service.test.ts",
+      "id": "src_server_upload_service_test"
+    },
+    {
+      "label": "config",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L8",
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "config",
+      "id": "src_server_upload_service_test_config"
+    },
+    {
+      "label": "multipartHeaders",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L39",
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "multipartheaders",
+      "id": "src_server_upload_service_test_multipartheaders"
+    },
+    {
+      "label": "multipartPayload",
+      "file_type": "code",
+      "source_file": "src/server/upload-service.test.ts",
+      "source_location": "L40",
+      "_origin": "ast",
+      "community": 79,
+      "community_name": "upload-service.test.ts",
+      "norm_label": "multipartpayload",
+      "id": "src_server_upload_service_test_multipartpayload"
+    },
+    {
       "label": "App.tsx",
       "file_type": "code",
       "source_file": "src/desktop/App.tsx",
@@ -13586,17 +13627,6 @@
       "community_name": "text-funnel-metrics.ts",
       "norm_label": "since",
       "id": "scripts_text_metrics_report_since"
-    },
-    {
-      "label": "sql",
-      "file_type": "code",
-      "source_file": "src/server/db.ts",
-      "source_location": "L6",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "text-funnel-metrics.ts",
-      "norm_label": "sql",
-      "id": "src_server_db_sql"
     },
     {
       "label": "text-funnel-metrics.ts",
@@ -17560,23 +17590,11 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L135",
+      "source_location": "L40",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
-      "source": "scripts_install_macos_sh__entry",
-      "target": "scripts_install_macos_warn",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "scripts/install-macos.sh",
-      "source_location": "L36",
-      "weight": 1.0,
-      "context": "call",
-      "_origin": "ast",
-      "source": "scripts_install_macos_sh__entry",
+      "source": "scripts_install_macos_acquire_app_lock",
       "target": "scripts_install_macos_fail",
       "confidence_score": 1.0
     },
@@ -17584,19 +17602,19 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L69",
+      "source_location": "L44",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
-      "source": "scripts_install_macos_sh__entry",
-      "target": "scripts_install_macos_info",
+      "source": "scripts_install_macos_cleanup",
+      "target": "scripts_install_macos_release_app_lock",
       "confidence_score": 1.0
     },
     {
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L79",
+      "source_location": "L100",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
@@ -17608,7 +17626,67 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L56",
+      "source_location": "L132",
+      "weight": 1.0,
+      "context": "call",
+      "_origin": "ast",
+      "source": "scripts_install_macos_sh__entry",
+      "target": "scripts_install_macos_acquire_app_lock",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L145",
+      "weight": 1.0,
+      "context": "call",
+      "_origin": "ast",
+      "source": "scripts_install_macos_sh__entry",
+      "target": "scripts_install_macos_release_app_lock",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L158",
+      "weight": 1.0,
+      "context": "call",
+      "_origin": "ast",
+      "source": "scripts_install_macos_sh__entry",
+      "target": "scripts_install_macos_warn",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L57",
+      "weight": 1.0,
+      "context": "call",
+      "_origin": "ast",
+      "source": "scripts_install_macos_sh__entry",
+      "target": "scripts_install_macos_fail",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L90",
+      "weight": 1.0,
+      "context": "call",
+      "_origin": "ast",
+      "source": "scripts_install_macos_sh__entry",
+      "target": "scripts_install_macos_info",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L77",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
@@ -21389,7 +21467,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1204",
+      "source_location": "L1207",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_autostart_configured_marker_lives_in_app_config_dir",
@@ -21653,7 +21731,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1341",
+      "source_location": "L1344",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_create_zip_archive_keeps_files_and_deduplicates_names",
@@ -21677,7 +21755,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1186",
+      "source_location": "L1189",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_desktop_config_trims_api_url_env_override",
@@ -21689,7 +21767,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1172",
+      "source_location": "L1175",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_desktop_config_uses_platform_default_api_url_when_env_missing",
@@ -21749,7 +21827,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1382",
+      "source_location": "L1385",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_macos_clipboard_image_is_encoded_as_png",
@@ -21905,7 +21983,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1424",
+      "source_location": "L1427",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -21917,7 +21995,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1436",
+      "source_location": "L1439",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -21929,7 +22007,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1442",
+      "source_location": "L1445",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -21941,7 +22019,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1445",
+      "source_location": "L1448",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -21953,7 +22031,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1447",
+      "source_location": "L1450",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -21965,7 +22043,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1447",
+      "source_location": "L1450",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_run",
@@ -22229,7 +22307,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1277",
+      "source_location": "L1280",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_wayland_clipboard_payload_reads_image_bytes",
@@ -22241,7 +22319,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1294",
+      "source_location": "L1297",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_wayland_clipboard_payload_reads_image_bytes",
@@ -22253,7 +22331,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1295",
+      "source_location": "L1298",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_wayland_clipboard_payload_reads_image_bytes",
@@ -22840,7 +22918,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1135",
+      "source_location": "L1138",
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
@@ -22864,7 +22942,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1107",
+      "source_location": "L1108",
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
@@ -24700,7 +24778,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1135",
+      "source_location": "L1138",
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
@@ -24796,7 +24874,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1107",
+      "source_location": "L1108",
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
@@ -31300,7 +31378,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1119",
+      "source_location": "L1122",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -31564,7 +31642,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1162",
+      "source_location": "L1165",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -32824,7 +32902,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1119",
+      "source_location": "L1122",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -32896,7 +32974,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1147",
+      "source_location": "L1150",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -32920,7 +32998,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1154",
+      "source_location": "L1157",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -40775,7 +40853,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1106",
+      "source_location": "L1107",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40786,7 +40864,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1119",
+      "source_location": "L1122",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40797,7 +40875,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1133",
+      "source_location": "L1136",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40819,7 +40897,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1147",
+      "source_location": "L1150",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40830,7 +40908,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1154",
+      "source_location": "L1157",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40841,7 +40919,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1162",
+      "source_location": "L1165",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40852,7 +40930,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1170",
+      "source_location": "L1173",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40863,7 +40941,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1184",
+      "source_location": "L1187",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40874,7 +40952,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1195",
+      "source_location": "L1198",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40885,7 +40963,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1203",
+      "source_location": "L1206",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40896,7 +40974,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1213",
+      "source_location": "L1216",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40907,7 +40985,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1229",
+      "source_location": "L1232",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40918,7 +40996,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1245",
+      "source_location": "L1248",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40929,7 +41007,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1265",
+      "source_location": "L1268",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40940,7 +41018,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1304",
+      "source_location": "L1307",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40962,7 +41040,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1365",
+      "source_location": "L1368",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40973,7 +41051,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1381",
+      "source_location": "L1384",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40984,7 +41062,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1387",
+      "source_location": "L1390",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -40995,7 +41073,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1398",
+      "source_location": "L1401",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -41006,7 +41084,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1409",
+      "source_location": "L1412",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib",
@@ -41658,9 +41736,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_app",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app"
     },
     {
       "relation": "contains",
@@ -41669,9 +41747,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_bundle",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_bundle"
     },
     {
       "relation": "contains",
@@ -41680,9 +41758,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_schema",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_schema"
     },
     {
       "relation": "contains",
@@ -41691,9 +41769,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_productname",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_productname"
     },
     {
       "relation": "contains",
@@ -41702,9 +41780,9 @@
       "source_location": "L4",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_version",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_version"
     },
     {
       "relation": "contains",
@@ -41713,9 +41791,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_identifier",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_identifier"
     },
     {
       "relation": "contains",
@@ -41724,9 +41802,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf",
-      "target": "src_tauri_tauri_conf_build",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build"
     },
     {
       "relation": "contains",
@@ -41735,9 +41813,9 @@
       "source_location": "L13",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_app",
-      "target": "src_tauri_tauri_conf_app_windows",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app_windows"
     },
     {
       "relation": "contains",
@@ -41746,9 +41824,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_app",
-      "target": "src_tauri_tauri_conf_app_macosprivateapi",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_app_macosprivateapi"
     },
     {
       "relation": "contains",
@@ -41757,9 +41835,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_frontenddist",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_frontenddist"
     },
     {
       "relation": "contains",
@@ -41768,9 +41846,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_beforedevcommand",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_beforedevcommand"
     },
     {
       "relation": "contains",
@@ -41779,9 +41857,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_devurl",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_devurl"
     },
     {
       "relation": "contains",
@@ -41790,9 +41868,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_build",
-      "target": "src_tauri_tauri_conf_build_beforebuildcommand",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_build_beforebuildcommand"
     },
     {
       "relation": "contains",
@@ -41801,9 +41879,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_tauri_tauri_conf_bundle",
-      "target": "src_tauri_tauri_conf_bundle_active",
-      "confidence_score": 1.0
+      "target": "src_tauri_tauri_conf_bundle_active"
     },
     {
       "relation": "contains",
@@ -42539,6 +42617,28 @@
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_install_macos",
+      "target": "scripts_install_macos_release_app_lock",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L30",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_install_macos",
+      "target": "scripts_install_macos_acquire_app_lock",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/install-macos.sh",
+      "source_location": "L43",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_install_macos",
       "target": "scripts_install_macos_cleanup",
       "confidence_score": 1.0
     },
@@ -42546,7 +42646,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "scripts/install-macos.sh",
-      "source_location": "L52",
+      "source_location": "L73",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_install_macos",
@@ -42634,7 +42734,7 @@
       "relation": "implements",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1138",
+      "source_location": "L1141",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_envvarguard",
@@ -42645,7 +42745,7 @@
       "relation": "implements",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1110",
+      "source_location": "L1112",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_pathguard",
@@ -43415,7 +43515,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1139",
+      "source_location": "L1142",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_envvarguard",
@@ -43470,7 +43570,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "src-tauri/src/lib.rs",
-      "source_location": "L1111",
+      "source_location": "L1113",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_tauri_src_lib_pathguard",
@@ -44557,5 +44657,5 @@
       "source_file": "AGENTS.md"
     }
   ],
-  "built_at_commit": "f080cfd428b5354522722d5b8c34c525a68db0a1"
+  "built_at_commit": "d8ec768f07feb93046a1ed92cd141cb4b2efd640"
 }

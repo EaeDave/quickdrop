@@ -14,7 +14,7 @@
   "12": "dependencies",
   "13": "upload-service.ts",
   "14": "tui.rs",
-  "15": "download-service.ts",
+  "15": "cleanup.ts",
   "16": "Desktop Manifest Metadata",
   "17": "release.ts",
   "18": "Development Dependencies",
@@ -67,7 +67,7 @@
   "65": "DelayedExpiryTextRoomsRepository",
   "66": "github-release.ts",
   "67": "text-rooms-repository.ts",
-  "68": "index.test.ts",
+  "68": "download-service.ts",
   "69": "install-macos.test.ts",
   "70": "Drop",
   "71": "Option",
@@ -77,5 +77,6 @@
   "75": "Result",
   "76": "Self",
   "77": "String",
-  "78": "Vec"
+  "78": "Vec",
+  "79": "upload-service.test.ts"
 }
