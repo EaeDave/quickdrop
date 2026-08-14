@@ -40,3 +40,32 @@ printf '%s' "$*" > "$TAURI_TEST_ARGS"
   expect(config.plugins.updater.pubkey).toBeUndefined();
   expect(await readFile(`${output}.args`, "utf8")).toContain("--config");
 });
+
+test("Tauri runner passes signer commands through without build configuration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "quickdrop-tauri-signer-"));
+  const bunx = join(root, "bunx");
+  const output = join(root, "args.txt");
+  await writeFile(
+    bunx,
+    `#!/bin/sh
+printf '%s' "$*" > "$TAURI_TEST_ARGS"
+printf '%s' "$TAURI_CONFIG" > "$TAURI_TEST_CONFIG"
+`,
+  );
+  await chmod(bunx, 0o755);
+
+  await $`bun ${runner} signer sign --password= artifact`
+    .env({
+      ...process.env,
+      PATH: `${root}:${process.env.PATH}`,
+      QUICKDROP_PUBLIC_BASE_URL: "",
+      TAURI_UPDATER_PUBLIC_KEY: "",
+      TAURI_CONFIG: "",
+      TAURI_TEST_ARGS: output,
+      TAURI_TEST_CONFIG: `${output}.config`,
+    })
+    .quiet();
+
+  expect(await readFile(output, "utf8")).toBe("tauri signer sign --password= artifact");
+  expect(await readFile(`${output}.config`, "utf8")).toBe("");
+});
