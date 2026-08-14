@@ -25,4 +25,5 @@ tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
+png = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }

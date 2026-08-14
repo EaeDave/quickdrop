@@ -1,49 +1,67 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const tauriConfigPath = "src-tauri/tauri.conf.json";
-const releaseDirectory = join("cli", "target", "release");
+const qdReleaseDirectory = join("cli", "target", "release");
 const architectures = [
-  { target: "aarch64-apple-darwin", asset: "aarch64-macos" },
-  { target: "x86_64-apple-darwin", asset: "x86_64-macos" },
+  {
+    target: "aarch64-apple-darwin",
+    qdAsset: "aarch64-macos",
+    desktopAsset: (version: string) => `QuickDrop_${version}_aarch64.dmg`,
+  },
+  {
+    target: "x86_64-apple-darwin",
+    qdAsset: "x86_64-macos",
+    desktopAsset: (version: string) => `QuickDrop_${version}_x64.dmg`,
+  },
 ] as const;
 
-const { version } = (await Bun.file(tauriConfigPath).json()) as {
-  version: string;
-};
+const { version } = (await Bun.file(tauriConfigPath).json()) as { version: string };
 if (!version) {
   console.error(`Could not read version from ${tauriConfigPath}`);
   process.exit(1);
 }
 
-await mkdir(releaseDirectory, { recursive: true });
+async function writeChecksum(assetPath: string): Promise<string> {
+  const bytes = await Bun.file(assetPath).arrayBuffer();
+  const checksum = createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
+  const checksumPath = `${assetPath}.sha256`;
+  await Bun.write(checksumPath, `${checksum}  ${basename(assetPath)}\n`);
+  console.log(checksumPath);
+  return checksumPath;
+}
+
+await mkdir(qdReleaseDirectory, { recursive: true });
 
 for (const architecture of architectures) {
-  const sourceBinary = join(
-    "cli",
-    "target",
-    architecture.target,
-    "release",
-    "qd",
-  );
+  const sourceBinary = join("cli", "target", architecture.target, "release", "qd");
   if (!(await Bun.file(sourceBinary).exists())) {
     console.error(`Build qd for ${architecture.target} first.`);
     process.exit(1);
   }
 
-  const assetName = `qd_${version}_${architecture.asset}`;
-  const assetPath = join(releaseDirectory, assetName);
-  const checksumPath = `${assetPath}.sha256`;
-  await Bun.write(assetPath, Bun.file(sourceBinary));
-  await chmod(assetPath, 0o755);
+  const qdAssetName = `qd_${version}_${architecture.qdAsset}`;
+  const qdAssetPath = join(qdReleaseDirectory, qdAssetName);
+  await Bun.write(qdAssetPath, Bun.file(sourceBinary));
+  await chmod(qdAssetPath, 0o755);
+  console.log(qdAssetPath);
+  await writeChecksum(qdAssetPath);
 
-  const bytes = await Bun.file(assetPath).arrayBuffer();
-  const checksum = createHash("sha256")
-    .update(new Uint8Array(bytes))
-    .digest("hex");
-  await Bun.write(checksumPath, `${checksum}  ${assetName}\n`);
-
-  console.log(assetPath);
-  console.log(checksumPath);
+  const desktopAssetName = architecture.desktopAsset(version);
+  const desktopAssetPath = join(
+    "src-tauri",
+    "target",
+    architecture.target,
+    "release",
+    "bundle",
+    "dmg",
+    desktopAssetName,
+  );
+  if (!(await Bun.file(desktopAssetPath).exists())) {
+    console.error(`Build the QuickDrop macOS DMG for ${architecture.target} first.`);
+    process.exit(1);
+  }
+  console.log(desktopAssetPath);
+  await writeChecksum(desktopAssetPath);
 }

@@ -2973,6 +2973,7 @@ version = "0.1.12"
 dependencies = [
  "futures-util",
  "mime_guess",
+ "png 0.17.16",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

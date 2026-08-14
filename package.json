@@ -25,6 +25,7 @@
     "desktop:dev": "bun run desktop:css && bun tauri dev",
     "desktop:build": "bun tauri build --ci",
     "desktop:build:windows": "bun tauri build --ci --target x86_64-pc-windows-msvc",
+    "desktop:build:macos": "bun tauri build --ci --target aarch64-apple-darwin --bundles dmg && bun tauri build --ci --target x86_64-apple-darwin --bundles dmg",
     "desktop:package:linux": "bun run desktop:build && bun run qd:build:linux && bun run scripts/package-linux-release.ts",
     "desktop:install": "bun run qd:build && bun run scripts/install-desktop.ts",
     "desktop:install:local": "bun run local:server:up && QUICKDROP_API_BASE_URL=http://127.0.0.1:3000 bun run desktop:install",

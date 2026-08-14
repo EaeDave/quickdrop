@@ -345,7 +345,7 @@ describe("buildApp", () => {
     }
   });
 
-  test("serves the macOS qd installer script", async () => {
+  test("serves the macOS desktop and qd installer script", async () => {
     const { app } = buildApp();
 
     try {
@@ -355,14 +355,17 @@ describe("buildApp", () => {
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
       expect(response.body).toContain("uname -m");
+      expect(response.body).toContain("/macos/$architecture/latest.dmg");
       expect(response.body).toContain("/macos/qd/$architecture/latest");
       expect(response.body).toContain("shasum -a 256");
+      expect(response.body).toContain("hdiutil attach");
+      expect(response.body).toContain("QuickDrop.app");
     } finally {
       await app.close();
     }
   });
 
-  test("proxies macOS qd binaries and checksums by architecture", async () => {
+  test("proxies macOS desktop, qd, and checksums by architecture", async () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
       if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
@@ -380,6 +383,18 @@ describe("buildApp", () => {
               name: "qd_0.1.1_x86_64-macos",
               url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/22",
             },
+            {
+              name: "QuickDrop_0.1.1_aarch64.dmg",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/23",
+            },
+            {
+              name: "QuickDrop_0.1.1_aarch64.dmg.sha256",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/24",
+            },
+            {
+              name: "QuickDrop_0.1.1_x64.dmg",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/25",
+            },
           ],
         });
       }
@@ -391,11 +406,42 @@ describe("buildApp", () => {
         return new Response(`${"c".repeat(64)}  qd_0.1.1_aarch64-macos\n`);
       }
       if (url.endsWith("/22")) return new Response("qd-intel");
+      if (url.endsWith("/23")) return new Response("quickdrop-apple-silicon-dmg");
+      if (url.endsWith("/24")) {
+        return new Response(`${"d".repeat(64)}  QuickDrop_0.1.1_aarch64.dmg\n`);
+      }
+      if (url.endsWith("/25")) return new Response("quickdrop-intel-dmg");
       return new Response("not found", { status: 404 });
     }) as typeof fetch;
 
     const { app } = buildApp();
     try {
+      const desktopAppleSilicon = await app.inject({
+        method: "GET",
+        url: "/macos/aarch64/latest.dmg",
+      });
+      expect(desktopAppleSilicon.statusCode).toBe(200);
+      expect(desktopAppleSilicon.headers["content-disposition"]).toContain(
+        "QuickDrop_0.1.1_aarch64.dmg",
+      );
+      expect(desktopAppleSilicon.body).toBe("quickdrop-apple-silicon-dmg");
+
+      const desktopChecksum = await app.inject({
+        method: "GET",
+        url: "/macos/aarch64/latest.dmg.sha256",
+      });
+      expect(desktopChecksum.statusCode).toBe(200);
+      expect(desktopChecksum.body).toContain("QuickDrop_0.1.1_aarch64.dmg");
+
+      const desktopIntel = await app.inject({
+        method: "GET",
+        url: "/macos/x86_64/latest.dmg",
+      });
+      expect(desktopIntel.statusCode).toBe(200);
+      expect(desktopIntel.headers["content-disposition"]).toContain(
+        "QuickDrop_0.1.1_x64.dmg",
+      );
+
       const appleSilicon = await app.inject({
         method: "GET",
         url: "/macos/qd/aarch64/latest",

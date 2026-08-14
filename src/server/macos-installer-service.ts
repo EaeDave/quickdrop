@@ -4,12 +4,52 @@ import { handleReleaseAssetDownload } from "./github-release";
 
 export type MacOsArchitecture = "aarch64" | "x86_64";
 
+function macOsDesktopAssetPattern(architecture: MacOsArchitecture): RegExp {
+  const releaseArchitecture = architecture === "aarch64" ? "aarch64" : "x64";
+  return new RegExp(`^QuickDrop_.*_${releaseArchitecture}\\.dmg$`);
+}
+
+function macOsDesktopChecksumAssetPattern(architecture: MacOsArchitecture): RegExp {
+  const releaseArchitecture = architecture === "aarch64" ? "aarch64" : "x64";
+  return new RegExp(`^QuickDrop_.*_${releaseArchitecture}\\.dmg\\.sha256$`);
+}
+
 function macOsQdAssetPattern(architecture: MacOsArchitecture): RegExp {
   return new RegExp(`^qd_.*_${architecture}-macos$`);
 }
 
 function macOsQdChecksumAssetPattern(architecture: MacOsArchitecture): RegExp {
   return new RegExp(`^qd_.*_${architecture}-macos\\.sha256$`);
+}
+
+export async function handleMacOsDesktopDownload(
+  reply: FastifyReply,
+  {
+    config,
+    architecture,
+  }: { config: AppConfig; architecture: MacOsArchitecture },
+): Promise<FastifyReply> {
+  return handleReleaseAssetDownload(reply, {
+    token: config.githubToken,
+    repository: config.githubReleaseRepository,
+    assetPattern: macOsDesktopAssetPattern(architecture),
+    assetNotFoundMessage: `No QuickDrop macOS ${architecture} DMG asset found in the latest GitHub release.`,
+  });
+}
+
+export async function handleMacOsDesktopChecksumDownload(
+  reply: FastifyReply,
+  {
+    config,
+    architecture,
+  }: { config: AppConfig; architecture: MacOsArchitecture },
+): Promise<FastifyReply> {
+  return handleReleaseAssetDownload(reply, {
+    token: config.githubToken,
+    repository: config.githubReleaseRepository,
+    assetPattern: macOsDesktopChecksumAssetPattern(architecture),
+    assetNotFoundMessage: `No QuickDrop macOS ${architecture} DMG checksum asset found in the latest GitHub release.`,
+  });
 }
 
 export async function handleMacOsQdDownload(

@@ -3,15 +3,15 @@ use reqwest::multipart::{Form, Part};
 use std::collections::HashMap;
 use std::fs::File as StdFile;
 use std::io::BufReader;
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::{
     image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -20,11 +20,11 @@ use tauri::{
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri_plugin_autostart::ManagerExt as _;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt as _;
 use tokio_util::io::ReaderStream;
 use zip::write::SimpleFileOptions;
@@ -54,6 +54,7 @@ struct LocalUploadInput {
     temporary: bool,
 }
 
+#[cfg(any(target_os = "linux", test))]
 #[derive(Debug, PartialEq, Eq)]
 enum ClipboardSelection {
     Image {
@@ -82,24 +83,31 @@ struct ZipInput {
 const WINDOW_WIDTH: f64 = 380.0;
 const WINDOW_HEIGHT: f64 = 220.0;
 const LAUNCHER_GAP: f64 = 10.0;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const DEFAULT_API_BASE_URL: &str = PRODUCTION_API_BASE_URL;
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 const DEFAULT_API_BASE_URL: &str = "http://127.0.0.1:3000";
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_ID: &str = "quickdrop-tray";
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_OPEN_ID: &str = "open";
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_AUTOSTART_ID: &str = "start_at_login";
 #[cfg(target_os = "windows")]
+const TRAY_MENU_AUTOSTART_LABEL: &str = "Iniciar com Windows";
+#[cfg(target_os = "macos")]
+const TRAY_MENU_AUTOSTART_LABEL: &str = "Abrir ao iniciar sessão";
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_MENU_QUIT_ID: &str = "quit";
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 const AUTOSTART_CONFIGURED_MARKER: &str = "autostart-configured";
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos", test)),
+    allow(dead_code)
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MonitorArea {
     screen_x: f64,
@@ -381,8 +389,8 @@ fn temp_clipboard_path(file_name: &str) -> PathBuf {
 }
 
 #[tauri::command]
-fn read_clipboard_upload_inputs() -> Result<Vec<LocalUploadInput>, String> {
-    let payload = read_wayland_clipboard_payload()?;
+fn read_clipboard_upload_inputs(app: AppHandle) -> Result<Vec<LocalUploadInput>, String> {
+    let payload = read_clipboard_payload_for_platform(&app)?;
     let path = temp_clipboard_path(&payload.file_name);
 
     std::fs::write(&path, payload.bytes)
@@ -395,6 +403,59 @@ fn read_clipboard_upload_inputs() -> Result<Vec<LocalUploadInput>, String> {
     }])
 }
 
+#[cfg(target_os = "linux")]
+fn read_clipboard_payload_for_platform(_app: &AppHandle) -> Result<ClipboardPayload, String> {
+    read_wayland_clipboard_payload()
+}
+
+#[cfg(target_os = "macos")]
+fn read_clipboard_payload_for_platform(app: &AppHandle) -> Result<ClipboardPayload, String> {
+    if let Ok(image) = app.clipboard().read_image() {
+        if image.width() > 0 && image.height() > 0 && !image.rgba().is_empty() {
+            return Ok(ClipboardPayload {
+                file_name: "quickdrop-clipboard.png".to_string(),
+                bytes: encode_rgba_png(image.width(), image.height(), image.rgba())?,
+            });
+        }
+    }
+
+    let text = app
+        .clipboard()
+        .read_text()
+        .map_err(|_| "Clipboard sem imagem ou texto para enviar.".to_string())?;
+    if text.is_empty() {
+        return Err("Clipboard sem imagem ou texto para enviar.".to_string());
+    }
+
+    Ok(ClipboardPayload {
+        file_name: "quickdrop-paste.txt".to_string(),
+        bytes: text.into_bytes(),
+    })
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|error| format!("Falha ao preparar imagem do clipboard: {error}"))?;
+        writer
+            .write_image_data(rgba)
+            .map_err(|error| format!("Falha ao preparar imagem do clipboard: {error}"))?;
+    }
+    Ok(bytes)
+}
+
+#[cfg(target_os = "windows")]
+fn read_clipboard_payload_for_platform(_app: &AppHandle) -> Result<ClipboardPayload, String> {
+    Err("Clipboard nativo indisponível nesta plataforma.".to_string())
+}
+
+#[cfg(target_os = "linux")]
 fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
     let types = list_clipboard_types()?;
     let selection = select_clipboard_type(&types)
@@ -429,6 +490,7 @@ fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn list_clipboard_types() -> Result<Vec<String>, String> {
     let output = Command::new("wl-paste")
         .arg("--list-types")
@@ -447,6 +509,7 @@ fn list_clipboard_types() -> Result<Vec<String>, String> {
         .collect())
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn select_clipboard_type(types: &[String]) -> Option<ClipboardSelection> {
     for clipboard_type in types {
         if let Some(extension) = image_extension_for_mime_type(clipboard_type) {
@@ -468,6 +531,7 @@ fn select_clipboard_type(types: &[String]) -> Option<ClipboardSelection> {
     None
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn image_extension_for_mime_type(mime_type: &str) -> Option<&'static str> {
     let base_type = mime_type
         .split(';')
@@ -489,6 +553,7 @@ fn image_extension_for_mime_type(mime_type: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn is_plain_text_clipboard_type(clipboard_type: &str) -> bool {
     let base_type = clipboard_type
         .split(';')
@@ -503,6 +568,7 @@ fn is_plain_text_clipboard_type(clipboard_type: &str) -> bool {
     )
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     let output = Command::new("wl-paste")
         .arg("--type")
@@ -517,6 +583,7 @@ fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     Ok(output.stdout)
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn read_clipboard_text_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     let output = Command::new("wl-paste")
         .arg("--no-newline")
@@ -560,14 +627,14 @@ fn copy_link(app: AppHandle, link: String) -> Result<(), String> {
     copy_link_for_platform(&app, link)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn copy_link_for_platform(app: &AppHandle, link: String) -> Result<(), String> {
     app.clipboard()
         .write_text(link)
         .map_err(|error| format!("Falha ao copiar link para o clipboard: {error}"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn copy_link_for_platform(_app: &AppHandle, link: String) -> Result<(), String> {
     let mut child = Command::new("wl-copy")
         .stdin(Stdio::piped())
@@ -608,7 +675,7 @@ fn upload_success_message(file_count: Option<usize>) -> String {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn notify_success_for_platform(app: &AppHandle, message: String) -> Result<(), String> {
     app.notification()
         .builder()
@@ -618,7 +685,7 @@ fn notify_success_for_platform(app: &AppHandle, message: String) -> Result<(), S
         .map_err(|error| format!("Falha ao exibir notificação: {error}"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn notify_success_for_platform(_app: &AppHandle, message: String) -> Result<(), String> {
     let status = Command::new("notify-send")
         .arg("QuickDrop")
@@ -643,22 +710,22 @@ fn dismiss_window(window: tauri::Window) -> Result<(), String> {
         .map_err(|error| format!("Falha ao fechar janela QuickDrop: {error}"))
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
     window.hide()
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
     window.close()
 }
 
 #[tauri::command]
 fn uses_native_clipboard_paste() -> bool {
-    cfg!(target_os = "linux")
+    cfg!(any(target_os = "linux", target_os = "macos"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn compute_window_position(app: &AppHandle) -> (f64, f64) {
     let launch_point = launcher_position_from_env()
         .or_else(|| app.cursor_position().ok())
@@ -672,9 +739,9 @@ fn compute_window_position(app: &AppHandle) -> (f64, f64) {
     compute_anchor_window_position(launch_point, monitor_area)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn compute_window_position(app: &AppHandle) -> (f64, f64) {
-    compute_windows_tray_window_position(app)
+    compute_desktop_tray_window_position(app)
 }
 
 fn compute_anchor_window_position(
@@ -690,8 +757,8 @@ fn compute_anchor_window_position(
     }
 }
 
-#[cfg(target_os = "windows")]
-fn compute_windows_tray_window_position(app: &AppHandle) -> (f64, f64) {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn compute_desktop_tray_window_position(app: &AppHandle) -> (f64, f64) {
     if let Ok(Some(monitor)) = app.primary_monitor() {
         return compute_tray_window_position(monitor_area_from_monitor(&monitor));
     }
@@ -708,7 +775,7 @@ fn compute_windows_tray_window_position(app: &AppHandle) -> (f64, f64) {
     )
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn compute_tray_window_position(area: MonitorArea) -> (f64, f64) {
     let taskbar_left = area.work_x > area.screen_x;
     let taskbar_right = area.work_right() < area.screen_right();
@@ -758,12 +825,12 @@ fn monitor_area_from_monitor(monitor: &tauri::window::Monitor) -> MonitorArea {
 }
 
 impl MonitorArea {
-    #[cfg(any(target_os = "windows", test))]
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
     fn screen_right(self) -> f64 {
         self.screen_x + self.screen_width
     }
 
-    #[cfg(any(target_os = "windows", test))]
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
     fn screen_bottom(self) -> f64 {
         self.screen_y + self.screen_height
     }
@@ -777,7 +844,7 @@ impl MonitorArea {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn launcher_position_from_env() -> Option<PhysicalPosition<f64>> {
     let x = std::env::var("QUICKDROP_LAUNCHER_X")
         .ok()?
@@ -848,7 +915,7 @@ fn compute_window_position_from_anchor(
     compute_anchor_window_position(launch_point, monitor_area)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn tray_event_position_to_physical(position: tauri::Position) -> PhysicalPosition<f64> {
     match position {
         tauri::Position::Physical(position) => {
@@ -858,7 +925,7 @@ fn tray_event_position_to_physical(position: tauri::Position) -> PhysicalPositio
     }
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn autostart_configured_marker_path(app_config_dir: &Path) -> PathBuf {
     app_config_dir.join(AUTOSTART_CONFIGURED_MARKER)
 }
@@ -871,7 +938,7 @@ fn should_enable_initial_autostart(
     !configured_marker_exists && !autostart_enabled
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn write_autostart_configured_marker(marker_path: &Path) -> std::io::Result<()> {
     if let Some(parent) = marker_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -880,8 +947,8 @@ fn write_autostart_configured_marker(marker_path: &Path) -> std::io::Result<()> 
     std::fs::write(marker_path, "configured=true\n")
 }
 
-#[cfg(target_os = "windows")]
-fn windows_autostart_marker_path(app: &AppHandle) -> Option<PathBuf> {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn desktop_autostart_marker_path(app: &AppHandle) -> Option<PathBuf> {
     match app.path().app_config_dir() {
         Ok(path) => Some(autostart_configured_marker_path(&path)),
         Err(error) => {
@@ -891,9 +958,9 @@ fn windows_autostart_marker_path(app: &AppHandle) -> Option<PathBuf> {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn persist_windows_autostart_configured(app: &AppHandle) {
-    let Some(marker_path) = windows_autostart_marker_path(app) else {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn persist_desktop_autostart_configured(app: &AppHandle) {
+    let Some(marker_path) = desktop_autostart_marker_path(app) else {
         return;
     };
 
@@ -904,7 +971,7 @@ fn persist_windows_autostart_configured(app: &AppHandle) {
 
 #[cfg(target_os = "windows")]
 fn ensure_initial_windows_autostart(app: &AppHandle) {
-    let Some(marker_path) = windows_autostart_marker_path(app) else {
+    let Some(marker_path) = desktop_autostart_marker_path(app) else {
         return;
     };
     let marker_exists = marker_path.exists();
@@ -921,11 +988,11 @@ fn ensure_initial_windows_autostart(app: &AppHandle) {
         }
     }
 
-    persist_windows_autostart_configured(app);
+    persist_desktop_autostart_configured(app);
 }
 
-#[cfg(target_os = "windows")]
-fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
     let open_item = MenuItem::with_id(
         app,
         TRAY_MENU_OPEN_ID,
@@ -936,7 +1003,7 @@ fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
     let autostart_item = CheckMenuItem::with_id(
         app,
         TRAY_MENU_AUTOSTART_ID,
-        "Iniciar com Windows",
+        TRAY_MENU_AUTOSTART_LABEL,
         true,
         app.handle().autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
@@ -945,11 +1012,17 @@ fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Sair", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &autostart_item, &separator, &quit_item])?;
     let autostart_item_for_menu = autostart_item.clone();
+    #[cfg(target_os = "windows")]
     let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
-
-    TrayIconBuilder::with_id(TRAY_ID)
+    #[cfg(target_os = "macos")]
+    let tray_icon = Image::from_bytes(include_bytes!("../icons/tray-icon-template.png"))?;
+    let tray_builder = TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_icon)
-        .tooltip("QuickDrop")
+        .tooltip("QuickDrop");
+    #[cfg(target_os = "macos")]
+    let tray_builder = tray_builder.icon_as_template(true);
+
+    tray_builder
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -969,7 +1042,7 @@ fn setup_windows_tray(app: &tauri::App) -> tauri::Result<()> {
                 match result {
                     Ok(()) => {
                         let _ = autostart_item_for_menu.set_checked(!currently_enabled);
-                        persist_windows_autostart_configured(app);
+                        persist_desktop_autostart_configured(app);
                     }
                     Err(error) => {
                         eprintln!("Failed to toggle QuickDrop autostart: {error}");
@@ -1005,7 +1078,12 @@ fn started_in_tray_mode() -> bool {
     std::env::args().any(|arg| arg == "--tray-start")
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn started_in_tray_mode() -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
 fn started_in_tray_mode() -> bool {
     false
 }
@@ -1298,6 +1376,12 @@ exit 1
     }
 
     #[test]
+    fn macos_clipboard_image_is_encoded_as_png() {
+        let png = encode_rgba_png(1, 1, &[255, 0, 0, 255]).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
     fn clipboard_type_accepts_plain_text_without_file_uris() {
         assert_eq!(
             select_clipboard_type(&["text/plain;charset=utf-8".to_string()]),
@@ -1321,6 +1405,7 @@ exit 1
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
@@ -1339,7 +1424,7 @@ pub fn run() {
             }
         }));
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_autostart::init(
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
         Some(vec!["--tray-start"]),
@@ -1348,11 +1433,14 @@ pub fn run() {
     builder
         .manage(DesktopConfig::from_env())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             #[cfg(target_os = "windows")]
-            {
-                ensure_initial_windows_autostart(app.handle());
-                setup_windows_tray(app)?;
-            }
+            ensure_initial_windows_autostart(app.handle());
+
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            setup_desktop_tray(app)?;
 
             build_quickdrop_window(app.handle(), !started_in_tray_mode())?;
 
