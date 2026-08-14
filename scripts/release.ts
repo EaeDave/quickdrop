@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { updaterAssets } from "./generate-tauri-update-manifest";
 
 const VERSION_FILES = [
   "src-tauri/tauri.conf.json",
@@ -211,13 +212,10 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
   for (const assetName of endpoints.values()) {
     if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
   }
+  const updaterPayloads = updaterAssets(version);
   const updaterAssetNames = [
-    `quickdrop_${version}_x86_64-linux.sig`,
-    `QuickDrop_${version}_x64-setup.exe.sig`,
-    `QuickDrop_${version}_aarch64.app.tar.gz`,
-    `QuickDrop_${version}_aarch64.app.tar.gz.sig`,
-    `QuickDrop_${version}_x64.app.tar.gz`,
-    `QuickDrop_${version}_x64.app.tar.gz.sig`,
+    ...Object.values(updaterPayloads),
+    ...Object.values(updaterPayloads).map((asset) => `${asset}.sig`),
     "latest.json",
   ];
   for (const assetName of updaterAssetNames) {
@@ -247,12 +245,19 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
     throw new Error(`Public downloads did not update: ${[...pending.keys()].join(", ")}`);
   }
 
-  const expectedUpdaterPlatforms = [
-    "linux-x86_64",
-    "windows-x86_64",
-    "darwin-aarch64",
-    "darwin-x86_64",
-  ];
+  const expectedUpdaterEntries = await Promise.all(
+    Object.entries(updaterPayloads).map(async ([platform, asset]) => {
+      const url = `https://github.com/EaeDave/quickdrop/releases/download/${tag}/${asset}`;
+      const signatureResponse = await fetch(`${url}.sig`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!signatureResponse.ok) {
+        throw new Error(`Could not download updater signature for ${asset}: HTTP ${signatureResponse.status}`);
+      }
+      return [platform, { url, signature: (await signatureResponse.text()).trim() }] as const;
+    }),
+  );
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
       const response = await fetch(
@@ -266,9 +271,9 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
       const valid =
         response.ok &&
         manifest.version === version &&
-        expectedUpdaterPlatforms.every((platform) => {
+        expectedUpdaterEntries.every(([platform, expected]) => {
           const entry = manifest.platforms?.[platform];
-          return Boolean(entry?.signature?.trim() && entry.url?.includes(`/releases/download/${tag}/`));
+          return entry?.url === expected.url && entry.signature?.trim() === expected.signature;
         });
       if (valid) return;
     } catch {

@@ -14,6 +14,7 @@ export const isTauri = typeof window !== "undefined" && (window as any).__TAURI_
 
 let progressListeners: ((progress: UploadProgress) => void)[] = [];
 let updateCheckPromise: Promise<void> | null = null;
+let interactiveUpdateCheckQueued = false;
 
 export const DESKTOP_UPDATE_EVENT = "quickdrop://check-for-updates";
 
@@ -35,7 +36,17 @@ export function setupDesktopUpdater(): () => void {
 
 async function checkForDesktopUpdate(interactive: boolean): Promise<void> {
   if (updateCheckPromise) {
-    return updateCheckPromise;
+    if (!interactive || interactiveUpdateCheckQueued) {
+      return updateCheckPromise;
+    }
+
+    interactiveUpdateCheckQueued = true;
+    try {
+      await updateCheckPromise;
+    } finally {
+      interactiveUpdateCheckQueued = false;
+    }
+    return checkForDesktopUpdate(true);
   }
 
   updateCheckPromise = performDesktopUpdateCheck(interactive).finally(() => {

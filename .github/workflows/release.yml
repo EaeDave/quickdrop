@@ -147,6 +147,7 @@ jobs:
             --clobber
 
   updater-manifest:
+    if: github.event_name != 'pull_request'
     needs: [windows, macos]
     runs-on: ubuntu-latest
     env:
