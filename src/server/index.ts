@@ -9,6 +9,11 @@ import Fastify, { type FastifyReply } from "fastify";
 import { loadConfig } from "./config";
 import { startCleanupJob } from "./cleanup";
 import { handleDownload } from "./download-service";
+import {
+  handleDesktopUpdateDownload,
+  handleDesktopUpdateManifestDownload,
+  isDesktopUpdatePlatform,
+} from "./desktop-updater-service";
 import { createR2Client } from "./r2";
 import { handleUpload } from "./upload-service";
 import {
@@ -113,6 +118,22 @@ export function buildApp() {
     app.get(route, async (_request, reply) => sendScriptFile(reply, fileName));
   }
 
+  app.get("/desktop/update/latest.json", async (_request, reply) =>
+    handleDesktopUpdateManifestDownload(reply, config),
+  );
+  app.get<{ Params: { version: string; platform: string } }>(
+    "/desktop/update/:version/:platform",
+    async (request, reply) => {
+      if (!/^\d+\.\d+\.\d+$/.test(request.params.version)) return reply.callNotFound();
+      if (!isDesktopUpdatePlatform(request.params.platform)) return reply.callNotFound();
+      return handleDesktopUpdateDownload(
+        reply,
+        config,
+        request.params.version,
+        request.params.platform,
+      );
+    },
+  );
   app.get("/windows/latest.exe", async (_request, reply) =>
     handleWindowsInstallerDownload(reply, { config }),
   );

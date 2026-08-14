@@ -21,6 +21,7 @@ export type ReleaseAssetDownloadOptions = {
   repository: string;
   assetPattern: RegExp;
   assetNotFoundMessage: string;
+  releaseTag?: string;
 };
 
 export async function handleReleaseAssetDownload(
@@ -34,7 +35,7 @@ export async function handleReleaseAssetDownload(
       .send(MISSING_GITHUB_TOKEN_MESSAGE);
   }
 
-  const release = await fetchLatestRelease(options.repository, options.token);
+  const release = await fetchRelease(options.repository, options.token, options.releaseTag);
   if (!release.ok) {
     return reply
       .code(502)
@@ -65,11 +66,13 @@ export async function handleReleaseAssetDownload(
     .send(assetBytes);
 }
 
-async function fetchLatestRelease(
+async function fetchRelease(
   repository: string,
   token: string,
+  releaseTag?: string,
 ): Promise<{ ok: true; value: GitHubRelease } | { ok: false; status: number }> {
-  const response = await fetch(`${GITHUB_API_BASE_URL}/repos/${repository}/releases/latest`, {
+  const releasePath = releaseTag ? `releases/tags/${encodeURIComponent(releaseTag)}` : "releases/latest";
+  const response = await fetch(`${GITHUB_API_BASE_URL}/repos/${repository}/${releasePath}`, {
     headers: githubHeaders(token, "application/vnd.github+json"),
   });
 
