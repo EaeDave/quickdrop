@@ -492,7 +492,7 @@ fn read_wayland_clipboard_payload() -> Result<ClipboardPayload, String> {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn list_clipboard_types() -> Result<Vec<String>, String> {
     let output = Command::new("wl-paste")
         .arg("--list-types")
@@ -570,7 +570,7 @@ fn is_plain_text_clipboard_type(clipboard_type: &str) -> bool {
     )
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     let output = Command::new("wl-paste")
         .arg("--type")
@@ -585,7 +585,7 @@ fn read_clipboard_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     Ok(output.stdout)
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn read_clipboard_text_bytes(mime_type: &str) -> Result<Vec<u8>, String> {
     let output = Command::new("wl-paste")
         .arg("--no-newline")
