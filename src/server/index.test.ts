@@ -345,6 +345,91 @@ describe("buildApp", () => {
     }
   });
 
+  test("serves the macOS qd installer script", async () => {
+    const { app } = buildApp();
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/install-macos.sh" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/plain");
+      expect(response.body).toContain("QuickDrop");
+      expect(response.body).toContain("uname -m");
+      expect(response.body).toContain("/macos/qd/$architecture/latest");
+      expect(response.body).toContain("shasum -a 256");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("proxies macOS qd binaries and checksums by architecture", async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+        return Response.json({
+          assets: [
+            {
+              name: "qd_0.1.1_aarch64-macos",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/20",
+            },
+            {
+              name: "qd_0.1.1_aarch64-macos.sha256",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/21",
+            },
+            {
+              name: "qd_0.1.1_x86_64-macos",
+              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/22",
+            },
+          ],
+        });
+      }
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer github-token",
+      );
+      if (url.endsWith("/20")) return new Response("qd-apple-silicon");
+      if (url.endsWith("/21")) {
+        return new Response(`${"c".repeat(64)}  qd_0.1.1_aarch64-macos\n`);
+      }
+      if (url.endsWith("/22")) return new Response("qd-intel");
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const { app } = buildApp();
+    try {
+      const appleSilicon = await app.inject({
+        method: "GET",
+        url: "/macos/qd/aarch64/latest",
+      });
+      expect(appleSilicon.statusCode).toBe(200);
+      expect(appleSilicon.headers["content-disposition"]).toContain(
+        "qd_0.1.1_aarch64-macos",
+      );
+      expect(appleSilicon.body).toBe("qd-apple-silicon");
+
+      const checksum = await app.inject({
+        method: "GET",
+        url: "/macos/qd/aarch64/latest.sha256",
+      });
+      expect(checksum.statusCode).toBe(200);
+      expect(checksum.body).toContain("qd_0.1.1_aarch64-macos");
+
+      const intel = await app.inject({
+        method: "GET",
+        url: "/macos/qd/x86_64/latest",
+      });
+      expect(intel.statusCode).toBe(200);
+      expect(intel.headers["content-disposition"]).toContain("qd_0.1.1_x86_64-macos");
+
+      const unsupported = await app.inject({
+        method: "GET",
+        url: "/macos/qd/powerpc/latest",
+      });
+      expect(unsupported.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("serves the Linux install script", async () => {
     const { app } = buildApp();
 

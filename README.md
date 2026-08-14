@@ -214,7 +214,7 @@ qd MYCODE --server http://127.0.0.1:3000
 qd MYCODE --msg "local test" --server http://127.0.0.1:3000
 ```
 
-On Linux, copied content uses `wl-copy`, `xclip`, or `xsel`. On Windows, it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive commands take the PIN positionally.
+On Linux, copied content uses `wl-copy`, `xclip`, or `xsel`. On macOS it uses `pbcopy`, and on Windows it uses PowerShell `Set-Clipboard`. The interactive TUI prompts for protected-room PINs; non-interactive commands take the PIN positionally.
 
 Build release binaries:
 
@@ -222,7 +222,9 @@ Build release binaries:
 bun run qd:build          # current platform
 bun run qd:build:linux    # x86_64 Linux
 bun run qd:build:windows  # x86_64 Windows, from a Windows runner
+bun run qd:build:macos    # Apple Silicon + Intel macOS, from a Mac
 bun run qd:package:windows  # versioned qd.exe and SHA-256 assets
+bun run qd:package:macos    # versioned macOS binaries and SHA-256 assets
 ```
 
 Artifacts are written below `cli/target/`.
@@ -263,7 +265,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the cached Windows Actions job, which adds the Windows installer and CLI/TUI assets. The command waits for that job and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets plus the Apple Silicon and Intel macOS CLI/TUI assets. The command waits for that workflow and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
 
 ### End-user installation
 
@@ -281,6 +283,14 @@ The standalone Windows CLI/TUI is also available from:
 https://quickdrop.eaedave.xyz/windows/qd/latest.exe
 https://quickdrop.eaedave.xyz/windows/qd/latest.sha256
 ```
+
+macOS CLI/TUI installation (automatically detects Apple Silicon or Intel):
+
+```bash
+curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash
+```
+
+The installer verifies the release checksum and writes `qd` to `~/.local/bin`. Standalone assets are available below `/macos/qd/aarch64/` and `/macos/qd/x86_64/`. The desktop client is not included in the macOS installer.
 
 Linux full installation:
 

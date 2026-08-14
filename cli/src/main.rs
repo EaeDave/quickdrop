@@ -678,7 +678,9 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
             "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
         ],
     )];
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let commands: &[(&str, &[&str])] = &[("pbcopy", &[])];
+    #[cfg(all(unix, not(target_os = "macos")))]
     let commands: &[(&str, &[&str])] = &[
         ("wl-copy", &[]),
         ("xclip", &["-selection", "clipboard"]),
@@ -712,7 +714,9 @@ fn copy_to_system_clipboard(content: &str) -> Result<(), QdError> {
 
     #[cfg(target_os = "windows")]
     let message = "could not copy: PowerShell is not available.";
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let message = "could not copy: pbcopy is not available.";
+    #[cfg(all(unix, not(target_os = "macos")))]
     let message = "could not copy: install wl-clipboard, xclip, or xsel.";
     Err(QdError::Runtime(message.to_owned()))
 }
