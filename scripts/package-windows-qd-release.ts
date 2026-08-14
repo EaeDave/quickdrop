@@ -27,5 +27,20 @@ const bytes = await Bun.file(assetPath).arrayBuffer();
 const checksum = createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
 await Bun.write(checksumPath, `${checksum}  ${assetName}\n`);
 
+const updaterInstallerPath = join(
+  "src-tauri",
+  "target",
+  "x86_64-pc-windows-msvc",
+  "release",
+  "bundle",
+  "nsis",
+  `QuickDrop_${version}_x64-setup.exe`,
+);
+if (!(await Bun.file(`${updaterInstallerPath}.sig`).exists())) {
+  console.error(`Missing Windows updater signature: ${updaterInstallerPath}.sig`);
+  process.exit(1);
+}
+
 console.log(assetPath);
 console.log(checksumPath);
+console.log(`${updaterInstallerPath}.sig`);

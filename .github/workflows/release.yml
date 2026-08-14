@@ -18,10 +18,12 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -51,6 +53,7 @@ jobs:
           name: windows-release
           path: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe.sig
             cli/target/release/qd_*_x86_64-windows.exe
             cli/target/release/qd_*_x86_64-windows.exe.sha256
           if-no-files-found: error
@@ -65,6 +68,7 @@ jobs:
           $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe" | Select-Object -First 1 -ExpandProperty FullName
           gh release upload $env:RELEASE_TAG `
             $installer `
+            "${installer}.sig" `
             "cli/target/release/qd_${version}_x86_64-windows.exe" `
             "cli/target/release/qd_${version}_x86_64-windows.exe.sha256" `
             --clobber
@@ -73,10 +77,12 @@ jobs:
     runs-on: macos-14
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -95,9 +101,9 @@ jobs:
 
       - name: Build macOS desktop and qd for Apple Silicon and Intel
         run: |
-          bun tauri build --ci --target aarch64-apple-darwin --bundles dmg
+          bun tauri build --ci --target aarch64-apple-darwin --bundles app,dmg
           cargo build --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
-          bun tauri build --ci --target x86_64-apple-darwin --bundles dmg
+          bun tauri build --ci --target x86_64-apple-darwin --bundles app,dmg
           cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
 
       - name: Package macOS release assets
@@ -111,8 +117,12 @@ jobs:
             cli/target/release/qd_*-macos.sha256
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg.sha256
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_*_aarch64.app.tar.gz
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_*_aarch64.app.tar.gz.sig
             src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg
             src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg.sha256
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_*_x64.app.tar.gz
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_*_x64.app.tar.gz.sig
           if-no-files-found: error
 
       - name: Upload macOS assets to release
@@ -128,6 +138,36 @@ jobs:
             "cli/target/release/qd_${version}_x86_64-macos.sha256" \
             "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg" \
             "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg.sha256" \
+            "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz" \
+            "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz.sig" \
             "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg" \
             "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg.sha256" \
+            "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz" \
+            "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz.sig" \
             --clobber
+
+  updater-manifest:
+    if: github.event_name != 'pull_request'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Download updater signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --pattern "*.sig" --dir updater-signatures
+
+      - name: Generate and upload updater manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun run scripts/generate-tauri-update-manifest.ts
+          gh release upload "$RELEASE_TAG" latest.json --clobber

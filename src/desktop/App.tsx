@@ -1,7 +1,7 @@
 import { type ChangeEvent, type DragEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
+import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, setupDesktopUpdater, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 
 const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
 const MACOS_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash";
@@ -74,6 +74,8 @@ export function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => setupDesktopUpdater(), []);
 
   useEffect(() => {
     if (!isTauri) {

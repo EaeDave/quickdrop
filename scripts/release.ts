@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { updaterAssets } from "./generate-tauri-update-manifest";
 
 const VERSION_FILES = [
   "src-tauri/tauri.conf.json",
@@ -113,6 +114,22 @@ async function run(command: string[]): Promise<void> {
   if ((await process.exited) !== 0) throw new Error(`Command failed: ${command.join(" ")}`);
 }
 
+async function configureUpdaterSigning(): Promise<void> {
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY || process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    return;
+  }
+
+  const home = process.env.HOME;
+  if (!home) throw new Error("HOME is required to locate the Tauri updater signing key");
+  const keyPath = `${home}/.config/quickdrop-release/updater.key`;
+  if (!(await Bun.file(keyPath).exists())) {
+    throw new Error(
+      `Missing Tauri updater signing key at ${keyPath}. Restore the release key before publishing.`,
+    );
+  }
+  process.env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+}
+
 async function preflight(tag: string): Promise<void> {
   if ((await output(["git", "branch", "--show-current"])) !== "main") {
     throw new Error("Releases must be created from main");
@@ -195,6 +212,15 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
   for (const assetName of endpoints.values()) {
     if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
   }
+  const updaterPayloads = updaterAssets(version);
+  const updaterAssetNames = [
+    ...Object.values(updaterPayloads),
+    ...Object.values(updaterPayloads).map((asset) => `${asset}.sig`),
+    "latest.json",
+  ];
+  for (const assetName of updaterAssetNames) {
+    if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
+  }
 
   const pending = new Map(endpoints);
   for (let attempt = 0; attempt < 36 && pending.size > 0; attempt += 1) {
@@ -218,6 +244,44 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
   if (pending.size > 0) {
     throw new Error(`Public downloads did not update: ${[...pending.keys()].join(", ")}`);
   }
+
+  const expectedUpdaterEntries = await Promise.all(
+    Object.entries(updaterPayloads).map(async ([platform, asset]) => {
+      const url = `https://github.com/EaeDave/quickdrop/releases/download/${tag}/${asset}`;
+      const signatureResponse = await fetch(`${url}.sig`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!signatureResponse.ok) {
+        throw new Error(`Could not download updater signature for ${asset}: HTTP ${signatureResponse.status}`);
+      }
+      return [platform, { url, signature: (await signatureResponse.text()).trim() }] as const;
+    }),
+  );
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      const response = await fetch(
+        "https://github.com/EaeDave/quickdrop/releases/latest/download/latest.json",
+        { cache: "no-store", signal: AbortSignal.timeout(15_000) },
+      );
+      const manifest = (await response.json()) as {
+        version?: string;
+        platforms?: Record<string, { signature?: string; url?: string }>;
+      };
+      const valid =
+        response.ok &&
+        manifest.version === version &&
+        expectedUpdaterEntries.every(([platform, expected]) => {
+          const entry = manifest.platforms?.[platform];
+          return entry?.url === expected.url && entry.signature?.trim() === expected.signature;
+        });
+      if (valid) return;
+    } catch {
+      // GitHub's latest-release redirect can lag briefly after publishing.
+    }
+    await Bun.sleep(10_000);
+  }
+  throw new Error(`Desktop updater manifest did not update to ${tag}`);
 }
 
 async function main(): Promise<void> {
@@ -235,6 +299,7 @@ async function main(): Promise<void> {
   if (next === current) throw new Error(`Version is already ${current}`);
   const tag = `v${next}`;
   await preflight(tag);
+  await configureUpdaterSigning();
 
   for (const path of VERSION_FILES) await replaceVersion(path, current, next);
   await run(["cargo", "check", "--manifest-path", "cli/Cargo.toml"]);
@@ -250,9 +315,19 @@ async function main(): Promise<void> {
     "cli/Cargo.toml",
   ]);
   await run(["bun", "run", "scripts/package-linux-release.ts"]);
+  await run([
+    "bun",
+    "tauri",
+    "signer",
+    "sign",
+    "-p",
+    process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "",
+    `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
+  ]);
 
   const linuxAssets = [
     `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
+    `src-tauri/target/release/quickdrop_${next}_x86_64-linux.sig`,
     `cli/target/release/qd_${next}_x86_64-linux`,
     `cli/target/release/qd_${next}_x86_64-linux.sha256`,
   ];

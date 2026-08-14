@@ -9,11 +9,13 @@ const architectures = [
     target: "aarch64-apple-darwin",
     qdAsset: "aarch64-macos",
     desktopAsset: (version: string) => `QuickDrop_${version}_aarch64.dmg`,
+    updaterAsset: (version: string) => `QuickDrop_${version}_aarch64.app.tar.gz`,
   },
   {
     target: "x86_64-apple-darwin",
     qdAsset: "x86_64-macos",
     desktopAsset: (version: string) => `QuickDrop_${version}_x64.dmg`,
+    updaterAsset: (version: string) => `QuickDrop_${version}_x64.app.tar.gz`,
   },
 ] as const;
 
@@ -64,4 +66,25 @@ for (const architecture of architectures) {
   }
   console.log(desktopAssetPath);
   await writeChecksum(desktopAssetPath);
+
+  const macosBundleDirectory = join(
+    "src-tauri",
+    "target",
+    architecture.target,
+    "release",
+    "bundle",
+    "macos",
+  );
+  const updaterSourcePath = join(macosBundleDirectory, "QuickDrop.app.tar.gz");
+  const updaterSignatureSourcePath = `${updaterSourcePath}.sig`;
+  if (!(await Bun.file(updaterSourcePath).exists()) || !(await Bun.file(updaterSignatureSourcePath).exists())) {
+    console.error(`Build signed updater artifacts for ${architecture.target} first.`);
+    process.exit(1);
+  }
+
+  const updaterAssetPath = join(macosBundleDirectory, architecture.updaterAsset(version));
+  await Bun.write(updaterAssetPath, Bun.file(updaterSourcePath));
+  await Bun.write(`${updaterAssetPath}.sig`, Bun.file(updaterSignatureSourcePath));
+  console.log(updaterAssetPath);
+  console.log(`${updaterAssetPath}.sig`);
 }

@@ -266,7 +266,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksum. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets plus the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets. The command waits for that workflow and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksums and updater signature. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets, the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets, signed desktop updater bundles, and `latest.json`. The command waits for that workflow and verifies every public download before succeeding. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
 
 ### End-user installation
 
@@ -300,6 +300,8 @@ curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 ```
 
 The installer is idempotent and always installs or updates the complete Linux experience: the desktop/tray client, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
+
+The Tauri desktop checks for updates shortly after launch on Linux, Windows, and macOS. When a signed update is available, QuickDrop asks before installing and restarting. Windows and macOS also expose **Verificar atualizações…** in the tray/menu bar. Update bundles are authenticated with the QuickDrop updater key on every platform. The macOS build uses an ad-hoc Apple signature rather than Developer ID notarization, so Gatekeeper may still require **Abrir Mesmo Assim** after installation or an update.
 
 ## Local backend with Docker
 
