@@ -1,7 +1,7 @@
 # Graph Report - quickdrop  (2026-08-13)
 
 ## Corpus Check
-- 100 files · ~53,920 words
+- 100 files · ~55,973 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `61a51507`
+- Built from commit: `3181c9be`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -84,8 +84,8 @@
 6. `handle_timeline_key()` - 21 edges
 7. `run_mouse_action()` - 21 edges
 8. `compilerOptions` - 20 edges
-9. `buildApp()` - 18 edges
-10. `InMemoryTextRoomsRepository` - 18 edges
+9. `InMemoryTextRoomsRepository` - 18 edges
+10. `buildApp()` - 18 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `PostgreSQL Container` --semantically_similar_to--> `PostgreSQL Persistence`  [INFERRED] [semantically similar]
@@ -297,7 +297,7 @@ Cohesion: 0.32
 Nodes (7): fetchLatestRelease(), fetchReleaseAsset(), githubHeaders(), GitHubRelease, GitHubReleaseAsset, MISSING_GITHUB_TOKEN_MESSAGE, ReleaseAssetDownloadOptions
 
 ## Knowledge Gaps
-- **229 isolated node(s):** `quickdrop-cli`, `databaseUrl`, `uploads`, `storage_quota`, `storage_reservations` (+224 more)
+- **229 isolated node(s):** `quickdrop-cli`, `quickdrop`, `$schema`, `productName`, `version` (+224 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **12 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -305,12 +305,12 @@ Nodes (7): fetchLatestRelease(), fetchReleaseAsset(), githubHeaders(), GitHubRel
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `App` connect `App` to `handle_timeline_key`, `lib.rs`, `QdError`, `tui.rs`, `.new`, `App<'a>`, `handle_mouse`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
-- **Why does `bun` connect `Build Configuration` to `text-rooms-repository.ts`?**
-  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
 - **Why does `QdError` connect `QdError` to `handle_timeline_key`, `handle_mouse`, `tui.rs`, `.new`?**
-  _High betweenness centrality (0.027) - this node is a cross-community bridge._
-- **What connects `quickdrop-cli`, `databaseUrl`, `uploads` to the rest of the system?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+- **Why does `build_quickdrop_window()` connect `lib.rs` to `App`?**
+  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+- **What connects `quickdrop-cli`, `quickdrop`, `$schema` to the rest of the system?**
   _229 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `lib.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.05765870704717531 - nodes in this community are weakly interconnected._
