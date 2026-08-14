@@ -320,8 +320,7 @@ async function main(): Promise<void> {
     "tauri",
     "signer",
     "sign",
-    "-p",
-    process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "",
+    `--password=${process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? ""}`,
     `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
   ]);
 
