@@ -27,6 +27,9 @@ cleanup() {
   if [[ -n "${tmp_dir:-}" && -d "${tmp_dir:-}" ]]; then
     rm -rf "$tmp_dir"
   fi
+  if [[ -n "${staged_app_path:-}" && -e "${staged_app_path:-}" ]]; then
+    rm -rf "$staged_app_path"
+  fi
 }
 trap cleanup EXIT
 
@@ -98,8 +101,26 @@ if [[ "${QUICKDROP_SKIP_DESKTOP:-0}" != "1" ]]; then
   hdiutil attach "$dmg_path" -mountpoint "$mount_dir" -nobrowse -readonly -quiet ||
     fail "Failed to mount the QuickDrop DMG."
   [[ -d "$mount_dir/QuickDrop.app" ]] || fail "QuickDrop.app was not found in the DMG."
-  rm -rf "$app_path"
-  ditto "$mount_dir/QuickDrop.app" "$app_path"
+
+  staged_app_path="$applications_dir/.QuickDrop.app.staged.$$"
+  backup_app_path="$applications_dir/.QuickDrop.app.backup.$$"
+  rm -rf "$staged_app_path" "$backup_app_path"
+  ditto "$mount_dir/QuickDrop.app" "$staged_app_path" ||
+    fail "Failed to stage the QuickDrop menu bar app. The installed app was not changed."
+
+  if [[ -e "$app_path" ]]; then
+    mv "$app_path" "$backup_app_path" ||
+      fail "Failed to prepare the installed QuickDrop app for replacement."
+  fi
+  if ! mv "$staged_app_path" "$app_path"; then
+    if [[ -e "$backup_app_path" ]]; then
+      mv "$backup_app_path" "$app_path" ||
+        fail "QuickDrop replacement failed and the previous app could not be restored from $backup_app_path."
+    fi
+    fail "Failed to install QuickDrop. The previous app was restored."
+  fi
+  rm -rf "$backup_app_path"
+
   hdiutil detach "$mount_dir" -quiet
   mount_dir=""
   info "Installed QuickDrop menu bar app to $app_path"

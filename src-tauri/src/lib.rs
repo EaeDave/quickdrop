@@ -8,7 +8,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
-use std::process::{self, Command};
+use std::process;
+#[cfg(any(target_os = "linux", test))]
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
 #[cfg(any(target_os = "windows", target_os = "macos"))]

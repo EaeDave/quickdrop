@@ -10,7 +10,8 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": []
+    "windows": [],
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": false
