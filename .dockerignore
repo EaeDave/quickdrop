@@ -16,10 +16,12 @@ logs
 !.env.example
 
 src-tauri/target
+cli/target
 src-tauri/gen
 src/desktop/output.css
 dist
 out
+graphify-out
 
 .DS_Store
 .idea

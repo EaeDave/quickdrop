@@ -19,7 +19,10 @@ use tokio_tungstenite::{
 mod tui;
 mod update;
 
-pub(crate) const DEFAULT_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
+pub(crate) const DEFAULT_API_BASE_URL: &str = match option_env!("QUICKDROP_PUBLIC_BASE_URL") {
+    Some(url) => url,
+    None => "http://127.0.0.1:3000",
+};
 const USAGE: &str = "Usage:
   qd [<room> [pin]] [--server <url>]
   qd <room> [pin] --msg <text> [--server <url>]
@@ -32,7 +35,7 @@ Options:
   --copy                 Print and copy the newest item without opening the TUI.
   update                 Download and install the latest qd binary.
   --check                Report whether a qd update is available.
-  --server <url>         QuickDrop URL (default: QUICKDROP_API_BASE_URL or https://quickdrop.eaedave.xyz).
+  --server <url>         QuickDrop URL (default: QUICKDROP_API_BASE_URL or the build default).
   -V, --version          Show the installed qd version.
   -h, --help             Show this help.";
 
@@ -770,6 +773,14 @@ pub(crate) enum QdError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_default_api_url_is_normalized() {
+        assert_eq!(
+            DEFAULT_API_BASE_URL,
+            DEFAULT_API_BASE_URL.trim().trim_end_matches('/')
+        );
+    }
 
     #[test]
     fn parses_tui_chooser_room_and_pin_forms() {

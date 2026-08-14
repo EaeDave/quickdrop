@@ -17,7 +17,6 @@ test("launcher maps QuickDrop at its final position without initial focus", asyn
   const configDir = join(root, ".config", "quickdrop");
   const eventLog = join(root, "events.log");
   const fakeQuickdrop = join(bin, "quickdrop");
-  const clientCalls = join(root, "client-calls");
   const marker = join(root, "must-not-exist");
   await mkdir(bin, { recursive: true });
   await mkdir(configDir, { recursive: true });
@@ -43,11 +42,10 @@ if [ -n "\${MONITORS_JSON:-}" ]; then
   printf '%s\\n' '749 26 749 26'
   exit
 fi
-count=0
-[ ! -f "$CLIENT_CALLS" ] || count=$(cat "$CLIENT_CALLS")
-count=$((count + 1))
-printf '%s' "$count" > "$CLIENT_CALLS"
-[ "$count" -lt 2 ] || printf '%s\\n' '0x1'
+if [ -f "$EVENT_LOG" ] && grep -q '^launch:' "$EVENT_LOG"; then
+  printf '%s\\n' '0x1'
+fi
+exit 0
 `);
 
   await $`bash ${launcher}`
@@ -58,7 +56,7 @@ printf '%s' "$count" > "$CLIENT_CALLS"
       XDG_RUNTIME_DIR: root,
       EVENT_LOG: eventLog,
       QUICKDROP_BIN: fakeQuickdrop,
-      CLIENT_CALLS: clientCalls,
+      QUICKDROP_API_BASE_URL: undefined,
     })
     .quiet();
 

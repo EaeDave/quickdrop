@@ -120,7 +120,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     "TEXT_METRICS_RETENTION_DAYS",
     DEFAULT_TEXT_METRICS_RETENTION_DAYS,
   );
-  const publicBaseUrl = readRequired(env, "PUBLIC_BASE_URL").replace(/\/+$/, "");
+  const publicBaseUrl = normalizePublicBaseUrl(
+    readOptional(env, "QUICKDROP_PUBLIC_BASE_URL") ?? readRequired(env, "PUBLIC_BASE_URL")
+  );
 
   return {
     port,
@@ -162,6 +164,22 @@ function readRequired(env: NodeJS.ProcessEnv, name: string): string {
   }
 
   return value;
+}
+
+function normalizePublicBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("QUICKDROP_PUBLIC_BASE_URL or PUBLIC_BASE_URL must be an absolute URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("QUICKDROP_PUBLIC_BASE_URL or PUBLIC_BASE_URL must be a credential-free HTTP(S) URL");
+  }
+  if (!/^\/+$/u.test(url.pathname) || url.search || url.hash) {
+    throw new Error("QUICKDROP_PUBLIC_BASE_URL or PUBLIC_BASE_URL must not contain a path, query, or fragment");
+  }
+  return url.origin;
 }
 
 function readOptional(env: NodeJS.ProcessEnv, name: string): string | undefined {

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { publicBaseUrl, updaterBaseUrl } from "./public-config";
 
 export type TauriUpdatePlatform = {
   signature: string;
@@ -22,7 +23,7 @@ export function createTauriUpdateManifest(
   version: string,
   tag: string,
   signatures: Record<string, string>,
-  updateBaseUrl = "https://quickdrop.eaedave.xyz/desktop/update",
+  updateBaseUrl: string,
 ): TauriUpdateManifest {
   const platforms: Record<string, TauriUpdatePlatform> = {};
   for (const [platform, asset] of Object.entries(updaterAssets(version))) {
@@ -61,7 +62,12 @@ async function main(): Promise<void> {
     signatures[asset] = await Bun.file(join(signatureDirectory, `${asset}.sig`)).text();
   }
 
-  const manifest = createTauriUpdateManifest(version, tag, signatures);
+  const manifest = createTauriUpdateManifest(
+    version,
+    tag,
+    signatures,
+    updaterBaseUrl(publicBaseUrl()),
+  );
   const outputPath = process.env.TAURI_UPDATE_MANIFEST_PATH ?? "latest.json";
   await Bun.write(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(outputPath);

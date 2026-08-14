@@ -101,7 +101,7 @@ export function buildApp() {
       reply
         .type("text/plain; charset=utf-8")
         .header("cache-control", "public, max-age=300")
-        .send(script),
+        .send(script.replaceAll("__QUICKDROP_PUBLIC_BASE_URL__", config.publicBaseUrl)),
     );
 
   app.get("/install.ps1", async (_request, reply) => sendScriptFile(reply, "install-windows.ps1"));

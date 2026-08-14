@@ -9,7 +9,7 @@ const launcherSource = resolve("scripts/quickdrop-launcher");
 const barInstallerSource = resolve("scripts/install-bar-integration.sh");
 const waybarPatcherSource = resolve("scripts/install-waybar-module.py");
 const omarchyPluginSource = resolve("scripts/omarchy-quickdrop");
-const apiBaseUrl = "https://quickdrop.eaedave.xyz";
+const apiBaseUrl = "https://drop.example";
 
 const hasToolchain = Boolean(Bun.which("bash") && Bun.which("python3"));
 
@@ -73,7 +73,7 @@ async function createSandbox(options: { config?: string; configDir?: string } = 
 async function runInstaller(
   sandbox: Sandbox,
   bar = "waybar",
-  options: { apiBaseUrl?: string; integrationOnly?: boolean } = { apiBaseUrl },
+  options: { apiBaseUrl?: string; publicBaseUrl?: string; integrationOnly?: boolean } = { apiBaseUrl },
 ): Promise<void> {
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -92,7 +92,11 @@ async function runInstaller(
     QUICKDROP_BAR_NO_RESTART: "1",
   };
   delete env.QUICKDROP_API_BASE_URL;
+  delete env.QUICKDROP_PUBLIC_BASE_URL;
   if (options.apiBaseUrl !== undefined) env.QUICKDROP_API_BASE_URL = options.apiBaseUrl;
+  if (options.publicBaseUrl !== undefined) {
+    env.QUICKDROP_PUBLIC_BASE_URL = options.publicBaseUrl;
+  }
   if (options.integrationOnly) env.QUICKDROP_INTEGRATION_ONLY = "1";
 
   await $`bash ${scriptPath}`.env(env).quiet();
@@ -172,6 +176,19 @@ describe.skipIf(!hasToolchain)("install-linux.sh", () => {
     await runInstaller(sandbox, "none", {});
 
     expect(await readFile(configPath, "utf8")).toBe("QUICKDROP_API_BASE_URL=http://127.0.0.1:3000\n");
+  });
+
+  test("persists the public deployment used for installation", async () => {
+    const sandbox = await createSandbox();
+    await mkdir(sandbox.configDir, { recursive: true });
+    const configPath = join(sandbox.configDir, "config.env");
+    await writeFile(configPath, "QUICKDROP_API_BASE_URL=https://old.example\n");
+
+    await runInstaller(sandbox, "none", { publicBaseUrl: "https://new.example/" });
+
+    expect(await readFile(configPath, "utf8")).toBe(
+      "QUICKDROP_API_BASE_URL=https://new.example\n",
+    );
   });
 
   test("rejects a downloaded qd binary whose checksum does not match", async () => {

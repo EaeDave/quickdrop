@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { updaterAssets } from "./generate-tauri-update-manifest";
+import { publicBaseUrl } from "./public-config";
 
 const VERSION_FILES = [
   "src-tauri/tauri.conf.json",
@@ -37,6 +38,14 @@ export function assertReleasePlatform(platform: NodeJS.Platform, arch: string): 
   if (platform !== "linux" || arch !== "x64") {
     throw new Error(
       "QuickDrop releases must be started from x86_64 Linux; Windows and macOS assets are built in GitHub Actions",
+    );
+  }
+}
+
+export function assertReleaseRepository(configured: string, checkout: string): void {
+  if (configured.toLowerCase() !== checkout.toLowerCase()) {
+    throw new Error(
+      `QUICKDROP_GITHUB_REPOSITORY (${configured}) does not match the current checkout (${checkout})`,
     );
   }
 }
@@ -135,13 +144,23 @@ async function configureUpdaterSigning(): Promise<void> {
   process.env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
 }
 
-async function preflight(tag: string): Promise<void> {
+async function preflight(tag: string, repository: string): Promise<void> {
   if ((await output(["git", "branch", "--show-current"])) !== "main") {
     throw new Error("Releases must be created from main");
   }
   if (await output(["git", "status", "--porcelain"])) {
     throw new Error("Working tree must be clean before releasing");
   }
+  const checkoutRepository = await output([
+    "gh",
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+  assertReleaseRepository(repository, checkoutRepository);
   await run(["git", "fetch", "origin", "main", "--tags"]);
   if ((await output(["git", "rev-parse", "HEAD"])) !== (await output(["git", "rev-parse", "origin/main"]))) {
     throw new Error("Local main must match origin/main before releasing");
@@ -153,7 +172,7 @@ async function preflight(tag: string): Promise<void> {
 
 type ReleaseAsset = { name: string; digest: string };
 
-async function waitForPlatformWorkflow(tag: string): Promise<void> {
+async function waitForPlatformWorkflow(tag: string, repository: string): Promise<void> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const raw = await output([
       "gh",
@@ -169,10 +188,20 @@ async function waitForPlatformWorkflow(tag: string): Promise<void> {
       "1",
       "--json",
       "databaseId",
+      "--repo",
+      repository,
     ]);
     const runs = JSON.parse(raw) as Array<{ databaseId: number }>;
     if (runs[0]) {
-      await run(["gh", "run", "watch", String(runs[0].databaseId), "--exit-status"]);
+      await run([
+        "gh",
+        "run",
+        "watch",
+        String(runs[0].databaseId),
+        "--exit-status",
+        "--repo",
+        repository,
+      ]);
       return;
     }
     await Bun.sleep(2_000);
@@ -194,8 +223,30 @@ async function responseDigest(response: Response): Promise<string> {
   return `sha256:${hash.digest("hex")}`;
 }
 
-async function verifyPublicAssets(tag: string, version: string): Promise<void> {
-  const raw = await output(["gh", "release", "view", tag, "--json", "assets"]);
+function githubReleaseRepository(env: NodeJS.ProcessEnv = process.env): string {
+  const repository = env.QUICKDROP_GITHUB_REPOSITORY?.trim();
+  if (!repository || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("QUICKDROP_GITHUB_REPOSITORY must use the owner/repository format");
+  }
+  return repository;
+}
+
+async function verifyPublicAssets(
+  tag: string,
+  version: string,
+  deploymentBaseUrl: string,
+  repository: string,
+): Promise<void> {
+  const raw = await output([
+    "gh",
+    "release",
+    "view",
+    tag,
+    "--json",
+    "assets",
+    "--repo",
+    repository,
+  ]);
   const release = JSON.parse(raw) as { assets: ReleaseAsset[] };
   const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
   const endpoints = new Map([
@@ -232,7 +283,7 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
     await Promise.all(
       [...pending].map(async ([endpoint, assetName]) => {
         try {
-          const response = await fetch(`https://quickdrop.eaedave.xyz${endpoint}`, {
+          const response = await fetch(`${deploymentBaseUrl}${endpoint}`, {
             cache: "no-store",
             signal: AbortSignal.timeout(15_000),
           });
@@ -253,7 +304,7 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
   const releaseApiRaw = await output([
     "gh",
     "api",
-    `repos/EaeDave/quickdrop/releases/tags/${tag}`,
+    `repos/${repository}/releases/tags/${tag}`,
   ]);
   const releaseApi = JSON.parse(releaseApiRaw) as {
     assets: Array<{ name: string; url: string }>;
@@ -273,7 +324,7 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
       return [
         platform,
         {
-          url: `https://quickdrop.eaedave.xyz/desktop/update/${version}/${platform}`,
+          url: `${deploymentBaseUrl}/desktop/update/${version}/${platform}`,
           signature: signature.trim(),
         },
       ] as const;
@@ -282,7 +333,7 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
   for (let attempt = 0; attempt < 18; attempt += 1) {
     try {
       const response = await fetch(
-        "https://quickdrop.eaedave.xyz/desktop/update/latest.json",
+        `${deploymentBaseUrl}/desktop/update/latest.json`,
         { cache: "no-store", signal: AbortSignal.timeout(15_000) },
       );
       const manifest = (await response.json()) as {
@@ -319,13 +370,16 @@ async function main(): Promise<void> {
   const next = nextVersion(current, requested);
   if (next === current) throw new Error(`Version is already ${current}`);
   const tag = `v${next}`;
-  await preflight(tag);
+  const deploymentBaseUrl = publicBaseUrl();
+  const repository = githubReleaseRepository();
+  process.env.QUICKDROP_PUBLIC_BASE_URL = deploymentBaseUrl;
+  await preflight(tag, repository);
   await configureUpdaterSigning();
 
   for (const path of VERSION_FILES) await replaceVersion(path, current, next);
   await run(["cargo", "check", "--manifest-path", "cli/Cargo.toml"]);
   await run(["cargo", "check", "--manifest-path", "src-tauri/Cargo.toml"]);
-  await run(["bun", "tauri", "build", "--ci", "--no-bundle"]);
+  await run(["bun", "run", "tauri", "--", "build", "--ci", "--no-bundle"]);
   await run([
     "cargo",
     "build",
@@ -365,9 +419,11 @@ async function main(): Promise<void> {
     "--generate-notes",
     "--title",
     tag,
+    "--repo",
+    repository,
   ]);
-  await waitForPlatformWorkflow(tag);
-  await verifyPublicAssets(tag, next);
+  await waitForPlatformWorkflow(tag, repository);
+  await verifyPublicAssets(tag, next, deploymentBaseUrl, repository);
   console.log(`Published and verified ${tag} for Linux, Windows, and macOS.`);
 }
 

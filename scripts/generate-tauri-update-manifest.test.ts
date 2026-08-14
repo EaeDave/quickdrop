@@ -8,7 +8,12 @@ describe("Tauri update manifest", () => {
       Object.values(assets).map((asset) => [asset, `signature for ${asset}\n`]),
     );
 
-    const manifest = createTauriUpdateManifest("1.2.3", "v1.2.3", signatures);
+    const manifest = createTauriUpdateManifest(
+      "1.2.3",
+      "v1.2.3",
+      signatures,
+      "https://drop.example/desktop/update",
+    );
 
     expect(manifest.version).toBe("1.2.3");
     expect(Object.keys(manifest.platforms)).toEqual([
@@ -19,12 +24,19 @@ describe("Tauri update manifest", () => {
     ]);
     expect(manifest.platforms["darwin-aarch64"]).toEqual({
       signature: "signature for QuickDrop_1.2.3_aarch64.app.tar.gz",
-      url: "https://quickdrop.eaedave.xyz/desktop/update/1.2.3/darwin-aarch64",
+      url: "https://drop.example/desktop/update/1.2.3/darwin-aarch64",
     });
   });
 
   test("rejects a platform without a matching signature", () => {
-    expect(() => createTauriUpdateManifest("1.2.3", "v1.2.3", {})).toThrow(
+    expect(() =>
+      createTauriUpdateManifest(
+        "1.2.3",
+        "v1.2.3",
+        {},
+        "https://drop.example/desktop/update",
+      ),
+    ).toThrow(
       "Missing updater signature",
     );
   });

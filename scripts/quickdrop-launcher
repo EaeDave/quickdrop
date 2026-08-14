@@ -17,7 +17,7 @@ if [[ -f "$config_path" ]]; then
       sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
   )"
 fi
-api_base_url="${QUICKDROP_API_BASE_URL:-${config_api_base_url:-https://quickdrop.eaedave.xyz}}"
+api_base_url="${QUICKDROP_API_BASE_URL:-${config_api_base_url:-${QUICKDROP_PUBLIC_BASE_URL:-__QUICKDROP_PUBLIC_BASE_URL__}}}"
 api_base_url="${api_base_url%/}"
 window_width="${QUICKDROP_WINDOW_WIDTH:-380}"
 window_height="${QUICKDROP_WINDOW_HEIGHT:-360}"

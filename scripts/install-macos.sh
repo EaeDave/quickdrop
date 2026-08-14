@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # QuickDrop desktop and qd CLI/TUI installer for macOS.
 #
-#   curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash
+#   curl -fsSL https://your-quickdrop.example/install-macos.sh | bash
 set -euo pipefail
 
-DEFAULT_BASE_URL="https://quickdrop.eaedave.xyz"
+DEFAULT_BASE_URL="__QUICKDROP_PUBLIC_BASE_URL__"
 MIN_BINARY_BYTES=1048576
 
-base_url="${QUICKDROP_API_BASE_URL:-$DEFAULT_BASE_URL}"
+base_url="${QUICKDROP_API_BASE_URL:-${QUICKDROP_PUBLIC_BASE_URL:-$DEFAULT_BASE_URL}}"
 base_url="${base_url%/}"
 bin_dir="${QUICKDROP_BIN_DIR:-$HOME/.local/bin}"
 applications_dir="${QUICKDROP_APPLICATIONS_DIR:-$HOME/Applications}"

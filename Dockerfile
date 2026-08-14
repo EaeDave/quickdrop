@@ -33,6 +33,7 @@ COPY src/server ./src/server
 COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY scripts/install-windows.ps1 ./scripts/install-windows.ps1
 COPY scripts/install-linux.sh ./scripts/install-linux.sh
+COPY scripts/install-macos.sh ./scripts/install-macos.sh
 COPY scripts/quickdrop-launcher ./scripts/quickdrop-launcher
 COPY scripts/install-bar-integration.sh ./scripts/install-bar-integration.sh
 COPY scripts/install-waybar-module.py ./scripts/install-waybar-module.py
