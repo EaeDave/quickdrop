@@ -68,7 +68,7 @@
   "66": "QuickPanel.tsx",
   "67": "text-rooms-repository.ts",
   "69": "install-macos.test.ts",
-  "70": "handleReleaseAssetDownload",
+  "70": "github-release.ts",
   "72": "Drop",
   "73": "HashMap",
   "74": "Option",
