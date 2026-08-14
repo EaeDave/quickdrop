@@ -1,7 +1,7 @@
 # Graph Report - quickdrop  (2026-08-14)
 
 ## Corpus Check
-- 110 files · ~62,685 words
+- 110 files · ~62,682 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6e37944a`
+- Built from commit: `16e7cf8c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -323,7 +323,7 @@ Cohesion: 0.32
 Nodes (7): fetchRelease(), fetchReleaseAsset(), githubHeaders(), GitHubRelease, GitHubReleaseAsset, MISSING_GITHUB_TOKEN_MESSAGE, ReleaseAssetDownloadOptions
 
 ## Knowledge Gaps
-- **261 isolated node(s):** `UploadProgress`, `InstallPlatform`, `PanelMode`, `INSTALL_PLATFORMS`, `UploadState` (+256 more)
+- **261 isolated node(s):** `UploadProgress`, `SpooledUpload`, `StorageQuotaGateway`, `UploadedObject`, `UploadResponse` (+256 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -331,10 +331,10 @@ Nodes (7): fetchRelease(), fetchReleaseAsset(), githubHeaders(), GitHubRelease, 
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `bun` connect `Build Configuration` to `text-drops-repository.ts`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **Why does `QdError` connect `QdError` to `App`, `TerminalGuard`, `tui.rs`?**
   _High betweenness centrality (0.021) - this node is a cross-community bridge._
-- **What connects `UploadProgress`, `InstallPlatform`, `PanelMode` to the rest of the system?**
+- **What connects `UploadProgress`, `SpooledUpload`, `StorageQuotaGateway` to the rest of the system?**
   _261 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `lib.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.053407855922993325 - nodes in this community are weakly interconnected._
