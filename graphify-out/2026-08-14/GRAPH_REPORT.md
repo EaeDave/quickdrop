@@ -1,7 +1,7 @@
 # Graph Report - quickdrop  (2026-08-14)
 
 ## Corpus Check
-- 108 files · ~61,059 words
+- 108 files · ~61,089 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d006fb6b`
+- Built from commit: `9ff33f65`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -308,7 +308,7 @@ Cohesion: 0.22
 Nodes (8): TextRoomRecord, activeRoomFilter(), createTextRoomWithinLimit(), findExpiredTextRooms(), findTextRoomByCode(), TextRoomsRepository, toTextRoomRow(), updateTextRoomText()
 
 ## Knowledge Gaps
-- **260 isolated node(s):** `TauriUpdatePlatform`, `TauriUpdateManifest`, `MISSING_GITHUB_TOKEN_MESSAGE`, `GitHubReleaseAsset`, `GitHubRelease` (+255 more)
+- **260 isolated node(s):** `MISSING_GITHUB_TOKEN_MESSAGE`, `GitHubReleaseAsset`, `GitHubRelease`, `ReleaseAssetDownloadOptions`, `SpooledUpload` (+255 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -318,10 +318,8 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `QdError` connect `QdError` to `App`, `TerminalGuard`, `tui.rs`?**
   _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **Why does `bun` connect `Build Configuration` to `storage-quota.ts`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
-- **Why does `render_timeline()` connect `.new` to `App<'a>`, `App`, `tui.rs`, `.replace_drops`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
-- **What connects `TauriUpdatePlatform`, `TauriUpdateManifest`, `MISSING_GITHUB_TOKEN_MESSAGE` to the rest of the system?**
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+- **What connects `MISSING_GITHUB_TOKEN_MESSAGE`, `GitHubReleaseAsset`, `GitHubRelease` to the rest of the system?**
   _260 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `lib.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.05536942338211955 - nodes in this community are weakly interconnected._
@@ -329,3 +327,5 @@ _Questions this graph is uniquely positioned to answer:_
   _Cohesion score 0.05621351125938282 - nodes in this community are weakly interconnected._
 - **Should `text-session-service.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.06892010535557506 - nodes in this community are weakly interconnected._
+- **Should `text-client.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.07490079365079365 - nodes in this community are weakly interconnected._
