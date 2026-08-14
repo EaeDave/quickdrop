@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::process;
-#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
@@ -83,7 +82,7 @@ struct ZipInput {
 }
 
 const WINDOW_WIDTH: f64 = 380.0;
-const WINDOW_HEIGHT: f64 = 220.0;
+const WINDOW_HEIGHT: f64 = 360.0;
 const LAUNCHER_GAP: f64 = 10.0;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
@@ -407,6 +406,38 @@ fn read_clipboard_upload_inputs(app: AppHandle) -> Result<Vec<LocalUploadInput>,
     }])
 }
 
+#[tauri::command]
+fn read_clipboard_text(app: AppHandle) -> Result<String, String> {
+    read_clipboard_text_for_platform(&app)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn read_clipboard_text_for_platform(app: &AppHandle) -> Result<String, String> {
+    let text = app
+        .clipboard()
+        .read_text()
+        .map_err(|error| format!("Falha ao ler texto do clipboard: {error}"))?;
+    if text.trim().is_empty() {
+        return Err("Clipboard sem texto para enviar.".to_string());
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "linux")]
+fn read_clipboard_text_for_platform(_app: &AppHandle) -> Result<String, String> {
+    let mime_type = list_clipboard_types()?
+        .into_iter()
+        .find(|mime_type| is_plain_text_clipboard_type(mime_type))
+        .ok_or_else(|| "Clipboard sem texto para enviar.".to_string())?;
+    let bytes = read_clipboard_text_bytes(&mime_type)?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| "O texto do clipboard não está em UTF-8 válido.".to_string())?;
+    if text.trim().is_empty() {
+        return Err("Clipboard sem texto para enviar.".to_string());
+    }
+    Ok(text)
+}
+
 #[cfg(target_os = "linux")]
 fn read_clipboard_payload_for_platform(_app: &AppHandle) -> Result<ClipboardPayload, String> {
     read_wayland_clipboard_payload()
@@ -670,6 +701,64 @@ fn notify_success(app: AppHandle, file_count: Option<usize>) -> Result<(), Strin
     notify_success_for_platform(&app, upload_success_message(file_count))
 }
 
+#[tauri::command]
+fn notify_text_drop(app: AppHandle, code: String) -> Result<(), String> {
+    if !valid_text_code(&code) {
+        return Err("Código de clipboard inválido.".to_string());
+    }
+    notify_success_for_platform(
+        &app,
+        format!("Novo texto recebido no canal {}.", code.to_uppercase()),
+    )
+}
+
+#[tauri::command]
+fn open_text_clipboard(
+    state: tauri::State<'_, DesktopConfig>,
+    code: String,
+) -> Result<(), String> {
+    if !valid_text_code(&code) {
+        return Err("Código de clipboard inválido.".to_string());
+    }
+    let url = format!("{}/t/{}", state.api_base_url, code.to_uppercase());
+    open_url_for_platform(&url)
+}
+
+fn valid_text_code(code: &str) -> bool {
+    !code.is_empty()
+        && code.len() <= 16
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+#[cfg(target_os = "linux")]
+fn open_url_for_platform(url: &str) -> Result<(), String> {
+    Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn open_url_for_platform(url: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn open_url_for_platform(url: &str) -> Result<(), String> {
+    Command::new("explorer.exe")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Falha ao abrir clipboard no navegador: {error}"))
+}
+
 fn upload_success_message(file_count: Option<usize>) -> String {
     match file_count.unwrap_or(1) {
         1 => "Upload concluído. Link copiado para a área de transferência.".to_string(),
@@ -714,14 +803,8 @@ fn dismiss_window(window: tauri::Window) -> Result<(), String> {
         .map_err(|error| format!("Falha ao fechar janela QuickDrop: {error}"))
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
     window.hide()
-}
-
-#[cfg(target_os = "linux")]
-fn dismiss_window_for_platform(window: &tauri::Window) -> tauri::Result<()> {
-    window.close()
 }
 
 #[tauri::command]
@@ -1244,7 +1327,7 @@ mod tests {
             work_height: 1040.0,
         };
 
-        assert_eq!(compute_tray_window_position(area), (1530.0, 810.0));
+        assert_eq!(compute_tray_window_position(area), (1530.0, 670.0));
     }
 
     #[test]
@@ -1278,8 +1361,17 @@ mod tests {
 
         assert_eq!(
             compute_anchor_window_position(PhysicalPosition::new(1850.0, 1040.0), Some(area)),
-            (1540.0, 820.0)
+            (1540.0, 680.0)
         );
+    }
+
+    #[test]
+    fn text_codes_accept_only_the_public_room_alphabet() {
+        assert!(valid_text_code("A"));
+        assert!(valid_text_code("DEV-1_test"));
+        assert!(!valid_text_code(""));
+        assert!(!valid_text_code("contains space"));
+        assert!(!valid_text_code("12345678901234567"));
     }
 
     #[cfg(target_os = "linux")]
@@ -1476,8 +1568,11 @@ pub fn run() {
             upload_file,
             upload_files,
             read_clipboard_upload_inputs,
+            read_clipboard_text,
             copy_link,
             notify_success,
+            notify_text_drop,
+            open_text_clipboard,
             get_api_base_url,
             dismiss_window,
             uses_native_clipboard_paste

@@ -19,8 +19,8 @@ if [[ -f "$config_path" ]]; then
 fi
 api_base_url="${QUICKDROP_API_BASE_URL:-${config_api_base_url:-https://quickdrop.eaedave.xyz}}"
 api_base_url="${api_base_url%/}"
-window_width="${QUICKDROP_WINDOW_WIDTH:-432}"
-window_height="${QUICKDROP_WINDOW_HEIGHT:-272}"
+window_width="${QUICKDROP_WINDOW_WIDTH:-380}"
+window_height="${QUICKDROP_WINDOW_HEIGHT:-360}"
 
 cursor_position="$(hyprctl cursorpos 2>/dev/null || printf '')"
 cursor_x="${cursor_position%%,*}"

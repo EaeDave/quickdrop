@@ -82,6 +82,40 @@ h1 {
   text-transform: uppercase;
 }
 
+.quickdrop-mode-tabs {
+  display: flex;
+  gap: 3px;
+  border: 1px solid rgb(148 163 184 / 0.16);
+  border-radius: 7px;
+  background: rgb(2 6 23 / 0.34);
+  padding: 2px;
+}
+
+.quickdrop-mode-tabs button {
+  border-radius: 5px;
+  color: #94a3b8;
+  padding: 4px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.quickdrop-mode-tabs button:hover,
+.quickdrop-mode-tabs .quickdrop-mode-tab--active {
+  background: rgb(56 189 248 / 0.16);
+  color: #e0f2fe;
+}
+
+.quickdrop-mode-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.quickdrop-mode-content[hidden] {
+  display: none;
+}
+
 .quickdrop-close {
   display: grid;
   width: 24px;
@@ -243,6 +277,192 @@ h1 {
 
 .quickdrop-action:hover {
   background: rgb(56 189 248 / 0.24);
+}
+
+.quickpanel-text {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.quickpanel-code-row,
+.quickpanel-composer-row,
+.quickpanel-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quickpanel-input,
+.quickpanel-composer {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 7px;
+  background: rgb(2 6 23 / 0.48);
+  color: #e2e8f0;
+  padding: 8px 10px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.quickpanel-input:focus,
+.quickpanel-composer:focus {
+  border-color: rgb(56 189 248 / 0.66);
+}
+
+.quickpanel-primary,
+.quickpanel-paste,
+.quickpanel-open {
+  border: 1px solid rgb(56 189 248 / 0.3);
+  border-radius: 7px;
+  background: rgb(14 165 233 / 0.15);
+  color: #e0f2fe;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.quickpanel-primary:disabled,
+.quickpanel-paste:disabled,
+.quickpanel-open:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.quickpanel-recents {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.quickpanel-recents button {
+  border-radius: 999px;
+  background: rgb(148 163 184 / 0.1);
+  color: #cbd5e1;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.quickpanel-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed rgb(56 189 248 / 0.24);
+  border-radius: 7px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.quickpanel-empty span,
+.quickpanel-waiting,
+.quickpanel-message {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.quickpanel-channel-row {
+  justify-content: space-between;
+}
+
+.quickpanel-channel-row > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quickpanel-channel-row strong {
+  color: #7dd3fc;
+  letter-spacing: 0.08em;
+}
+
+.quickpanel-status {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.quickpanel-status--open {
+  color: #86efac;
+}
+
+.quickpanel-channel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.quickpanel-channel-actions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid rgb(148 163 184 / 0.16);
+  border-radius: 6px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.quickpanel-composer {
+  height: 54px;
+  resize: none;
+  font: inherit;
+}
+
+.quickpanel-paste {
+  align-self: flex-start;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.quickpanel-drops {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow: auto;
+}
+
+.quickpanel-drop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgb(148 163 184 / 0.13);
+  border-radius: 7px;
+  background: rgb(15 23 42 / 0.42);
+  color: #cbd5e1;
+  padding: 7px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quickpanel-drop span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickpanel-drop small {
+  color: #7dd3fc;
+}
+
+.quickpanel-waiting {
+  margin: auto;
+}
+
+.quickpanel-message {
+  overflow: hidden;
+  color: #bae6fd;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 html.quickdrop-web-page,

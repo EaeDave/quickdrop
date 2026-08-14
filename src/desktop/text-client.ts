@@ -105,6 +105,22 @@ export type ClientTextMetric =
       errorCategory: ClientTextMetricErrorCategory;
     };
 
+let textClientBaseUrl = "";
+
+export function setTextClientBaseUrl(baseUrl: string): void {
+  textClientBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+}
+
+function textApiUrl(path: string): string {
+  return textClientBaseUrl ? `${textClientBaseUrl}${path}` : path;
+}
+
+function textRequestCredentials(): RequestCredentials {
+  // The native QuickPanel supports public channels only. PIN cookies stay in the
+  // same-origin browser experience instead of crossing into the desktop WebView.
+  return textClientBaseUrl ? "omit" : "same-origin";
+}
+
 export class RoomAccessError extends Error {
   code: RoomErrorCode;
   status: number;
@@ -119,9 +135,9 @@ export class RoomAccessError extends Error {
 
 export async function recordTextMetric(metric: ClientTextMetric): Promise<void> {
   try {
-    await fetch("/api/text/metrics", {
+    await fetch(textApiUrl("/api/text/metrics"), {
       method: "POST",
-      credentials: "same-origin",
+      credentials: textRequestCredentials(),
       keepalive: true,
       headers: { "content-type": "application/json" },
       body: JSON.stringify(metric),
@@ -166,8 +182,12 @@ function getErrorCode(payload: unknown): RoomErrorCode {
 }
 
 function getRoomUrl(code: string): string {
-  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}/api/text/${encodeURIComponent(code)}/ws`;
+  const baseUrl = new URL(textClientBaseUrl || window.location.origin);
+  baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
+  baseUrl.pathname = `/api/text/${encodeURIComponent(code)}/ws`;
+  baseUrl.search = "";
+  baseUrl.hash = "";
+  return baseUrl.href;
 }
 
 function parseNumber(value: unknown): number | null {
@@ -264,12 +284,12 @@ function parseTextDrop(value: unknown): TextDrop | null {
 
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
   if (!body) {
-    return { method: "POST", credentials: "same-origin" };
+    return { method: "POST", credentials: textRequestCredentials() };
   }
 
   return {
     method: "POST",
-    credentials: "same-origin",
+    credentials: textRequestCredentials(),
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   };
@@ -278,7 +298,7 @@ function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
 export async function createRoom(pin?: string): Promise<RoomAccess> {
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    "/api/text",
+    textApiUrl("/api/text"),
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -316,7 +336,7 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
   const normalizedCode = code.trim().toUpperCase();
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    `/api/text/${encodeURIComponent(normalizedCode)}/open`,
+    textApiUrl(`/api/text/${encodeURIComponent(normalizedCode)}/open`),
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -356,7 +376,7 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
 export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> {
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    `/api/text/${encodeURIComponent(code)}/access`,
+    textApiUrl(`/api/text/${encodeURIComponent(code)}/access`),
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -399,7 +419,9 @@ export async function fetchSnapshot(code: string): Promise<{
   expiresAt: string | null;
   presence: number;
 }> {
-  const response = await fetch(`/api/text/${encodeURIComponent(code)}`, { credentials: "same-origin" });
+  const response = await fetch(textApiUrl(`/api/text/${encodeURIComponent(code)}`), {
+    credentials: textRequestCredentials(),
+  });
   const payload = await readJsonResponse(response);
 
   if (!response.ok) {
