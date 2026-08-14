@@ -51,6 +51,9 @@ async function main(): Promise<void> {
   }
 
   const tag = process.env.RELEASE_TAG ?? `v${version}`;
+  if (tag !== `v${version}`) {
+    throw new Error(`RELEASE_TAG must be v${version}, received ${tag}`);
+  }
   const signatureDirectory = process.env.TAURI_UPDATE_SIGNATURE_DIR ?? "updater-signatures";
   const signatures: Record<string, string> = {};
 

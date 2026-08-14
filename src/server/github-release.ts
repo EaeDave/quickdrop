@@ -1,4 +1,6 @@
 import type { FastifyReply } from "fastify";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
@@ -56,14 +58,20 @@ export async function handleReleaseAssetDownload(
       .send(`Could not download QuickDrop release asset from GitHub (${download.status}).`);
   }
 
-  const assetBytes = Buffer.from(await download.value.arrayBuffer());
+  if (!download.value.body) {
+    return reply
+      .code(502)
+      .type("text/plain; charset=utf-8")
+      .send("GitHub returned an empty QuickDrop release asset response.");
+  }
 
-  return reply
+  reply
     .type(download.value.headers.get("content-type") ?? "application/octet-stream")
     .header("cache-control", "public, max-age=300")
-    .header("content-disposition", `attachment; filename="${asset.name}"`)
-    .header("content-length", String(assetBytes.byteLength))
-    .send(assetBytes);
+    .header("content-disposition", `attachment; filename="${asset.name}"`);
+  const contentLength = download.value.headers.get("content-length");
+  if (contentLength) reply.header("content-length", contentLength);
+  return reply.send(Readable.fromWeb(download.value.body as unknown as NodeReadableStream));
 }
 
 async function fetchRelease(
