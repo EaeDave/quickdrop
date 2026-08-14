@@ -1,4 +1,4 @@
-name: Build Windows release
+name: Build platform releases
 
 on:
   push:
@@ -67,4 +67,55 @@ jobs:
             $installer `
             "cli/target/release/qd_${version}_x86_64-windows.exe" `
             "cli/target/release/qd_${version}_x86_64-windows.exe.sha256" `
+            --clobber
+
+  macos:
+    runs-on: macos-14
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cli
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build macOS qd for Apple Silicon and Intel
+        run: |
+          cargo build --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
+          cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
+
+      - name: Package macOS qd assets
+        run: bun run scripts/package-macos-qd-release.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-qd-release
+          path: |
+            cli/target/release/qd_*-macos
+            cli/target/release/qd_*-macos.sha256
+          if-no-files-found: error
+
+      - name: Upload macOS assets to release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(bun -e 'console.log((await Bun.file("src-tauri/tauri.conf.json").json()).version)')
+          gh release upload "$RELEASE_TAG" \
+            "cli/target/release/qd_${version}_aarch64-macos" \
+            "cli/target/release/qd_${version}_aarch64-macos.sha256" \
+            "cli/target/release/qd_${version}_x86_64-macos" \
+            "cli/target/release/qd_${version}_x86_64-macos.sha256" \
             --clobber

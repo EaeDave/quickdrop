@@ -21,6 +21,11 @@ import {
   handleWindowsQdChecksumDownload,
   handleWindowsQdDownload,
 } from "./windows-installer-service";
+import {
+  handleMacOsQdChecksumDownload,
+  handleMacOsQdDownload,
+  type MacOsArchitecture,
+} from "./macos-installer-service";
 import { TextSessionHub } from "./text-session-hub";
 import { createTextFunnelMetrics, startTextFunnelMetricsCleanup } from "./text-funnel-metrics";
 import { registerTextFunnelMetricsRoute } from "./text-funnel-metrics-route";
@@ -89,6 +94,9 @@ export function buildApp() {
 
   app.get("/install.ps1", async (_request, reply) => sendScriptFile(reply, "install-windows.ps1"));
   app.get("/install.sh", async (_request, reply) => sendScriptFile(reply, "install-linux.sh"));
+  app.get("/install-macos.sh", async (_request, reply) =>
+    sendScriptFile(reply, "install-macos.sh"),
+  );
 
   const linuxAssets: Record<string, string> = {
     "/linux/quickdrop-launcher": "quickdrop-launcher",
@@ -117,6 +125,26 @@ export function buildApp() {
   );
   app.get("/linux/qd/latest", async (_request, reply) =>
     handleLinuxQdDownload(reply, { config }),
+  );
+  app.get<{ Params: { architecture: MacOsArchitecture } }>(
+    "/macos/qd/:architecture/latest",
+    async (request, reply) => {
+      if (!isMacOsArchitecture(request.params.architecture)) return reply.callNotFound();
+      return handleMacOsQdDownload(reply, {
+        config,
+        architecture: request.params.architecture,
+      });
+    },
+  );
+  app.get<{ Params: { architecture: MacOsArchitecture } }>(
+    "/macos/qd/:architecture/latest.sha256",
+    async (request, reply) => {
+      if (!isMacOsArchitecture(request.params.architecture)) return reply.callNotFound();
+      return handleMacOsQdChecksumDownload(reply, {
+        config,
+        architecture: request.params.architecture,
+      });
+    },
   );
   app.get("/linux/qd/latest.sha256", async (_request, reply) =>
     handleLinuxQdChecksumDownload(reply, { config }),
@@ -202,6 +230,10 @@ function canonicalRoomCodeFromRawUrl(rawUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isMacOsArchitecture(value: string): value is MacOsArchitecture {
+  return value === "aarch64" || value === "x86_64";
 }
 
 function isSensitiveTextRoute(rawUrl: string): boolean {

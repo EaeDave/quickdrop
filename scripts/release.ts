@@ -35,7 +35,7 @@ export function nextVersion(current: string, requested: string): string {
 export function assertReleasePlatform(platform: NodeJS.Platform, arch: string): void {
   if (platform !== "linux" || arch !== "x64") {
     throw new Error(
-      "QuickDrop releases must be started from x86_64 Linux; Windows assets are built in GitHub Actions",
+      "QuickDrop releases must be started from x86_64 Linux; Windows and macOS assets are built in GitHub Actions",
     );
   }
 }
@@ -131,7 +131,7 @@ async function preflight(tag: string): Promise<void> {
 
 type ReleaseAsset = { name: string; digest: string };
 
-async function waitForWindowsWorkflow(tag: string): Promise<void> {
+async function waitForPlatformWorkflow(tag: string): Promise<void> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const raw = await output([
       "gh",
@@ -155,7 +155,7 @@ async function waitForWindowsWorkflow(tag: string): Promise<void> {
     }
     await Bun.sleep(2_000);
   }
-  throw new Error(`Windows release workflow did not start for ${tag}`);
+  throw new Error(`Platform release workflow did not start for ${tag}`);
 }
 
 async function responseDigest(response: Response): Promise<string> {
@@ -183,6 +183,10 @@ async function verifyPublicAssets(tag: string, version: string): Promise<void> {
     ["/windows/latest.exe", `QuickDrop_${version}_x64-setup.exe`],
     ["/windows/qd/latest.exe", `qd_${version}_x86_64-windows.exe`],
     ["/windows/qd/latest.sha256", `qd_${version}_x86_64-windows.exe.sha256`],
+    ["/macos/qd/aarch64/latest", `qd_${version}_aarch64-macos`],
+    ["/macos/qd/aarch64/latest.sha256", `qd_${version}_aarch64-macos.sha256`],
+    ["/macos/qd/x86_64/latest", `qd_${version}_x86_64-macos`],
+    ["/macos/qd/x86_64/latest.sha256", `qd_${version}_x86_64-macos.sha256`],
   ]);
   for (const assetName of endpoints.values()) {
     if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
@@ -263,9 +267,9 @@ async function main(): Promise<void> {
     "--title",
     tag,
   ]);
-  await waitForWindowsWorkflow(tag);
+  await waitForPlatformWorkflow(tag);
   await verifyPublicAssets(tag, next);
-  console.log(`Published and verified ${tag} for Linux and Windows.`);
+  console.log(`Published and verified ${tag} for Linux, Windows, and macOS.`);
 }
 
 if (import.meta.main) {

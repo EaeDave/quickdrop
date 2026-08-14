@@ -13,16 +13,6 @@ use crate::{endpoint, http_client, parse_server_url, QdError};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[cfg(windows)]
-const CHECKSUM_PATH: &str = "windows/qd/latest.sha256";
-#[cfg(not(windows))]
-const CHECKSUM_PATH: &str = "linux/qd/latest.sha256";
-
-#[cfg(windows)]
-const BINARY_PATH: &str = "windows/qd/latest.exe";
-#[cfg(not(windows))]
-const BINARY_PATH: &str = "linux/qd/latest";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AvailableUpdate {
     pub version: String,
@@ -88,13 +78,32 @@ pub fn is_newer(remote: &str, current: &str) -> Result<bool, QdError> {
     Ok(parse_version(remote)? > parse_version(current)?)
 }
 
-pub fn assert_supported_update_platform() -> Result<(), QdError> {
-    match (env::consts::OS, env::consts::ARCH) {
-        ("linux", "x86_64") | ("windows", "x86_64") => Ok(()),
-        (os, arch) => Err(QdError::Runtime(format!(
-            "qd update is only available on x86_64 Linux and Windows, not {os}/{arch}."
+fn update_paths_for(os: &str, arch: &str) -> Result<(&'static str, &'static str), QdError> {
+    match (os, arch) {
+        ("linux", "x86_64") => Ok(("linux/qd/latest.sha256", "linux/qd/latest")),
+        ("windows", "x86_64") => {
+            Ok(("windows/qd/latest.sha256", "windows/qd/latest.exe"))
+        }
+        ("macos", "aarch64") => Ok((
+            "macos/qd/aarch64/latest.sha256",
+            "macos/qd/aarch64/latest",
+        )),
+        ("macos", "x86_64") => Ok((
+            "macos/qd/x86_64/latest.sha256",
+            "macos/qd/x86_64/latest",
+        )),
+        _ => Err(QdError::Runtime(format!(
+            "qd update is only available on x86_64 Linux and Windows, and x86_64 or Apple Silicon macOS, not {os}/{arch}."
         ))),
     }
+}
+
+fn update_paths() -> Result<(&'static str, &'static str), QdError> {
+    update_paths_for(env::consts::OS, env::consts::ARCH)
+}
+
+pub fn assert_supported_update_platform() -> Result<(), QdError> {
+    update_paths().map(|_| ())
 }
 
 pub fn assert_update_origin(server: &Url) -> Result<(), QdError> {
@@ -178,8 +187,9 @@ pub async fn apply_update(
         }
     }
 
+    let (_, binary_path) = update_paths()?;
     let bytes = client
-        .get(endpoint(server, BINARY_PATH)?)
+        .get(endpoint(server, binary_path)?)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
@@ -259,8 +269,9 @@ pub async fn run_update(args: Vec<String>) -> Result<(), QdError> {
 }
 
 async fn fetch_checksum_asset(client: &Client, server: &Url) -> Result<ChecksumAsset, QdError> {
+    let (checksum_path, _) = update_paths()?;
     let body = client
-        .get(endpoint(server, CHECKSUM_PATH)?)
+        .get(endpoint(server, checksum_path)?)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
@@ -377,6 +388,27 @@ mod tests {
             asset.checksum,
             "53e33adf9eefe30c8196e34fa4f9f20c562ae9d0b14af7fc8b5ce0e985c12fad"
         );
+    }
+
+    #[test]
+    fn selects_update_assets_for_every_supported_platform() {
+        assert_eq!(
+            update_paths_for("linux", "x86_64").unwrap(),
+            ("linux/qd/latest.sha256", "linux/qd/latest")
+        );
+        assert_eq!(
+            update_paths_for("windows", "x86_64").unwrap(),
+            ("windows/qd/latest.sha256", "windows/qd/latest.exe")
+        );
+        assert_eq!(
+            update_paths_for("macos", "aarch64").unwrap(),
+            ("macos/qd/aarch64/latest.sha256", "macos/qd/aarch64/latest")
+        );
+        assert_eq!(
+            update_paths_for("macos", "x86_64").unwrap(),
+            ("macos/qd/x86_64/latest.sha256", "macos/qd/x86_64/latest")
+        );
+        assert!(update_paths_for("linux", "aarch64").is_err());
     }
 
     #[test]
