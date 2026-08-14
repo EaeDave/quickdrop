@@ -170,10 +170,10 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_tauriupdatemanifest",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "tauriupdatemanifest"
+      "norm_label": "tauriupdatemanifest",
+      "id": "scripts_generate_tauri_update_manifest_tauriupdatemanifest"
     },
     {
       "label": "TauriUpdatePlatform",
@@ -183,10 +183,10 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_tauriupdateplatform",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "tauriupdateplatform"
+      "norm_label": "tauriupdateplatform",
+      "id": "scripts_generate_tauri_update_manifest_tauriupdateplatform"
     },
     {
       "label": "ReleaseAsset",
@@ -231,7 +231,7 @@
       "label": "GitHubRelease",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L17",
+      "source_location": "L18",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -257,7 +257,7 @@
       "label": "ReleaseAssetDownloadOptions",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L21",
+      "source_location": "L22",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -1916,10 +1916,10 @@
       "source_location": "L21",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "createtauriupdatemanifest()"
+      "norm_label": "createtauriupdatemanifest()",
+      "id": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest"
     },
     {
       "label": "main()",
@@ -1928,10 +1928,10 @@
       "source_location": "L46",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_main",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "main()"
+      "norm_label": "main()",
+      "id": "scripts_generate_tauri_update_manifest_main"
     },
     {
       "label": "updaterAssets()",
@@ -1940,10 +1940,10 @@
       "source_location": "L14",
       "_callable": true,
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest_updaterassets",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "updaterassets()"
+      "norm_label": "updaterassets()",
+      "id": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "label": "assertReleasePlatform()",
@@ -2189,7 +2189,7 @@
       "label": "fetchRelease()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L77",
+      "source_location": "L84",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_fetchrelease",
@@ -2201,7 +2201,7 @@
       "label": "fetchReleaseAsset()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L94",
+      "source_location": "L102",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_fetchreleaseasset",
@@ -2213,7 +2213,7 @@
       "label": "githubHeaders()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L109",
+      "source_location": "L118",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_githubheaders",
@@ -2225,7 +2225,7 @@
       "label": "handleReleaseAssetDownload()",
       "file_type": "code",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L29",
+      "source_location": "L30",
       "_callable": true,
       "_origin": "ast",
       "id": "src_server_github_release_handlereleaseassetdownload",
@@ -8256,10 +8256,10 @@
       "source_file": "scripts/generate-tauri-update-manifest.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "scripts_generate_tauri_update_manifest",
       "community": 17,
       "community_name": "release.ts",
-      "norm_label": "generate-tauri-update-manifest.ts"
+      "norm_label": "generate-tauri-update-manifest.ts",
+      "id": "scripts_generate_tauri_update_manifest"
     },
     {
       "label": "generate-tauri-update-manifest.test.ts",
@@ -17879,9 +17879,9 @@
       "source_location": "L28",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "calls",
@@ -17891,9 +17891,9 @@
       "source_location": "L60",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_main",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "calls",
@@ -17903,9 +17903,9 @@
       "source_location": "L64",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest_main",
-      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest"
     },
     {
       "relation": "calls",
@@ -20456,7 +20456,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L84",
+      "source_location": "L91",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_fetchrelease",
@@ -20468,7 +20468,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L99",
+      "source_location": "L107",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_fetchreleaseasset",
@@ -20480,7 +20480,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L40",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_handlereleaseassetdownload",
@@ -20492,7 +20492,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L53",
+      "source_location": "L60",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release_handlereleaseassetdownload",
@@ -37464,9 +37464,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest",
-      "target": "scripts_generate_tauri_update_manifest_updaterassets",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_updaterassets"
     },
     {
       "relation": "contains",
@@ -37475,9 +37475,9 @@
       "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest",
-      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_createtauriupdatemanifest"
     },
     {
       "relation": "contains",
@@ -37486,9 +37486,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest",
-      "target": "scripts_generate_tauri_update_manifest_tauriupdateplatform",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_tauriupdateplatform"
     },
     {
       "relation": "contains",
@@ -37497,9 +37497,9 @@
       "source_location": "L46",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest",
-      "target": "scripts_generate_tauri_update_manifest_main",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_main"
     },
     {
       "relation": "contains",
@@ -37508,9 +37508,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "scripts_generate_tauri_update_manifest",
-      "target": "scripts_generate_tauri_update_manifest_tauriupdatemanifest",
-      "confidence_score": 1.0
+      "target": "scripts_generate_tauri_update_manifest_tauriupdatemanifest"
     },
     {
       "relation": "contains",
@@ -40079,7 +40079,18 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L109",
+      "source_location": "L102",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "src_server_github_release",
+      "target": "src_server_github_release_fetchreleaseasset",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/server/github-release.ts",
+      "source_location": "L118",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40101,7 +40112,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L17",
+      "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40112,7 +40123,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L21",
+      "source_location": "L22",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40123,7 +40134,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L29",
+      "source_location": "L30",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40134,7 +40145,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/server/github-release.ts",
-      "source_location": "L77",
+      "source_location": "L84",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_server_github_release",
@@ -40150,17 +40161,6 @@
       "_origin": "ast",
       "source": "src_server_github_release",
       "target": "src_server_github_release_missing_github_token_message",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/server/github-release.ts",
-      "source_location": "L94",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_server_github_release",
-      "target": "src_server_github_release_fetchreleaseasset",
       "confidence_score": 1.0
     },
     {
@@ -46391,5 +46391,5 @@
       "source_file": "AGENTS.md"
     }
   ],
-  "built_at_commit": "d006fb6b7c1229e12d966b36d1be0973b3d87a26"
+  "built_at_commit": "9ff33f657caf5638ba35f3bafc927e4fba01a273"
 }
