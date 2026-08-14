@@ -22,7 +22,7 @@ const config: AppConfig = {
   r2StorageHardLimitBytes: 8 * 1024 * 1024 * 1024,
   uploadReservationTtlMinutes: 30,
   githubToken: undefined,
-  githubReleaseRepository: "EaeDave/quickdrop",
+  githubReleaseRepository: "owner/quickdrop",
   textSessionTtlHours: 12,
   textCustomSessionTtlMinutes: 30,
   textSessionMaxBytes: 256 * 1024,

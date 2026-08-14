@@ -9,7 +9,7 @@ const launcherSource = resolve("scripts/quickdrop-launcher");
 const barInstallerSource = resolve("scripts/install-bar-integration.sh");
 const waybarPatcherSource = resolve("scripts/install-waybar-module.py");
 const omarchyPluginSource = resolve("scripts/omarchy-quickdrop");
-const apiBaseUrl = "https://quickdrop.eaedave.xyz";
+const apiBaseUrl = "https://drop.example";
 
 const hasToolchain = Boolean(Bun.which("bash") && Bun.which("python3"));
 

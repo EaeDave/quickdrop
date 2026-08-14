@@ -3,10 +3,17 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $AppName = "QuickDrop"
-$DefaultInstallerUrl = "https://quickdrop.eaedave.xyz/windows/latest.exe"
+$DefaultBaseUrl = if ($env:QUICKDROP_API_BASE_URL) {
+  $env:QUICKDROP_API_BASE_URL.TrimEnd("/")
+} elseif ($env:QUICKDROP_PUBLIC_BASE_URL) {
+  $env:QUICKDROP_PUBLIC_BASE_URL.TrimEnd("/")
+} else {
+  "__QUICKDROP_PUBLIC_BASE_URL__"
+}
+$DefaultInstallerUrl = "$DefaultBaseUrl/windows/latest.exe"
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("quickdrop-install-" + [System.Guid]::NewGuid().ToString("N"))
-$DefaultQdUrl = "https://quickdrop.eaedave.xyz/windows/qd/latest.exe"
-$DefaultQdChecksumUrl = "https://quickdrop.eaedave.xyz/windows/qd/latest.sha256"
+$DefaultQdUrl = "$DefaultBaseUrl/windows/qd/latest.exe"
+$DefaultQdChecksumUrl = "$DefaultBaseUrl/windows/qd/latest.sha256"
 $MinimumBinaryBytes = 1048576
 $InstallerPath = Join-Path $TempDir "QuickDropSetup.exe"
 $QdDownloadPath = Join-Path $TempDir "qd.exe"

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # QuickDrop Linux installer for Hyprland with OmarchyBar or Waybar.
 #
-#   curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
+#   curl -fsSL https://your-quickdrop.example/install.sh | bash
 #
 # Installs and updates the prebuilt desktop client, the qd CLI/TUI, a
 # bar-independent Hyprland launcher, and the detected OmarchyBar/Waybar integration.
 set -euo pipefail
 
 APP_NAME="QuickDrop"
-DEFAULT_BASE_URL="https://quickdrop.eaedave.xyz"
+DEFAULT_BASE_URL="__QUICKDROP_PUBLIC_BASE_URL__"
 MIN_BINARY_BYTES=1048576
 
-base_url="${QUICKDROP_API_BASE_URL:-$DEFAULT_BASE_URL}"
+base_url="${QUICKDROP_API_BASE_URL:-${QUICKDROP_PUBLIC_BASE_URL:-$DEFAULT_BASE_URL}}"
 base_url="${base_url%/}"
 installer_url="${QUICKDROP_LINUX_INSTALLER_URL:-$base_url/linux/latest}"
 qd_url="${QUICKDROP_QD_URL:-$base_url/linux/qd/latest}"

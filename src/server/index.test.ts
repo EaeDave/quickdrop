@@ -7,8 +7,9 @@ const testEnv = {
   R2_ACCOUNT_ID: "account",
   R2_ACCESS_KEY_ID: "access-key",
   R2_SECRET_ACCESS_KEY: "secret-key",
-  PUBLIC_BASE_URL: "https://quickdrop.eaedave.xyz",
+  QUICKDROP_PUBLIC_BASE_URL: "https://drop.example",
   QUICKDROP_GITHUB_TOKEN: "github-token",
+  QUICKDROP_GITHUB_REPOSITORY: "owner/quickdrop",
 };
 
 const envKeys = [
@@ -237,6 +238,8 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
+      expect(response.body).toContain("https://drop.example");
+      expect(response.body).not.toContain("__QUICKDROP_PUBLIC_BASE_URL__");
       expect(response.body).toContain("/windows/latest.exe");
       expect(response.body).toContain("/windows/qd/latest.exe");
       expect(response.body).toContain("/windows/qd/latest.sha256");
@@ -263,18 +266,18 @@ describe("buildApp", () => {
       const headers = init?.headers as Record<string, string>;
       calls.push({ url, headers });
 
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
         return Response.json({
           assets: [
             {
               name: "QuickDrop_0.1.0_x64-setup.exe",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/1",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/1",
             },
           ],
         });
       }
 
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/1") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/1") {
         return new Response("installer-binary", {
           headers: { "content-type": "application/octet-stream" },
         });
@@ -308,16 +311,16 @@ describe("buildApp", () => {
   test("proxies the latest qd Windows binary and checksum", async () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
         return Response.json({
           assets: [
             {
               name: "qd_0.1.1_x86_64-windows.exe",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/10",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/10",
             },
             {
               name: "qd_0.1.1_x86_64-windows.exe.sha256",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/11",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/11",
             },
           ],
         });
@@ -325,12 +328,12 @@ describe("buildApp", () => {
       expect((init?.headers as Record<string, string>).authorization).toBe(
         "Bearer github-token",
       );
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/10") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/10") {
         return new Response("qd-windows-binary", {
           headers: { "content-type": "application/octet-stream" },
         });
       }
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/11") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/11") {
         return new Response(`${"b".repeat(64)}  qd_0.1.1_x86_64-windows.exe\n`, {
           headers: { "content-type": "application/octet-stream" },
         });
@@ -362,9 +365,25 @@ describe("buildApp", () => {
     }
   });
 
-  test("fails the Windows installer proxy when the server token is missing", async () => {
+  test("downloads public release assets without a GitHub token", async () => {
     delete process.env.QUICKDROP_GITHUB_TOKEN;
     delete process.env.GITHUB_TOKEN;
+    const calls: Array<RequestInit | undefined> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push(init);
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
+        return Response.json({
+          assets: [{
+            name: "QuickDrop_0.1.0_x64-setup.exe",
+            size: 9,
+            url: "https://api.github.com/repos/owner/quickdrop/releases/assets/1",
+          }],
+        });
+      }
+      return new Response("installer", {
+        headers: { "content-length": "9", "content-type": "application/octet-stream" },
+      });
+    }) as typeof fetch;
 
     const { app } = buildApp();
 
@@ -374,8 +393,11 @@ describe("buildApp", () => {
         url: "/windows/latest.exe",
       });
 
-      expect(response.statusCode).toBe(503);
-      expect(response.body).toContain("QUICKDROP_GITHUB_TOKEN");
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe("installer");
+      for (const call of calls) {
+        expect((call?.headers as Record<string, string>).authorization).toBeUndefined();
+      }
     } finally {
       await app.close();
     }
@@ -385,18 +407,18 @@ describe("buildApp", () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
       if (
-        url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest" ||
-        url === "https://api.github.com/repos/EaeDave/quickdrop/releases/tags/v0.1.15"
+        url === "https://api.github.com/repos/owner/quickdrop/releases/latest" ||
+        url === "https://api.github.com/repos/owner/quickdrop/releases/tags/v0.1.15"
       ) {
         return Response.json({
           assets: [
             {
               name: "latest.json",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/90",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/90",
             },
             {
               name: "QuickDrop_0.1.15_aarch64.app.tar.gz",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/91",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/91",
             },
           ],
         });
@@ -453,6 +475,8 @@ describe("buildApp", () => {
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
       expect(response.body).toContain("uname -m");
+      expect(response.body).toContain("https://drop.example");
+      expect(response.body).not.toContain("__QUICKDROP_PUBLIC_BASE_URL__");
       expect(response.body).toContain("/macos/$architecture/latest.dmg");
       expect(response.body).toContain("/macos/qd/$architecture/latest");
       expect(response.body).toContain("shasum -a 256");
@@ -466,32 +490,32 @@ describe("buildApp", () => {
   test("proxies macOS desktop, qd, and checksums by architecture", async () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
         return Response.json({
           assets: [
             {
               name: "qd_0.1.1_aarch64-macos",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/20",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/20",
             },
             {
               name: "qd_0.1.1_aarch64-macos.sha256",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/21",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/21",
             },
             {
               name: "qd_0.1.1_x86_64-macos",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/22",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/22",
             },
             {
               name: "QuickDrop_0.1.1_aarch64.dmg",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/23",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/23",
             },
             {
               name: "QuickDrop_0.1.1_aarch64.dmg.sha256",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/24",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/24",
             },
             {
               name: "QuickDrop_0.1.1_x64.dmg",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/25",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/25",
             },
           ],
         });
@@ -586,6 +610,8 @@ describe("buildApp", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/plain");
       expect(response.body).toContain("QuickDrop");
+      expect(response.body).toContain("https://drop.example");
+      expect(response.body).not.toContain("__QUICKDROP_PUBLIC_BASE_URL__");
       expect(response.body).toContain("/linux/latest");
       expect(response.body).toContain("/linux/qd/latest");
       expect(response.body).toContain("/linux/quickdrop-launcher");
@@ -624,18 +650,18 @@ describe("buildApp", () => {
       const headers = init?.headers as Record<string, string>;
       calls.push({ url, headers });
 
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
         return Response.json({
           assets: [
             {
               name: "quickdrop_0.1.1_x86_64-linux",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/7",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/7",
             },
           ],
         });
       }
 
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/7") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/7") {
         return new Response("linux-binary", {
           headers: { "content-type": "application/octet-stream" },
         });
@@ -669,16 +695,16 @@ describe("buildApp", () => {
   test("proxies the latest qd binary and checksum through the server GitHub token", async () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/latest") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/latest") {
         return Response.json({
           assets: [
             {
               name: "qd_0.1.1_x86_64-linux",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/8",
             },
             {
               name: "qd_0.1.1_x86_64-linux.sha256",
-              url: "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9",
+              url: "https://api.github.com/repos/owner/quickdrop/releases/assets/9",
             },
           ],
         });
@@ -686,12 +712,12 @@ describe("buildApp", () => {
       expect((init?.headers as Record<string, string>).authorization).toBe(
         "Bearer github-token",
       );
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/8") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/8") {
         return new Response("qd-binary", {
           headers: { "content-type": "application/octet-stream" },
         });
       }
-      if (url === "https://api.github.com/repos/EaeDave/quickdrop/releases/assets/9") {
+      if (url === "https://api.github.com/repos/owner/quickdrop/releases/assets/9") {
         return new Response(`${"a".repeat(64)}  qd_0.1.1_x86_64-linux\n`, {
           headers: { "content-type": "application/octet-stream" },
         });
@@ -721,24 +747,6 @@ describe("buildApp", () => {
     }
   });
 
-  test("fails the Linux binary proxy when the server token is missing", async () => {
-    delete process.env.QUICKDROP_GITHUB_TOKEN;
-    delete process.env.GITHUB_TOKEN;
-
-    const { app } = buildApp();
-
-    try {
-      const response = await app.inject({
-        method: "GET",
-        url: "/linux/latest",
-      });
-
-      expect(response.statusCode).toBe(503);
-      expect(response.body).toContain("QUICKDROP_GITHUB_TOKEN");
-    } finally {
-      await app.close();
-    }
-  });
 });
 
 describe("redactTextCodeFromUrl", () => {

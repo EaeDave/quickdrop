@@ -6,9 +6,6 @@ const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 const GITHUB_USER_AGENT = "quickdrop-installer-proxy";
 
-export const MISSING_GITHUB_TOKEN_MESSAGE =
-  "QuickDrop server is missing QUICKDROP_GITHUB_TOKEN or GITHUB_TOKEN.";
-
 type GitHubReleaseAsset = {
   name: string;
   size?: number;
@@ -31,13 +28,6 @@ export async function handleReleaseAssetDownload(
   reply: FastifyReply,
   options: ReleaseAssetDownloadOptions,
 ): Promise<FastifyReply> {
-  if (!options.token) {
-    return reply
-      .code(503)
-      .type("text/plain; charset=utf-8")
-      .send(MISSING_GITHUB_TOKEN_MESSAGE);
-  }
-
   const release = await fetchRelease(options.repository, options.token, options.releaseTag);
   if (!release.ok) {
     return reply
@@ -83,7 +73,7 @@ export async function handleReleaseAssetDownload(
 
 async function fetchRelease(
   repository: string,
-  token: string,
+  token: string | undefined,
   releaseTag?: string,
 ): Promise<{ ok: true; value: GitHubRelease } | { ok: false; status: number }> {
   const releasePath = releaseTag ? `releases/tags/${encodeURIComponent(releaseTag)}` : "releases/latest";
@@ -101,7 +91,7 @@ async function fetchRelease(
 
 async function fetchReleaseAsset(
   assetApiUrl: string,
-  token: string,
+  token: string | undefined,
 ): Promise<{ ok: true; value: Response } | { ok: false; status: number }> {
   const response = await fetch(assetApiUrl, {
     headers: githubHeaders(token, "application/octet-stream"),
@@ -115,10 +105,10 @@ async function fetchReleaseAsset(
   return { ok: true, value: response };
 }
 
-function githubHeaders(token: string, accept: string): HeadersInit {
+function githubHeaders(token: string | undefined, accept: string): HeadersInit {
   return {
     accept,
-    authorization: `Bearer ${token}`,
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
     "user-agent": GITHUB_USER_AGENT,
     "x-github-api-version": GITHUB_API_VERSION,
   };

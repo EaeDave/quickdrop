@@ -3,6 +3,7 @@ name = "quickdrop"
 version = "0.1.15"
 description = "QuickDrop desktop app"
 edition = "2021"
+license = "MIT"
 
 [lib]
 name = "quickdrop_lib"

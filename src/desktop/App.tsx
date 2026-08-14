@@ -4,17 +4,13 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, setupDesktopUpdater, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
 import QuickPanel from "./QuickPanel";
 
-const WINDOWS_INSTALL_COMMAND = "irm https://quickdrop.eaedave.xyz/install.ps1 | iex";
-const MACOS_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash";
-const LINUX_INSTALL_COMMAND = "curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash";
-
 type InstallPlatform = "windows" | "macos" | "linux";
 type PanelMode = "files" | "text";
 
-const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; command: string; scriptHref: string }> = {
-  windows: { label: "Windows", prompt: "PS", command: WINDOWS_INSTALL_COMMAND, scriptHref: "/install.ps1" },
-  macos: { label: "macOS", prompt: "$", command: MACOS_INSTALL_COMMAND, scriptHref: "/install-macos.sh" },
-  linux: { label: "Linux", prompt: "$", command: LINUX_INSTALL_COMMAND, scriptHref: "/install.sh" },
+const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; scriptHref: string }> = {
+  windows: { label: "Windows", prompt: "PS", scriptHref: "/install.ps1" },
+  macos: { label: "macOS", prompt: "$", scriptHref: "/install-macos.sh" },
+  linux: { label: "Linux", prompt: "$", scriptHref: "/install.sh" },
 };
 
 type UploadState =
@@ -553,6 +549,10 @@ function WebLanding(props: {
 function InstallCommand(props: { copied: boolean; error: string | null; onCopy: (command: string) => void }) {
   const [platform, setPlatform] = useState<InstallPlatform>("windows");
   const active = INSTALL_PLATFORMS[platform];
+  const baseUrl = window.location.origin.replace(/\/+$/, "");
+  const command = platform === "windows"
+    ? `irm ${baseUrl}${active.scriptHref} | iex`
+    : `curl -fsSL ${baseUrl}${active.scriptHref} | bash`;
 
   return (
     <div className="quickdrop-install-card">
@@ -575,9 +575,9 @@ function InstallCommand(props: { copied: boolean; error: string | null; onCopy: 
           Ver script
         </a>
       </div>
-      <button className="quickdrop-command" type="button" onClick={() => props.onCopy(active.command)}>
+      <button className="quickdrop-command" type="button" onClick={() => props.onCopy(command)}>
         <span className="quickdrop-command-prompt">{active.prompt}</span>
-        <code>{active.command}</code>
+        <code>{command}</code>
         <span className="quickdrop-command-copy">{props.copied ? "Copiado" : "Copiar"}</span>
       </button>
       {props.error && <p className="quickdrop-install-error">{props.error}</p>}

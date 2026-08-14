@@ -64,6 +64,26 @@ describe("loadConfig", () => {
     expect(config.publicBaseUrl).toBe("https://files.example.com");
   });
 
+  test("prefers the canonical QuickDrop deployment URL", () => {
+    const config = loadConfig({
+      ...requiredEnv,
+      QUICKDROP_PUBLIC_BASE_URL: "https://drop.example/",
+    });
+
+    expect(config.publicBaseUrl).toBe("https://drop.example");
+  });
+
+  test("rejects a public base URL with credentials or a deployment path", () => {
+    expect(() => loadConfig({
+      ...requiredEnv,
+      QUICKDROP_PUBLIC_BASE_URL: "https://user:password@drop.example",
+    })).toThrow("credential-free");
+    expect(() => loadConfig({
+      ...requiredEnv,
+      QUICKDROP_PUBLIC_BASE_URL: "https://drop.example/base",
+    })).toThrow("must not contain a path");
+  });
+
   test("reads optional GitHub installer proxy config", () => {
     const config = loadConfig({
       ...requiredEnv,

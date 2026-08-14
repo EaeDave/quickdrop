@@ -1,0 +1,13 @@
+# Security policy
+
+## Reporting a vulnerability
+
+Please do not open a public issue for a suspected vulnerability or include private clipboard contents, access tokens, credentials, or signing material in a report.
+
+Use GitHub's **Report a vulnerability** form in the repository Security tab. If private vulnerability reporting is temporarily unavailable, open a minimal issue asking a maintainer to establish a private contact channel without disclosing technical details.
+
+Include the affected version, impact, reproduction steps, and any suggested mitigation. Maintainers will acknowledge the report and coordinate disclosure after a fix is available.
+
+## Supported versions
+
+QuickDrop currently supports the latest published release. Desktop update bundles are accepted only when signed by the updater key embedded at build time.

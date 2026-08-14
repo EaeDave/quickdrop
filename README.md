@@ -73,7 +73,7 @@ R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=quickdrop
-PUBLIC_BASE_URL=https://files.example.com
+QUICKDROP_PUBLIC_BASE_URL=https://quickdrop.example.com
 R2_STORAGE_HARD_LIMIT_GB=8
 
 FILE_EXPIRATION_HOURS=6
@@ -95,6 +95,8 @@ TEXT_METRICS_ENABLED=false
 TEXT_METRICS_RETENTION_DAYS=90
 RUN_MIGRATIONS_ON_START=true
 ```
+
+`QUICKDROP_PUBLIC_BASE_URL` is the canonical deployment origin. It is embedded into official CLI/Tauri builds and used to generate installer and updater URLs, so forks can target their own backend without editing source files. Desktop builds also require `TAURI_UPDATER_PUBLIC_KEY`; keep the matching private signing key outside the repository.
 
 See [`.env.example`](.env.example) for the complete development template.
 
@@ -266,7 +268,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksums and updater signature. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets, the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets, signed desktop updater bundles, and `latest.json`. The command waits for that workflow and verifies every public download before succeeding. Because the source repository is private, desktop updater manifests and bundles are exposed through authenticated server-side proxies under `/desktop/update/`; the signing key remains build-only. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksums and updater signature. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets, the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets, signed desktop updater bundles, and `latest.json`. The command waits for that workflow and verifies every public download before succeeding. Desktop updater manifests and bundles are exposed through server-side proxies under `/desktop/update/`; private release repositories additionally require a backend GitHub token. The signing key remains build-only. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
 
 ### End-user installation
 
@@ -358,9 +360,10 @@ The included [`Dockerfile`](Dockerfile) builds the web interface and runs the Bu
 
 1. A PostgreSQL database
 2. A Cloudflare R2 bucket and API credentials
-3. `PUBLIC_BASE_URL` set to the public QuickDrop backend URL
+3. `QUICKDROP_PUBLIC_BASE_URL` set to the public QuickDrop backend origin
 4. Port `3000`, or the value supplied through `PORT`, exposed by the platform
-5. `QUICKDROP_GITHUB_TOKEN` when the backend must proxy private desktop release assets
+5. `QUICKDROP_GITHUB_REPOSITORY` set to the release repository (`owner/repository`)
+6. `QUICKDROP_GITHUB_TOKEN` only when the backend must access private release assets or avoid anonymous API limits
 
 The application is designed to run directly from the Dockerfile on platforms such as Coolify.
 
@@ -395,4 +398,4 @@ Git hooks are local to each clone. Run `graphify query "<question>"` to explore 
 
 ## License
 
-No license file is currently included. Add one before distributing QuickDrop outside its intended private environment.
+QuickDrop is available under the [MIT License](LICENSE).

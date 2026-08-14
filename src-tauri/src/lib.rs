@@ -6,10 +6,10 @@ use std::io::BufReader;
 #[cfg(target_os = "linux")]
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "linux")]
-use std::process::Stdio;
 use std::process;
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -84,12 +84,8 @@ struct ZipInput {
 const WINDOW_WIDTH: f64 = 380.0;
 const WINDOW_HEIGHT: f64 = 360.0;
 const LAUNCHER_GAP: f64 = 10.0;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-const PRODUCTION_API_BASE_URL: &str = "https://quickdrop.eaedave.xyz";
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-const DEFAULT_API_BASE_URL: &str = PRODUCTION_API_BASE_URL;
-#[cfg(target_os = "linux")]
-const DEFAULT_API_BASE_URL: &str = "http://127.0.0.1:3000";
+const LOCAL_API_BASE_URL: &str = "http://127.0.0.1:3000";
+const BUILD_API_BASE_URL: Option<&str> = option_env!("QUICKDROP_PUBLIC_BASE_URL");
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const TRAY_ID: &str = "quickdrop-tray";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -126,7 +122,7 @@ struct MonitorArea {
 impl DesktopConfig {
     fn from_env() -> Self {
         let raw_base_url = std::env::var("QUICKDROP_API_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_string());
+            .unwrap_or_else(|_| BUILD_API_BASE_URL.unwrap_or(LOCAL_API_BASE_URL).to_string());
         let api_base_url = raw_base_url.trim_end_matches('/').to_string();
 
         Self { api_base_url }
@@ -713,10 +709,7 @@ fn notify_text_drop(app: AppHandle, code: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_text_clipboard(
-    state: tauri::State<'_, DesktopConfig>,
-    code: String,
-) -> Result<(), String> {
+fn open_text_clipboard(state: tauri::State<'_, DesktopConfig>, code: String) -> Result<(), String> {
     if !valid_text_code(&code) {
         return Err("Código de clipboard inválido.".to_string());
     }
@@ -1106,7 +1099,13 @@ fn setup_desktop_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Sair", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open_item, &autostart_item, &update_item, &separator, &quit_item],
+        &[
+            &open_item,
+            &autostart_item,
+            &update_item,
+            &separator,
+            &quit_item,
+        ],
     )?;
     let autostart_item_for_menu = autostart_item.clone();
     #[cfg(target_os = "windows")]
@@ -1193,6 +1192,7 @@ fn started_in_tray_mode() -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use std::env;
@@ -1276,12 +1276,9 @@ mod tests {
         let _lock = ENV_LOCK.lock().unwrap();
         let _guard = remove_env_var_for_test("QUICKDROP_API_BASE_URL");
 
-        assert_eq!(DesktopConfig::from_env().api_base_url, DEFAULT_API_BASE_URL);
-
-        #[cfg(target_os = "windows")]
         assert_eq!(
             DesktopConfig::from_env().api_base_url,
-            PRODUCTION_API_BASE_URL
+            BUILD_API_BASE_URL.unwrap_or(LOCAL_API_BASE_URL)
         );
     }
 
