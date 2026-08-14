@@ -7,13 +7,14 @@ export type RoomAccessCheck =
   | { ok: true; expiresAt: Date }
   | { ok: false; error: "missing" | "expired" | "invalid" };
 
-export function createRoomAccessCookie(input: {
+export type RoomAccessGrant = { token: string; expiresAt: Date };
+
+export function createRoomAccessToken(input: {
   code: string;
   pinHash: string;
   ttlMs: number;
   now: Date;
-  secure: boolean;
-}): string {
+}): RoomAccessGrant {
   const normalizedCode = normalizeSessionCode(input.code);
   const expiresAt = new Date(input.now.getTime() + input.ttlMs);
   const payload = JSON.stringify({
@@ -23,8 +24,21 @@ export function createRoomAccessCookie(input: {
   });
   const payloadText = Buffer.from(payload, "utf8").toString("base64url");
   const signature = sign(payloadText, input.pinHash);
+  return { token: `${ACCESS_TOKEN_PREFIX}.${payloadText}.${signature}`, expiresAt };
+}
 
-  return serializeCookie(cookieName(normalizedCode), `${ACCESS_TOKEN_PREFIX}.${payloadText}.${signature}`, {
+export function createRoomAccessCookie(input: {
+  code: string;
+  pinHash: string;
+  ttlMs: number;
+  now: Date;
+  secure: boolean;
+  token?: string;
+}): string {
+  const normalizedCode = normalizeSessionCode(input.code);
+  const token = input.token ?? createRoomAccessToken(input).token;
+
+  return serializeCookie(cookieName(normalizedCode), token, {
     path: `/api/text/${encodeURIComponent(normalizedCode)}`,
     httpOnly: true,
     sameSite: "Lax",
@@ -52,6 +66,26 @@ export function verifyRoomAccessCookie(input: {
 }): RoomAccessCheck {
   const normalizedCode = normalizeSessionCode(input.code);
   const rawValue = readCookieValue(input.cookieHeader, cookieName(normalizedCode));
+  if (!rawValue) {
+    return { ok: false, error: "missing" };
+  }
+
+  return verifyRoomAccessToken({
+    code: normalizedCode,
+    pinHash: input.pinHash,
+    token: rawValue,
+    now: input.now,
+  });
+}
+
+export function verifyRoomAccessToken(input: {
+  code: string;
+  pinHash: string;
+  token: string | undefined;
+  now: Date;
+}): RoomAccessCheck {
+  const normalizedCode = normalizeSessionCode(input.code);
+  const rawValue = input.token;
   if (!rawValue) {
     return { ok: false, error: "missing" };
   }

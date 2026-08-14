@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { clearRoomAccessCookie, createRoomAccessCookie, verifyRoomAccessCookie } from "./text-room-access";
+import {
+  clearRoomAccessCookie,
+  createRoomAccessCookie,
+  createRoomAccessToken,
+  verifyRoomAccessCookie,
+  verifyRoomAccessToken,
+} from "./text-room-access";
 import { hashRoomPin } from "./text-room-pin";
 
 describe("text room access cookie", () => {
@@ -59,5 +65,18 @@ describe("text room access cookie", () => {
 
   test("clears the cookie on demand", () => {
     expect(clearRoomAccessCookie("ROOM01", false)).toContain("Max-Age=0");
+  });
+
+  test("creates a bearer token for native WebSocket access", async () => {
+    const now = new Date("2026-06-23T20:00:00Z");
+    const pinHash = await hashRoomPin("1234");
+    const grant = createRoomAccessToken({ code: "ROOM01", pinHash, ttlMs: 60_000, now });
+
+    expect(verifyRoomAccessToken({
+      code: "ROOM01",
+      pinHash,
+      token: grant.token,
+      now: new Date("2026-06-23T20:00:30Z"),
+    })).toEqual({ ok: true, expiresAt: grant.expiresAt });
   });
 });

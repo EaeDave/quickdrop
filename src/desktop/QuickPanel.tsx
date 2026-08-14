@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   connectRoom,
+  formatRoomExpiry,
+  formatRoomPresence,
   openRoom,
   RoomAccessError,
   setTextClientBaseUrl,
   type RoomController,
+  type RoomLifecycle,
   type RoomStatus,
   type TextDrop,
 } from "./text-client";
@@ -25,6 +28,8 @@ type PanelStatus = "idle" | "opening" | RoomStatus;
 export default function QuickPanel() {
   const [apiReady, setApiReady] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  const [joinPin, setJoinPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [status, setStatus] = useState<PanelStatus>("idle");
   const [composer, setComposer] = useState("");
@@ -32,7 +37,11 @@ export default function QuickPanel() {
   const [recentCodes, setRecentCodes] = useState(readRecentCodes);
   const [notificationsMuted, setNotificationsMuted] = useState(readNotificationsMuted);
   const [message, setMessage] = useState<string | null>(null);
+  const [lifecycle, setLifecycle] = useState<RoomLifecycle | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const controllerRef = useRef<RoomController | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
+  const pinInputRef = useRef<HTMLInputElement | null>(null);
   const clientIdRef = useRef<string | null>(null);
   const activeCodeRef = useRef<string | null>(null);
   const mutedRef = useRef(notificationsMuted);
@@ -66,6 +75,7 @@ export default function QuickPanel() {
       onSnapshot(payload) {
         clientIdRef.current = payload.clientId;
         setDrops(sortDrops(payload.drops));
+        setLifecycle(roomLifecycle(payload));
         setMessage(null);
       },
       onDropAdded(payload) {
@@ -76,10 +86,10 @@ export default function QuickPanel() {
         if (payload.by === clientIdRef.current) {
           if (clearComposerAfterSendRef.current) setComposer("");
           clearComposerAfterSendRef.current = true;
-          setMessage("Texto enviado.");
+          setMessage("Text sent.");
           return;
         }
-        setMessage("Novo texto recebido.");
+        setMessage("New text received.");
         if (
           shouldNotifyRemoteDrop(payload.by, clientIdRef.current, mutedRef.current) &&
           activeCodeRef.current
@@ -99,24 +109,38 @@ export default function QuickPanel() {
       },
       onDropDeleted(payload) {
         setDrops((current) => current.filter((drop) => drop.id !== payload.dropId));
+        setMessage("Deleted.");
       },
       onDropsCleared() {
         setDrops([]);
       },
       onUpdate() {},
-      onPresence() {},
-      onLifecycle() {},
+      onPresence(payload) {
+        setLifecycle((current) => current ? { ...current, presence: payload.count } : current);
+      },
+      onLifecycle(payload) {
+        setLifecycle(payload);
+      },
       onTyping() {},
       onPointer() {},
       onPeerLeft() {},
       onAck() {},
       onError(payload) {
         setMessage(payload.message);
+        if (payload.code === "pin_required" || payload.code === "pin_invalid" || payload.code === "invalid_token") {
+          controllerRef.current?.close();
+          setActiveCode(null);
+          setStatus("idle");
+          setDrops([]);
+          setLifecycle(null);
+          setShowPin(true);
+          window.setTimeout(() => pinInputRef.current?.focus(), 0);
+        }
       },
       onStatus(nextStatus) {
         setStatus(nextStatus);
       },
-    });
+    }, accessTokenRef.current);
     controllerRef.current = controller;
     return () => {
       controller.close();
@@ -125,19 +149,29 @@ export default function QuickPanel() {
     };
   }, [activeCode]);
 
+  useEffect(() => {
+    if (!lifecycle?.expiresAt || lifecycle.presence > 0) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [lifecycle?.expiresAt, lifecycle?.presence]);
+
   const connect = useCallback(async (requestedCode = joinCode) => {
     const code = normalizeCode(requestedCode);
-    if (!apiReady || !code) return;
+    if (!apiReady || !code || (showPin && joinPin.length < 4)) return;
 
     const requestId = ++connectRequestRef.current;
     controllerRef.current?.close();
     setStatus("opening");
     setMessage(null);
     try {
-      const opened = await openRoom(code);
+      const opened = await openRoom(code, showPin ? joinPin : undefined);
       if (requestId !== connectRequestRef.current) return;
+      accessTokenRef.current = opened.accessToken;
+      setLifecycle(roomLifecycle(opened));
       setActiveCode(opened.code);
       setJoinCode(opened.code);
+      setJoinPin("");
+      setShowPin(false);
       const nextRecent = [opened.code, ...recentCodes.filter((recent) => recent !== opened.code)]
         .slice(0, MAX_RECENT_CODES);
       setRecentCodes(nextRecent);
@@ -147,11 +181,16 @@ export default function QuickPanel() {
       setStatus("idle");
       setMessage(
         error instanceof RoomAccessError && error.code === "pin_required"
-          ? "Este canal usa PIN. Abra a experiência completa no navegador."
+          ? "PIN required."
           : formatError(error),
       );
+      if (error instanceof RoomAccessError && (error.code === "pin_required" || error.code === "pin_invalid")) {
+        setShowPin(true);
+        if (error.code === "pin_invalid") setJoinPin("");
+        window.setTimeout(() => pinInputRef.current?.focus(), 0);
+      }
     }
-  }, [apiReady, joinCode, recentCodes]);
+  }, [apiReady, joinCode, joinPin, recentCodes, showPin]);
 
   const disconnect = useCallback(() => {
     connectRequestRef.current += 1;
@@ -160,6 +199,8 @@ export default function QuickPanel() {
     setActiveCode(null);
     setStatus("idle");
     setDrops([]);
+    accessTokenRef.current = null;
+    setLifecycle(null);
     setMessage(null);
   }, []);
 
@@ -167,7 +208,7 @@ export default function QuickPanel() {
     if (status !== "open" || !content.trim()) return;
     clearComposerAfterSendRef.current = clearComposer;
     controllerRef.current?.addDrop(content);
-    setMessage("Enviando...");
+    setMessage("Sending…");
   }, [composer, status]);
 
   const pasteAndSend = useCallback(async () => {
@@ -182,11 +223,17 @@ export default function QuickPanel() {
   const copyDrop = useCallback(async (drop: TextDrop) => {
     try {
       await copyText(drop.content);
-      setMessage("Texto copiado.");
+      setMessage("Text copied.");
     } catch (error) {
       setMessage(formatError(error));
     }
   }, []);
+
+  const deleteDrop = useCallback((drop: TextDrop) => {
+    if (status !== "open") return;
+    controllerRef.current?.deleteDrop(drop.id);
+    setMessage("Deleting…");
+  }, [status]);
 
   const openFullClipboard = useCallback(async (code: string) => {
     try {
@@ -198,36 +245,57 @@ export default function QuickPanel() {
 
   if (!activeCode) {
     return (
-      <section className="quickpanel-text" aria-label="QuickPanel de texto">
+      <section className="quickpanel-text" aria-label="Text QuickPanel">
         <div className="quickpanel-code-row">
           <input
             className="quickpanel-input"
-            aria-label="Código do canal"
+            aria-label="Room code"
             autoComplete="off"
             maxLength={16}
-            placeholder="Canal: DEV, A, 42..."
+            placeholder="Room: DEV, A, 42…"
             value={joinCode}
             onChange={(event) => setJoinCode(normalizeCode(event.currentTarget.value))}
             onKeyDown={(event) => {
               if (event.key === "Enter") void connect();
             }}
           />
-          <button className="quickpanel-primary" type="button" disabled={!apiReady || status === "opening" || !joinCode} onClick={() => void connect()}>
-            {status === "opening" ? "Abrindo" : "Conectar"}
+          <button className="quickpanel-primary" type="button" disabled={!apiReady || status === "opening" || !joinCode || (showPin && joinPin.length < 4)} onClick={() => void connect()}>
+            {status === "opening" ? "Opening" : "Connect"}
           </button>
-          <button className="quickpanel-open" type="button" disabled={!joinCode} title="Abrir no navegador" aria-label="Abrir canal no navegador" onClick={() => void openFullClipboard(joinCode)}>↗</button>
+          <button className={`quickpanel-open${showPin ? " quickpanel-open--active" : ""}`} type="button" title="Use PIN" aria-label="Use PIN" aria-pressed={showPin} onClick={() => {
+            if (showPin) setJoinPin("");
+            setShowPin(!showPin);
+          }}>PIN</button>
+          <button className="quickpanel-open" type="button" disabled={!joinCode} title="Open in browser" aria-label="Open room in browser" onClick={() => void openFullClipboard(joinCode)}>↗</button>
         </div>
+        {showPin && (
+          <input
+            ref={pinInputRef}
+            className="quickpanel-input quickpanel-pin"
+            aria-label="Room PIN"
+            autoComplete="off"
+            type="password"
+            minLength={4}
+            maxLength={64}
+            placeholder="PIN (creates a protected room if missing)"
+            value={joinPin}
+            onChange={(event) => setJoinPin(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void connect();
+            }}
+          />
+        )}
         {recentCodes.length > 0 && (
           <div className="quickpanel-recents">
-            <span>Recentes</span>
+            <span>Recent</span>
             {recentCodes.map((code) => (
               <button type="button" key={code} onClick={() => void connect(code)}>{code}</button>
             ))}
           </div>
         )}
         <div className="quickpanel-empty">
-          <strong>Texto entre máquinas</strong>
-          <span>Conecte a um canal para enviar, esperar e receber snippets.</span>
+          <strong>Text across devices</strong>
+          <span>Connect to a room to send and receive snippets.</span>
         </div>
         {message && <p className="quickpanel-message" role="status">{message}</p>}
       </section>
@@ -241,21 +309,22 @@ export default function QuickPanel() {
         <div>
           <strong>{activeCode}</strong>
           <span className={`quickpanel-status quickpanel-status--${status}`}>{statusLabel(status)}</span>
+          {lifecycle && <span className="quickpanel-status">· {formatRoomPresence(lifecycle.presence)} · {formatRoomExpiry(lifecycle, new Date(now), "compact")}</span>}
         </div>
         <div className="quickpanel-channel-actions">
-          <button type="button" title={notificationsMuted ? "Ativar notificações" : "Silenciar notificações"} aria-label={notificationsMuted ? "Ativar notificações" : "Silenciar notificações"} onClick={() => setNotificationsMuted((muted) => !muted)}>
+          <button type="button" title={notificationsMuted ? "Enable notifications" : "Mute notifications"} aria-label={notificationsMuted ? "Enable notifications" : "Mute notifications"} onClick={() => setNotificationsMuted((muted) => !muted)}>
             {notificationsMuted ? "🔕" : "🔔"}
           </button>
-          <button type="button" title="Abrir no navegador" onClick={() => void openFullClipboard(activeCode)}>↗</button>
-          <button type="button" title="Sair do canal" onClick={disconnect}>×</button>
+          <button type="button" title="Open in browser" onClick={() => void openFullClipboard(activeCode)}>↗</button>
+          <button type="button" title="Leave room" onClick={disconnect}>×</button>
         </div>
       </div>
 
       <div className="quickpanel-composer-row">
         <textarea
           className="quickpanel-composer"
-          aria-label="Texto para enviar"
-          placeholder={connected ? "Digite ou cole um texto..." : "Aguardando conexão..."}
+          aria-label="Text to send"
+          placeholder={connected ? "Type or paste text…" : "Waiting for connection…"}
           value={composer}
           disabled={!connected}
           onChange={(event) => setComposer(event.currentTarget.value)}
@@ -266,20 +335,23 @@ export default function QuickPanel() {
             }
           }}
         />
-        <button className="quickpanel-primary" type="button" disabled={!connected || !composer.trim()} onClick={() => send()}>Enviar</button>
+        <button className="quickpanel-primary" type="button" disabled={!connected || !composer.trim()} onClick={() => send()}>Send</button>
       </div>
       <button className="quickpanel-paste" type="button" disabled={!connected} onClick={() => void pasteAndSend()}>
-        Colar e enviar
+        Paste and send
       </button>
 
       <div className="quickpanel-drops" aria-live="polite">
         {drops.length === 0 ? (
-          <p className="quickpanel-waiting">Esperando texto neste canal…</p>
+          <p className="quickpanel-waiting">Waiting for text in this room…</p>
         ) : drops.slice(0, 3).map((drop) => (
-          <button className="quickpanel-drop" type="button" key={drop.id} title="Copiar texto" onClick={() => void copyDrop(drop)}>
-            <span>{preview(drop.content)}</span>
-            <small>Copiar</small>
-          </button>
+          <div className="quickpanel-drop" key={drop.id}>
+            <button className="quickpanel-drop-copy" type="button" title="Copy text" onClick={() => void copyDrop(drop)}>
+              <span>{preview(drop.content)}</span>
+              <small>Copy</small>
+            </button>
+            <button className="quickpanel-drop-delete" type="button" title="Delete" aria-label="Delete text" disabled={!connected} onClick={() => deleteDrop(drop)}>×</button>
+          </div>
         ))}
       </div>
       {message && <p className="quickpanel-message" role="status">{message}</p>}
@@ -304,7 +376,7 @@ function sortDrops(drops: TextDrop[]): TextDrop[] {
 }
 
 function preview(content: string): string {
-  return content.replace(/\s+/g, " ").trim().slice(0, 90) || "Texto vazio";
+  return content.replace(/\s+/g, " ").trim().slice(0, 90) || "Empty text";
 }
 
 function readNotificationsMuted(): boolean {
@@ -335,10 +407,18 @@ function readRecentCodes(): string[] {
 }
 
 function statusLabel(status: PanelStatus): string {
-  if (status === "open") return "Conectado";
-  if (status === "connecting") return "Reconectando";
-  if (status === "closed") return "Desconectado";
-  return "Conectando";
+  if (status === "open") return "Connected";
+  if (status === "connecting") return "Reconnecting";
+  if (status === "closed") return "Disconnected";
+  return "Connecting";
+}
+
+function roomLifecycle(value: Pick<RoomLifecycle, "expiresAfterMinutes" | "expiresAt" | "presence">): RoomLifecycle {
+  return {
+    expiresAfterMinutes: value.expiresAfterMinutes,
+    expiresAt: value.expiresAt,
+    presence: value.presence,
+  };
 }
 
 function formatError(error: unknown): string {

@@ -4,6 +4,7 @@ import { confirm, message, open } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import { zip } from "fflate";
+import { textRoomPath } from "./web-route";
 
 export type UploadResponse = { id: string; url: string; expiresAt: string };
 export type UploadProgress = { sentBytes: number; totalBytes: number; percent: number };
@@ -60,7 +61,7 @@ async function performDesktopUpdateCheck(interactive: boolean): Promise<void> {
     const update = await check();
     if (!update) {
       if (interactive) {
-        await message("Você já está usando a versão mais recente do QuickDrop.", {
+        await message("You are already using the latest QuickDrop version.", {
           title: "QuickDrop",
           kind: "info",
         });
@@ -69,12 +70,12 @@ async function performDesktopUpdateCheck(interactive: boolean): Promise<void> {
     }
 
     const accepted = await confirm(
-      `QuickDrop ${update.version} está disponível. Deseja atualizar e reiniciar agora?`,
+      `QuickDrop ${update.version} is available. Update and restart now?`,
       {
-        title: "Atualização do QuickDrop",
+        title: "QuickDrop update",
         kind: "info",
-        okLabel: "Atualizar e reiniciar",
-        cancelLabel: "Depois",
+        okLabel: "Update and restart",
+        cancelLabel: "Later",
       },
     );
     if (!accepted) {
@@ -84,10 +85,10 @@ async function performDesktopUpdateCheck(interactive: boolean): Promise<void> {
     await update.downloadAndInstall();
     await relaunch();
   } catch (error) {
-    console.error("Falha ao atualizar o QuickDrop", error);
+    console.error("Failed to update QuickDrop", error);
     if (interactive) {
-      await message(`Não foi possível verificar ou instalar a atualização: ${formatTauriError(error)}`, {
-        title: "Atualização do QuickDrop",
+      await message(`Could not check for or install the update: ${formatTauriError(error)}`, {
+        title: "QuickDrop update",
         kind: "error",
       });
     }
@@ -115,7 +116,7 @@ export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse
 
   const files = inputs.filter((i): i is File => i instanceof File);
   if (files.length === 0) {
-    throw new Error("Nenhum arquivo selecionado.");
+    throw new Error("No files selected.");
   }
 
   let uploadFile: File;
@@ -139,7 +140,7 @@ export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse
       });
     });
 
-    uploadFile = new File([zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength) as ArrayBuffer], `quickdrop-${files.length}-arquivos.zip`, {
+    uploadFile = new File([zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength) as ArrayBuffer], `quickdrop-${files.length}-files.zip`, {
       type: "application/zip",
     });
   }
@@ -163,15 +164,15 @@ export async function uploadFiles(inputs: UploadInput[]): Promise<UploadResponse
           const res = JSON.parse(xhr.responseText) as UploadResponse;
           resolve(res);
         } catch (e) {
-          reject(new Error("Resposta inválida do servidor."));
+          reject(new Error("Invalid server response."));
         }
       } else {
-        reject(new Error(xhr.responseText || `Erro no upload: ${xhr.statusText}`));
+        reject(new Error(xhr.responseText || `Upload error: ${xhr.statusText}`));
       }
     };
 
     xhr.onerror = () => {
-      reject(new Error("Falha na conexão com o servidor."));
+      reject(new Error("Server connection failed."));
     };
 
     const formData = new FormData();
@@ -241,7 +242,7 @@ export async function openTextClipboard(code: string): Promise<void> {
     await invoke("open_text_clipboard", { code });
     return;
   }
-  window.open(`/t/${encodeURIComponent(code)}`, "_blank", "noopener,noreferrer");
+  window.open(textRoomPath(code), "_blank", "noopener,noreferrer");
 }
 
 export async function readClipboardUploadInputs(): Promise<LocalUploadInput[]> {
@@ -262,7 +263,7 @@ export async function usesNativeClipboardPaste(): Promise<boolean> {
 
 
 export async function selectLocalFiles(): Promise<string[]> {
-  const selection = await open({ title: "Selecionar arquivos", multiple: true, directory: false });
+  const selection = await open({ title: "Select files", multiple: true, directory: false });
 
   if (!selection) {
     return [];
@@ -288,7 +289,7 @@ export function copyText(text: string): Promise<void> {
     return navigator.clipboard.writeText(text);
   }
 
-  return Promise.reject(new Error("Clipboard API não disponível"));
+  return Promise.reject(new Error("Clipboard API is unavailable"));
 }
 
 export function copyLink(link: string): Promise<void> {

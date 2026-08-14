@@ -488,10 +488,12 @@ async function startTestServer(
       app.server.closeAllConnections?.();
       await app.close();
     },
-    connect(code: string, cookieHeader?: string): NodeWebSocket {
-      const socket = new NodeWebSocket(`${wsBase}/api/text/${code}/ws`, {
-        headers: cookieHeader ? { Cookie: cookieHeader } : undefined,
-      });
+    connect(code: string, cookieHeader?: string, accessToken?: string): NodeWebSocket {
+      const url = `${wsBase}/api/text/${code}/ws`;
+      const options = { headers: cookieHeader ? { Cookie: cookieHeader } : undefined };
+      const socket = accessToken
+        ? new NodeWebSocket(url, [`quickdrop-access.${accessToken}`], options)
+        : new NodeWebSocket(url, options);
       queuedMessages.set(socket, []);
       pendingReceivers.set(socket, []);
       socket.on("message", (data) => {
@@ -889,6 +891,7 @@ describe("text session routes", () => {
       const created = await server.app.inject({
         method: "POST",
         url: "/api/text/SECRET/open",
+        headers: { "x-quickdrop-native": "1" },
         payload: { pin: "1234" },
       });
       expect(created.statusCode).toBe(200);
@@ -900,6 +903,8 @@ describe("text session routes", () => {
         expiresAfterMinutes: 30,
         expiresAt: "2026-06-23T20:30:00.000Z",
         presence: 0,
+        accessToken: expect.any(String),
+        accessExpiresAt: "2026-06-23T21:00:00.000Z",
       });
 
       const denied = await server.app.inject({ method: "POST", url: "/api/text/SECRET/open" });
@@ -909,6 +914,7 @@ describe("text session routes", () => {
       const opened = await server.app.inject({
         method: "POST",
         url: "/api/text/SECRET/open",
+        headers: { "x-quickdrop-native": "1" },
         payload: { pin: "1234" },
       });
       expect(opened.statusCode).toBe(200);
@@ -916,7 +922,8 @@ describe("text session routes", () => {
       const cookie = opened.headers["set-cookie"];
       const cookieHeader = Array.isArray(cookie) ? cookie[0] : cookie;
       expect(cookieHeader).toContain("qd_text_access_SECRET=");
-      const socket = server.connect("SECRET", cookieHeader);
+      const accessToken = JSON.parse(opened.body).accessToken as string;
+      const socket = server.connect("SECRET", undefined, accessToken);
       const snapshot = await expectJoined(socket, 1);
       expect(snapshot.type).toBe("snapshot");
     } finally {
@@ -1108,7 +1115,7 @@ describe("text session routes", () => {
 
     try {
       const socket = server.connect("ZZZZZZ");
-      expect(await nextMessage(socket)).toEqual({ type: "error", error: "not_found", message: "Sala não encontrada." });
+      expect(await nextMessage(socket)).toEqual({ type: "error", error: "not_found", message: "Room not found." });
     } finally {
       await server.close();
     }
@@ -1129,6 +1136,7 @@ describe("text session routes", () => {
       expect(createResponse.statusCode).toBe(200);
       const created: { code: string; protected: boolean } = JSON.parse(createResponse.body);
       expect(created.protected).toBe(true);
+      expect(JSON.parse(createResponse.body).accessToken).toBeUndefined();
       const creatorCookie = String(createResponse.headers["set-cookie"]);
 
       const anonymousRead = await server.app.inject({ method: "GET", url: `/api/text/${created.code}` });
@@ -1181,7 +1189,7 @@ describe("text session routes", () => {
       expect(await nextMessage(blockedSocket)).toEqual({
         type: "error",
         error: "pin_required",
-        message: "Sala protegida por PIN.",
+        message: "Room is PIN-protected.",
       });
       await closeSocket(blockedSocket);
 

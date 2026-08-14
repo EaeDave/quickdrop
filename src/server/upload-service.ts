@@ -105,7 +105,7 @@ export async function handleUpload(
       reply,
       413,
       "file_too_large",
-      `Arquivo excede o limite de ${deps.config.maxFileSizeMb} MB.`,
+      `File exceeds the ${deps.config.maxFileSizeMb} MB limit.`,
     );
     return;
   }
@@ -133,7 +133,7 @@ export async function handleUpload(
     }
 
     if (hasErrorCode(error, "FST_FILES_LIMIT")) {
-      sendUploadError(reply, 400, "too_many_files", "Envie apenas um arquivo por vez.");
+      sendUploadError(reply, 400, "too_many_files", "Send only one file at a time.");
       return;
     }
 
@@ -142,13 +142,13 @@ export async function handleUpload(
         reply,
         413,
         "file_too_large",
-        `Arquivo excede o limite de ${deps.config.maxFileSizeMb} MB.`,
+        `File exceeds the ${deps.config.maxFileSizeMb} MB limit.`,
       );
       return;
     }
 
     if (hasErrorCode(error, "QUICKDROP_EMPTY_FILE")) {
-      sendUploadError(reply, 400, "empty_file", "Arquivo vazio não é permitido.");
+      sendUploadError(reply, 400, "empty_file", "Empty files are not allowed.");
       return;
     }
 
@@ -158,16 +158,16 @@ export async function handleUpload(
     }
 
     if (hasErrorCode(error, "QUICKDROP_STORAGE_QUOTA_EXCEEDED")) {
-      sendUploadError(reply, 507, "storage_quota_exceeded", "Limite de armazenamento temporário atingido.");
+      sendUploadError(reply, 507, "storage_quota_exceeded", "Temporary storage limit reached.");
       return;
     }
     request.log.error({ error }, "Failed to store upload");
-    sendUploadError(reply, 500, "upload_failed", "Falha ao enviar arquivo.");
+    sendUploadError(reply, 500, "upload_failed", "File upload failed.");
     return;
   }
 
   if (!uploadedObject) {
-    sendUploadError(reply, 400, "file_required", "Selecione um arquivo.");
+    sendUploadError(reply, 400, "file_required", "Select a file.");
     return;
   }
 

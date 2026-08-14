@@ -24,10 +24,10 @@ export function dropContentTypeLabel(contentType: TextDropContentType): string {
     case "url":
       return "URL";
     case "command":
-      return "Comando";
+      return "Command";
     case "json":
       return "JSON";
     default:
-      return "Texto";
+      return "Text";
   }
 }

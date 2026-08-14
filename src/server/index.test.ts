@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe("buildApp", () => {
-  test("allows Tauri/WebView upload preflight with custom size header", async () => {
+  test("allows Tauri/WebView preflight headers", async () => {
     const { app } = buildApp();
 
     try {
@@ -59,7 +59,7 @@ describe("buildApp", () => {
         headers: {
           origin: "tauri://localhost",
           "access-control-request-method": "POST",
-          "access-control-request-headers": "content-type,x-quickdrop-file-size",
+          "access-control-request-headers": "content-type,x-quickdrop-file-size,x-quickdrop-native",
         },
       });
 
@@ -68,6 +68,9 @@ describe("buildApp", () => {
       expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
       expect(String(response.headers["access-control-allow-headers"]).toLowerCase()).toContain(
         "x-quickdrop-file-size",
+      );
+      expect(String(response.headers["access-control-allow-headers"]).toLowerCase()).toContain(
+        "x-quickdrop-native",
       );
     } finally {
       await app.close();
@@ -170,14 +173,14 @@ describe("buildApp", () => {
     }
   });
 
-  test("serves and validates the human-readable text deep link", async () => {
+  test("redirects the legacy text route to the canonical room URL", async () => {
     const { app } = buildApp();
     try {
       const valid = await app.inject({ method: "GET", url: "/t/DEV-1" });
       const invalid = await app.inject({ method: "GET", url: "/t/not%20valid" });
 
-      expect(valid.statusCode).toBe(200);
-      expect(valid.body).toContain('<div id="root"></div>');
+      expect(valid.statusCode).toBe(308);
+      expect(valid.headers.location).toBe("/DEV-1");
       expect(valid.headers["cache-control"]).toBe("no-store, max-age=0");
       expect(valid.headers["referrer-policy"]).toBe("no-referrer");
       expect(invalid.statusCode).toBe(404);
@@ -759,6 +762,9 @@ describe("redactTextCodeFromUrl", () => {
     expect(redactTextCodeFromUrl("/SECRET/")).toBe("/[code]/");
     expect(redactTextCodeFromUrl("/t/SECRET?source=panel")).toBe(
       "/t/[code]?source=panel",
+    );
+    expect(redactTextCodeFromUrl("/api/text/SECRET/ws?access_token=private-token")).toBe(
+      "/api/text/[code]/ws?access_token=[redacted]",
     );
     expect(redactTextCodeFromUrl("/?c=FIRST&source=test&c=SECRET")).toBe(
       "/?c=[code]&source=test&c=[code]",

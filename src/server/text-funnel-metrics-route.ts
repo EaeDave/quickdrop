@@ -24,7 +24,7 @@ export function registerTextFunnelMetricsRoute(
     async (request, reply) => {
       const metric = parseClientTextMetric(request.body);
       if (!metric) {
-        reply.code(400).send({ error: "invalid_metric", message: "Métrica inválida." });
+        reply.code(400).send({ error: "invalid_metric", message: "Invalid metric." });
         return;
       }
 

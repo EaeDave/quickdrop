@@ -104,7 +104,7 @@ See [`.env.example`](.env.example) for the complete development template.
 
 Open the web application and enter a code containing 1–16 ASCII letters, numbers, `_`, or `-`. The same operation opens an active clipboard or creates it when it does not exist.
 
-Each publication creates a drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards are available through the web interface and interactive TUI.
+Each publication creates a drop. By default, a clipboard retains its 10 newest drops, and each drop expires after 12 hours. Public custom codes are intentionally easy to type and must not be treated as secrets. PIN-protected clipboards are available through the web interface, desktop QuickPanel, and interactive TUI.
 
 Canonical URLs use this form:
 
@@ -293,7 +293,7 @@ macOS menu bar app and CLI/TUI installation (automatically detects Apple Silicon
 curl -fsSL https://quickdrop.eaedave.xyz/install-macos.sh | bash
 ```
 
-The installer verifies both release checksums, installs the menu bar app to `~/Applications/QuickDrop.app`, writes `qd` to `~/.local/bin`, and launches QuickDrop. The app stays in the macOS menu bar without a Dock icon, supports uploads from the file picker, drag-and-drop, image/text clipboard paste, and a QuickPanel for text channels with muteable native notifications, and offers an “Open at Login” toggle. Standalone CLI assets remain available below `/macos/qd/aarch64/` and `/macos/qd/x86_64/`.
+The installer verifies both release checksums, installs the menu bar app to `~/Applications/QuickDrop.app`, writes `qd` to `~/.local/bin`, and launches QuickDrop. The app stays in the macOS menu bar without a Dock icon, supports uploads from the file picker, drag-and-drop, image/text clipboard paste, and a QuickPanel for public or PIN-protected text rooms with presence, expiry, delete actions, and muteable native notifications. It also offers a “Launch at Login” toggle. Standalone CLI assets remain available below `/macos/qd/aarch64/` and `/macos/qd/x86_64/`.
 
 Linux full installation:
 
@@ -301,7 +301,7 @@ Linux full installation:
 curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 ```
 
-The installer is idempotent and always installs or updates the complete Linux experience: the desktop client with file/text QuickPanel and native text notifications, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
+The installer is idempotent and always installs or updates the complete Linux experience: the desktop client with the same public or PIN-protected file/text QuickPanel, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
 
 The Tauri desktop checks for updates shortly after launch on Linux, Windows, and macOS. When a signed update is available, QuickDrop asks before installing and restarting. Windows and macOS also expose **Verificar atualizações…** in the tray/menu bar. Update bundles are authenticated with the QuickDrop updater key on every platform. The macOS build uses an ad-hoc Apple signature rather than Developer ID notarization, so Gatekeeper may still require **Abrir Mesmo Assim** after installation or an update.
 

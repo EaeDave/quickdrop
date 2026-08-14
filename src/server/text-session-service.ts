@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RawData, WebSocket } from "ws";
 import { generateSessionCode, isValidCustomSessionCode, normalizeSessionCode } from "./ids";
-import { clearRoomAccessCookie, createRoomAccessCookie, type RoomAccessCheck, verifyRoomAccessCookie } from "./text-room-access";
+import {
+  clearRoomAccessCookie,
+  createRoomAccessCookie,
+  createRoomAccessToken,
+  type RoomAccessCheck,
+  verifyRoomAccessCookie,
+  verifyRoomAccessToken,
+} from "./text-room-access";
 import type { TextSessionHub } from "./text-session-hub";
 import type { TextFunnelMetrics } from "./text-funnel-metrics";
 import { classifyTextDrop } from "./text-drop-content";
@@ -128,31 +135,22 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         );
 
         if (creation.status === "limit") {
-          reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
+          reply.code(503).send({ error: "session_limit", message: "Room limit reached. Try again later." });
           return;
         }
 
         if (creation.status === "created") {
           const room = creation.room;
-          if (room.pin_hash) {
-            reply.header(
-              "set-cookie",
-              createRoomAccessCookie({
-                code: room.code,
-                pinHash: room.pin_hash,
-                ttlMs: deps.ttlMs,
-                now: createdAt,
-                secure: isSecureRequest(request),
-              }),
-            );
-          }
+          const access = room.pin_hash
+            ? grantProtectedRoomAccess(room, request, reply, deps.ttlMs, createdAt)
+            : {};
 
           void metrics.record({ event: "open_or_create", roomKind: "generated", outcome: "created" });
-          return roomAccessPayload(room, undefined, deps);
+          return { ...roomAccessPayload(room, undefined, deps), ...access };
         }
       }
 
-      reply.code(503).send({ error: "code_exhausted", message: "Não foi possível reservar um código de sala." });
+      reply.code(503).send({ error: "code_exhausted", message: "Could not reserve a room code." });
     },
   );
 
@@ -164,7 +162,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       if (!isValidCustomSessionCode(code)) {
         reply.code(400).send({
           error: "invalid_code",
-          message: "Use de 1 a 16 letras, números, hífen ou sublinhado.",
+          message: "Use 1 to 16 letters, numbers, hyphens, or underscores.",
         });
         return;
       }
@@ -200,33 +198,24 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         );
 
         if (creation.status === "limit") {
-          reply.code(503).send({ error: "session_limit", message: "Limite de salas atingido. Tente mais tarde." });
+          reply.code(503).send({ error: "session_limit", message: "Room limit reached. Try again later." });
           return;
         }
 
         if (creation.status === "created") {
           room = creation.room;
-          if (room.pin_hash) {
-            reply.header(
-              "set-cookie",
-              createRoomAccessCookie({
-                code,
-                pinHash: room.pin_hash,
-                ttlMs: deps.ttlMs,
-                now: createdAt,
-                secure: isSecureRequest(request),
-              }),
-            );
-          }
+          const access = room.pin_hash
+            ? grantProtectedRoomAccess(room, request, reply, deps.ttlMs, createdAt)
+            : {};
 
           void metrics.record({ event: "open_or_create", roomKind: "custom", outcome: "created" });
-          return roomAccessPayload(room, true, deps);
+          return { ...roomAccessPayload(room, true, deps), ...access };
         }
 
         // A concurrent request won the active-code uniqueness race.
         room = await repository.findTextRoomByCode(code);
         if (!room) {
-          reply.code(503).send({ error: "create_failed", message: "Não foi possível abrir o clipboard." });
+          reply.code(503).send({ error: "create_failed", message: "Could not open the clipboard." });
           return;
         }
       }
@@ -238,48 +227,30 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
       const cookieAccess = requireProtectedRoomAccess(room, request, now());
       if (cookieAccess.ok) {
-        reply.header(
-          "set-cookie",
-          createRoomAccessCookie({
-            code,
-            pinHash: room.pin_hash,
-            ttlMs: deps.ttlMs,
-            now: now(),
-            secure: isSecureRequest(request),
-          }),
-        );
+        const access = grantProtectedRoomAccess(room, request, reply, deps.ttlMs, now());
         void metrics.record({ event: "open_or_create", roomKind: room.kind, outcome: "opened" });
         return {
           ...roomAccessPayload(room, false, deps),
-          accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
+          ...access,
         };
       }
 
       if (!parsedPin.pin) {
-        reply.code(401).send({ error: "pin_required", message: "Clipboard protegido por PIN." });
+        reply.code(401).send({ error: "pin_required", message: "Clipboard is PIN-protected." });
         return;
       }
 
       if (!(await verifyRoomPin(parsedPin.pin, room.pin_hash))) {
-        reply.code(401).send({ error: "pin_invalid", message: "PIN inválido." });
+        reply.code(401).send({ error: "pin_invalid", message: "Invalid PIN." });
         return;
       }
 
       const grantedAt = now();
-      reply.header(
-        "set-cookie",
-        createRoomAccessCookie({
-          code,
-          pinHash: room.pin_hash,
-          ttlMs: deps.ttlMs,
-          now: grantedAt,
-          secure: isSecureRequest(request),
-        }),
-      );
+      const access = grantProtectedRoomAccess(room, request, reply, deps.ttlMs, grantedAt);
       void metrics.record({ event: "open_or_create", roomKind: room.kind, outcome: "opened" });
       return {
         ...roomAccessPayload(room, false, deps),
-        accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
+        ...access,
       };
     },
   );
@@ -292,7 +263,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       const room = await repository.findTextRoomByCode(code);
 
       if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
-        reply.code(404).send({ error: "not_found", message: "Sala não encontrada." });
+        reply.code(404).send({ error: "not_found", message: "Room not found." });
         return;
       }
 
@@ -308,46 +279,28 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
 
       const cookieAccess = requireProtectedRoomAccess(room, request, now());
       if (cookieAccess.ok) {
-        reply.header(
-          "set-cookie",
-          createRoomAccessCookie({
-            code,
-            pinHash: room.pin_hash,
-            ttlMs: deps.ttlMs,
-            now: now(),
-            secure: isSecureRequest(request),
-          }),
-        );
+        const access = grantProtectedRoomAccess(room, request, reply, deps.ttlMs, now());
         return {
           ...roomAccessPayload(room, undefined, deps),
-          accessExpiresAt: cookieAccess.expiresAt?.toISOString() ?? null,
+          ...access,
         };
       }
 
       if (!parsedPin.pin) {
-        reply.code(401).send({ error: "pin_required", message: "Sala protegida por PIN." });
+        reply.code(401).send({ error: "pin_required", message: "Room is PIN-protected." });
         return;
       }
 
       if (!(await verifyRoomPin(parsedPin.pin, room.pin_hash))) {
-        reply.code(401).send({ error: "pin_invalid", message: "PIN inválido." });
+        reply.code(401).send({ error: "pin_invalid", message: "Invalid PIN." });
         return;
       }
 
       const grantedAt = now();
-      reply.header(
-        "set-cookie",
-        createRoomAccessCookie({
-          code,
-          pinHash: room.pin_hash,
-          ttlMs: deps.ttlMs,
-          now: grantedAt,
-          secure: isSecureRequest(request),
-        }),
-      );
+      const access = grantProtectedRoomAccess(room, request, reply, deps.ttlMs, grantedAt);
       return {
         ...roomAccessPayload(room, undefined, deps),
-        accessExpiresAt: new Date(grantedAt.getTime() + deps.ttlMs).toISOString(),
+        ...access,
       };
     },
   );
@@ -360,7 +313,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       const room = await repository.findTextRoomByCode(code);
 
       if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
-        reply.code(404).send({ error: "not_found", message: "Sala não encontrada." });
+        reply.code(404).send({ error: "not_found", message: "Room not found." });
         return;
       }
 
@@ -397,7 +350,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       const room = await repository.findTextRoomByCode(code);
 
       if (!room || isExpired(room, now(), deps.hub.clientCount(code))) {
-        socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+        socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
         socket.close(1008, "not_found");
         return;
       }
@@ -429,7 +382,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       });
 
       if (!joined.ok) {
-        socket.send(JSON.stringify({ type: "error", error: "room_full", message: "Sala cheia." }));
+        socket.send(JSON.stringify({ type: "error", error: "room_full", message: "Room is full." }));
         socket.close(1008, joined.reason);
         return;
       }
@@ -507,13 +460,13 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
       if (access.expiresAt) {
         const delayMs = access.expiresAt.getTime() - now().getTime();
         if (delayMs <= 0) {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Room access expired. Enter the PIN again." }));
           socket.close(1008, "invalid_token");
           return;
         }
 
         authExpiryTimer = setTimeout(() => {
-          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Acesso à sala expirou. Informe o PIN novamente." }));
+          socket.send(JSON.stringify({ type: "error", error: "invalid_token", message: "Room access expired. Enter the PIN again." }));
           socket.close(1008, "invalid_token");
         }, delayMs);
       }
@@ -522,7 +475,7 @@ export function registerTextSessionRoutes(app: FastifyInstance, deps: TextSessio
         void handleRealtimeMessage(raw, room, clientId, socket, deps, repository, dropsRepository, now).catch(() => {
           app.log.error("Failed to process a text room realtime operation.");
           try {
-            socket.send(JSON.stringify({ type: "error", error: "operation_failed", message: "Não foi possível concluir a operação." }));
+            socket.send(JSON.stringify({ type: "error", error: "operation_failed", message: "Could not complete the operation." }));
           } catch {
             // The socket may have closed while the operation was running.
           }
@@ -581,12 +534,12 @@ async function handleRealtimeMessage(
 
   if (message.type === "drop_add") {
     if (Buffer.byteLength(message.content, "utf8") > deps.maxBytes) {
-      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Texto excede o limite por item." }));
+      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Text exceeds the per-item limit." }));
       return;
     }
 
     if (message.content.trim().length === 0) {
-      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "Digite ou cole um texto antes de enviar." }));
+      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "Type or paste text before sending." }));
       return;
     }
 
@@ -602,7 +555,7 @@ async function handleRealtimeMessage(
       deps.maxDrops,
     );
     if (!result) {
-      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
       return;
     }
 
@@ -623,11 +576,11 @@ async function handleRealtimeMessage(
 
   if (message.type === "drop_update") {
     if (Buffer.byteLength(message.content, "utf8") > deps.maxBytes) {
-      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Texto excede o limite por item." }));
+      socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Text exceeds the per-item limit." }));
       return;
     }
     if (message.content.trim().length === 0) {
-      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "O item não pode ficar vazio." }));
+      socket.send(JSON.stringify({ type: "error", error: "empty_drop", message: "The item cannot be empty." }));
       return;
     }
 
@@ -639,11 +592,11 @@ async function handleRealtimeMessage(
       updatedAt: now(),
     });
     if (!result) {
-      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
       return;
     }
     if (!result.drop) {
-      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item não encontrado." }));
+      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item not found." }));
       return;
     }
 
@@ -662,11 +615,11 @@ async function handleRealtimeMessage(
   if (message.type === "drop_delete") {
     const result = await dropsRepository.deleteDrop(room.id, message.dropId, now());
     if (!result) {
-      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
       return;
     }
     if (!result.deleted) {
-      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item não encontrado." }));
+      socket.send(JSON.stringify({ type: "error", error: "drop_not_found", message: "Item not found." }));
       return;
     }
 
@@ -682,7 +635,7 @@ async function handleRealtimeMessage(
   if (message.type === "drops_clear") {
     const result = await dropsRepository.clearDrops(room.id, now());
     if (!result) {
-      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+      socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
       return;
     }
 
@@ -696,14 +649,14 @@ async function handleRealtimeMessage(
   }
 
   if (Buffer.byteLength(message.text, "utf8") > deps.maxBytes) {
-    socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Texto excede o limite da sala." }));
+    socket.send(JSON.stringify({ type: "error", error: "too_large", message: "Text exceeds the room limit." }));
     return;
   }
 
   const updated = await repository.updateTextRoomText({ code, text: message.text, now: now() });
 
   if (!updated || isExpired(updated, now(), deps.hub.clientCount(code))) {
-    socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Sala não encontrada." }));
+    socket.send(JSON.stringify({ type: "error", error: "not_found", message: "Room not found." }));
     return;
   }
 
@@ -852,7 +805,7 @@ function parsePinFromBody(body: unknown): PinParseResult {
   }
 
   if (typeof body !== "object") {
-    return { ok: false, message: "Body inválido para PIN." };
+    return { ok: false, message: "Invalid PIN request body." };
   }
 
   const pin = "pin" in body ? normalizeRoomPin(body.pin) : null;
@@ -863,11 +816,44 @@ function parsePinFromBody(body: unknown): PinParseResult {
   if (pin.length < ROOM_PIN_MIN_LENGTH || pin.length > ROOM_PIN_MAX_LENGTH) {
     return {
       ok: false,
-      message: `O PIN deve ter entre ${ROOM_PIN_MIN_LENGTH} e ${ROOM_PIN_MAX_LENGTH} caracteres.`,
+      message: `PIN must be between ${ROOM_PIN_MIN_LENGTH} and ${ROOM_PIN_MAX_LENGTH} characters.`,
     };
   }
 
   return { ok: true, pin };
+}
+
+function grantProtectedRoomAccess(
+  room: TextRoomRow,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  ttlMs: number,
+  grantedAt: Date,
+) {
+  if (!room.pin_hash) {
+    return { accessToken: null, accessExpiresAt: null };
+  }
+  const grant = createRoomAccessToken({
+    code: room.code,
+    pinHash: room.pin_hash,
+    ttlMs,
+    now: grantedAt,
+  });
+  reply.header(
+    "set-cookie",
+    createRoomAccessCookie({
+      code: room.code,
+      pinHash: room.pin_hash,
+      ttlMs,
+      now: grantedAt,
+      secure: isSecureRequest(request),
+      token: grant.token,
+    }),
+  );
+  return {
+    ...(request.headers["x-quickdrop-native"] === "1" ? { accessToken: grant.token } : {}),
+    accessExpiresAt: grant.expiresAt.toISOString(),
+  };
 }
 
 function requireProtectedRoomAccess(room: TextRoomRow, request: FastifyRequest, currentTime: Date): ProtectedRoomAuthResult {
@@ -875,12 +861,22 @@ function requireProtectedRoomAccess(room: TextRoomRow, request: FastifyRequest, 
     return { ok: true, expiresAt: null };
   }
 
-  const access = verifyRoomAccessCookie({
-    code: room.code,
-    pinHash: room.pin_hash,
-    cookieHeader: typeof request.headers.cookie === "string" ? request.headers.cookie : undefined,
-    now: currentTime,
-  });
+  const requestedProtocols = request.headers["sec-websocket-protocol"];
+  const accessToken = typeof requestedProtocols === "string"
+    ? requestedProtocols
+      .split(",")
+      .map((protocol) => protocol.trim())
+      .find((protocol) => protocol.startsWith("quickdrop-access."))
+      ?.slice("quickdrop-access.".length)
+    : undefined;
+  const access = accessToken
+    ? verifyRoomAccessToken({ code: room.code, pinHash: room.pin_hash, token: accessToken, now: currentTime })
+    : verifyRoomAccessCookie({
+      code: room.code,
+      pinHash: room.pin_hash,
+      cookieHeader: typeof request.headers.cookie === "string" ? request.headers.cookie : undefined,
+      now: currentTime,
+    });
 
   return mapAccessCheck(access);
 }
@@ -891,14 +887,14 @@ function mapAccessCheck(access: RoomAccessCheck): ProtectedRoomAuthResult {
   }
 
   if (access.error === "missing") {
-    return { ok: false, statusCode: 401, error: "pin_required", message: "Sala protegida por PIN." };
+    return { ok: false, statusCode: 401, error: "pin_required", message: "Room is PIN-protected." };
   }
 
   return {
     ok: false,
     statusCode: 401,
     error: "invalid_token",
-    message: "Acesso à sala expirou. Informe o PIN novamente.",
+    message: "Room access expired. Enter the PIN again.",
   };
 }
 

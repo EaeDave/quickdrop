@@ -332,6 +332,16 @@ h1 {
   cursor: default;
 }
 
+.quickpanel-open--active {
+  border-color: rgb(56 189 248 / 0.7);
+  background: rgb(14 165 233 / 0.28);
+}
+
+.quickpanel-pin {
+  flex: none;
+  width: 100%;
+}
+
 .quickpanel-recents {
   display: flex;
   align-items: center;
@@ -375,6 +385,8 @@ h1 {
 
 .quickpanel-channel-row > div:first-child {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -439,19 +451,43 @@ h1 {
   border-radius: 7px;
   background: rgb(15 23 42 / 0.42);
   color: #cbd5e1;
+  padding: 0;
+  text-align: left;
+}
+
+.quickpanel-drop-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 7px 9px;
+  color: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.quickpanel-drop span {
+.quickpanel-drop-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.quickpanel-drop small {
+.quickpanel-drop-copy small {
   color: #7dd3fc;
+}
+
+.quickpanel-drop-delete {
+  align-self: stretch;
+  border-left: 1px solid rgb(148 163 184 / 0.13);
+  color: #94a3b8;
+  padding: 0 9px;
+  cursor: pointer;
+}
+
+.quickpanel-drop-delete:hover {
+  color: #fda4af;
 }
 
 .quickpanel-waiting {
