@@ -4,7 +4,7 @@ Audit scope: tracked files, reachable Git history, release workflows, desktop bu
 
 ## Completed hardening
 
-- Gitleaks found no credentials in reachable Git history.
+- Gitleaks found no credentials in reachable Git history, pull-request/issue/release metadata, or available Actions logs.
 - The deployment origin is configured with `QUICKDROP_PUBLIC_BASE_URL` instead of being embedded in source.
 - Tauri builds receive both the deployment origin and updater public key from environment/repository variables.
 - Install scripts are rendered by the backend with the configured deployment origin.
