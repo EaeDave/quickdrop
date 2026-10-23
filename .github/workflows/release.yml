@@ -38,7 +38,7 @@ jobs:
       - name: Verify source version matches release tag
         run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             cli
@@ -100,7 +100,7 @@ jobs:
       - name: Verify source version matches release tag
         run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             cli
