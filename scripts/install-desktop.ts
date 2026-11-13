@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-const releaseBinary = resolve("src-tauri/target/release/quickdrop");
+const releaseBinary = resolve("desktop-gpui/target/release/quickdrop");
 const qdReleaseBinary = resolve("cli/target/release/qd");
 
 if (!(await Bun.file(releaseBinary).exists()) || !(await Bun.file(qdReleaseBinary).exists())) {

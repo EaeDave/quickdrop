@@ -13,7 +13,7 @@ import {
   type TextDrop,
 } from "./text-client";
 import { dropContentTypeLabel, isPublishDropShortcut } from "./text-session-shortcuts";
-import { uploadFiles } from "./tauri";
+import { uploadFiles } from "./browser";
 import { initialRoomCode, setRoomInUrl, textRoomPath } from "./web-route";
 
 type ConnectionPhase = "connecting" | "open" | "closed";

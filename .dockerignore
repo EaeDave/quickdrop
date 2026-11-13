@@ -15,9 +15,8 @@ logs
 .env.*
 !.env.example
 
-src-tauri/target
+desktop-gpui/target
 cli/target
-src-tauri/gen
 src/desktop/output.css
 dist
 out

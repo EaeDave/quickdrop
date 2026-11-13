@@ -18,8 +18,8 @@ QuickDrop is a self-hosted, cross-platform tool for moving files and short text 
 | Component | Technology | Location |
 |---|---|---|
 | HTTP and WebSocket backend | Bun, Fastify, PostgreSQL, Drizzle | `src/server/` |
-| Web and desktop interface | React, Tailwind CSS | `src/desktop/` |
-| Desktop shell | Rust, Tauri 2 | `src-tauri/` |
+| Browser interface | React, Tailwind CSS | `src/desktop/` |
+| Native desktop interface | Rust, GPUI, GPUI Component | `desktop-gpui/` |
 | Native text CLI | Rust | `cli/` |
 | Database migrations | SQL, Drizzle | `migrations/` |
 | Linux and Windows installers | Bash, PowerShell | `scripts/` |
@@ -30,8 +30,8 @@ QuickDrop is a self-hosted, cross-platform tool for moving files and short text 
 - Docker with Compose for local PostgreSQL
 - Rust stable for the desktop application and `qd` CLI
 - Cloudflare R2 credentials for production file uploads
-- Linux desktop builds: GTK 3, WebKitGTK 4.1, `wl-clipboard`, and `libnotify`
-- Windows desktop builds: Windows 10/11 and WebView2 Runtime
+- Linux desktop: X11 or Wayland, a Vulkan-capable graphics driver, fontconfig, libxkbcommon, `wl-clipboard`, and `libnotify`
+- Windows desktop: Windows 10/11; no WebView2 runtime is required
 
 This repository uses [mise](https://mise.jdx.dev/) for local toolchain selection. Install the configured tools before building:
 
@@ -96,7 +96,7 @@ TEXT_METRICS_RETENTION_DAYS=90
 RUN_MIGRATIONS_ON_START=true
 ```
 
-`QUICKDROP_PUBLIC_BASE_URL` is the canonical deployment origin. It is embedded into official CLI/Tauri builds and used to generate installer and updater URLs, so forks can target their own backend without editing source files. Desktop builds also require `TAURI_UPDATER_PUBLIC_KEY`; keep the matching private signing key outside the repository.
+`QUICKDROP_PUBLIC_BASE_URL` is the canonical deployment origin. It is embedded into official CLI/GPUI builds and used to generate installer and updater URLs, so forks can target their own backend without editing source files. Desktop release builds also require `QUICKDROP_UPDATER_PUBLIC_KEY`. GitHub Actions supplies it from the existing `TAURI_UPDATER_PUBLIC_KEY` repository variable and signs with the persistent `TAURI_SIGNING_PRIVATE_KEY` secret; these names preserve the existing signing identity, not a Tauri runtime dependency.
 
 See [`.env.example`](.env.example) for the complete development template.
 
@@ -233,13 +233,23 @@ Artifacts are written below `cli/target/`.
 
 ## Desktop clients
 
-Run the Tauri application in development:
+Run the GPUI application in development (the backend defaults to `http://127.0.0.1:3000`):
 
 ```bash
 bun run desktop:dev
 ```
 
-Build for the current platform:
+To test the native panel against another backend without installing or publishing it:
+
+```bash
+QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run desktop:dev
+```
+
+On Omarchy, the development command uses the same floating, cursor-aware launcher as the installed application. The desktop is rendered in Rust without HTML, React, or a WebView; browser routes remain React. The compact translucent navy panel, cyan accents, and file/text selector retain the website's visual identity. Linux uses Adwaita Sans; Windows and macOS use their system UI fonts.
+
+`Esc` closes the Linux panel; Windows/macOS hide it while keeping the tray/menu bar running. `Ctrl+V` uploads a clipboard image or text in Files mode. Text rooms support PINs, live presence, copy/delete, recent codes, notifications, and `Ctrl+Enter` to send. `Ctrl+U` checks for a signed desktop update. On macOS, use `Command` instead of `Ctrl`. Omarchy development logs go to `$XDG_CACHE_HOME/quickdrop/desktop-dev.log` (or `~/.cache/quickdrop/desktop-dev.log`). Preferences live in the platform configuration directory under `quickdrop/settings.json`; room contents remain on the backend. Older WebView preferences are not deleted.
+
+Build for the current platform after exporting `QUICKDROP_PUBLIC_BASE_URL` and the existing `QUICKDROP_UPDATER_PUBLIC_KEY`:
 
 ```bash
 bun run desktop:build
@@ -268,7 +278,15 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It immediately creates the GitHub release with the Linux desktop and CLI/TUI binaries plus checksums and updater signature. The tag starts the platform Actions workflow, which adds the Windows installer and CLI/TUI assets, the Apple Silicon and Intel macOS menu bar app and CLI/TUI assets, signed desktop updater bundles, and `latest.json`. The command waits for that workflow and verifies every public download before succeeding. Desktop updater manifests and bundles are exposed through server-side proxies under `/desktop/update/`; private release repositories additionally require a backend GitHub token. The signing key remains build-only. Linux is intentionally never built in Actions; use `bun run release:check` for a non-publishing manifest check.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It creates a draft GitHub release containing the Linux desktop and CLI/TUI binaries plus CLI checksums. The tag starts the native platform Actions workflow: Windows signs the already-built Linux desktop binary with the existing persistent key, builds/signs its own installer, and uploads both signatures; macOS builds the Apple Silicon and Intel menu bar apps, DMGs, CLI/TUI assets, and signed updater archives. No Linux build runs in Actions. After both platform jobs succeed, the workflow uploads `latest.json`. The release command checks required assets, verifies all four updater signatures against the configured public key, checks the manifest, and only then publishes the draft. Finally, it verifies public download endpoints. A signing or build failure leaves the draft unpublished.
+
+Before a cross-platform cutover, explicitly validate the native workflow on the feature branch with the source version as `tag` and `publish=false`. This builds and signs Windows/macOS artifacts without replacing public release assets:
+
+```bash
+gh workflow run release.yml --ref YOUR_BRANCH -f tag=vSOURCE_VERSION -f publish=false
+```
+
+Pull-request commits do not start release builds. Only a release tag or an explicit manual workflow dispatch does.
 
 ### End-user installation
 
@@ -303,7 +321,7 @@ curl -fsSL https://quickdrop.eaedave.xyz/install.sh | bash
 
 The installer is idempotent and always installs or updates the complete Linux experience: the desktop client with the same public or PIN-protected file/text QuickPanel, the `qd` CLI/TUI binary, the launcher, and the detected OmarchyBar or Waybar integration. It stores the selected backend in `~/.config/quickdrop/config.env`; rerun the same command to update every component.
 
-The Tauri desktop checks for updates shortly after launch on Linux, Windows, and macOS. When a signed update is available, QuickDrop asks before installing and restarting. Windows and macOS also expose **Check for updates…** in the tray/menu bar. Update bundles are authenticated with the QuickDrop updater key on every platform. The macOS build uses an ad-hoc Apple signature rather than Developer ID notarization, so Gatekeeper may still require **Open Anyway** after installation or an update.
+The GPUI desktop checks for updates shortly after launch on Linux, Windows, and macOS. When a signed update is available, QuickDrop asks before installing and restarting. Windows and macOS also expose **Check for updates…** in the tray/menu bar. Native updates verify Minisign signatures against the same persistent public key used by previously published Tauri clients, so those clients can upgrade to GPUI through their existing updater. The Tauri CLI remains a build-time signature tool only; no Tauri runtime or WebView ships in the desktop. The macOS build uses an ad-hoc Apple signature rather than Developer ID notarization, so Gatekeeper may still require **Open Anyway** after installation or an update.
 
 ## Local backend with Docker
 
@@ -374,7 +392,7 @@ bun run typecheck
 bun test
 mise exec rust@stable -- cargo test --manifest-path cli/Cargo.toml
 mise exec rust@stable -- cargo clippy --manifest-path cli/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
+mise exec rust@stable -- cargo test --manifest-path desktop-gpui/Cargo.toml
 bun run desktop:build:web
 ```
 

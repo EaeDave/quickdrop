@@ -5,9 +5,8 @@ node_modules
 out
 dist
 *.tgz
-src-tauri/target
 cli/target
-src-tauri/gen
+desktop-gpui/target
 src/desktop/output.css
 
 # code coverage

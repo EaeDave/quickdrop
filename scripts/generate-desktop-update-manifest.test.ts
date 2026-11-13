@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { createTauriUpdateManifest, updaterAssets } from "./generate-tauri-update-manifest";
+import { createDesktopUpdateManifest, updaterAssets } from "./generate-desktop-update-manifest";
 
-describe("Tauri update manifest", () => {
+describe("desktop update manifest", () => {
   test("maps signed desktop artifacts to every supported platform", () => {
     const assets = updaterAssets("1.2.3");
+    expect(assets).toEqual({
+      "linux-x86_64": "quickdrop_1.2.3_x86_64-linux",
+      "windows-x86_64": "QuickDrop_1.2.3_x64-setup.exe",
+      "darwin-aarch64": "QuickDrop_1.2.3_aarch64.app.tar.gz",
+      "darwin-x86_64": "QuickDrop_1.2.3_x64.app.tar.gz",
+    });
     const signatures = Object.fromEntries(
       Object.values(assets).map((asset) => [asset, `signature for ${asset}\n`]),
     );
 
-    const manifest = createTauriUpdateManifest(
+    const manifest = createDesktopUpdateManifest(
       "1.2.3",
       "v1.2.3",
       signatures,
@@ -26,11 +32,17 @@ describe("Tauri update manifest", () => {
       signature: "signature for QuickDrop_1.2.3_aarch64.app.tar.gz",
       url: "https://drop.example/desktop/update/1.2.3/darwin-aarch64",
     });
+    for (const [platform, asset] of Object.entries(assets)) {
+      expect(manifest.platforms[platform]).toEqual({
+        signature: `signature for ${asset}`,
+        url: `https://drop.example/desktop/update/1.2.3/${platform}`,
+      });
+    }
   });
 
   test("rejects a platform without a matching signature", () => {
     expect(() =>
-      createTauriUpdateManifest(
+      createDesktopUpdateManifest(
         "1.2.3",
         "v1.2.3",
         {},

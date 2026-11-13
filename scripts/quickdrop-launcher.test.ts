@@ -68,3 +68,29 @@ exit 0
   expect(events.indexOf("quickdrop-spawn")).toBeLessThan(events.indexOf("launch:https://example.test"));
   expect(events).not.toContain("hl.dsp.focus");
 });
+
+test("launcher focuses QuickDrop without touching unrelated application windows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "quickdrop-gpui-launcher-"));
+  const bin = join(root, "bin");
+  const eventLog = join(root, "events.log");
+  await mkdir(bin);
+  await executable(join(bin, "hyprctl"), `#!/bin/sh
+case "$1" in
+  cursorpos) printf '%s\\n' '965, 0' ;;
+  monitors) printf '%s\\n' '[{"x":0,"y":0,"width":1920,"height":1080,"focused":true,"reserved":[0,26,0,0]}]' ;;
+  clients) printf '%s\\n' '[{"class":"other-app","address":"0xother"},{"class":"quickdrop","address":"0xnative"}]' ;;
+  dispatch) printf '%s\\n' "$2" >> "$EVENT_LOG" ;;
+esac
+`);
+  await $`bash ${launcher}`.env({
+    ...process.env,
+    HOME: root,
+    PATH: `${bin}:${process.env.PATH}`,
+    XDG_RUNTIME_DIR: root,
+    EVENT_LOG: eventLog,
+  }).quiet();
+  const events = await readFile(eventLog, "utf8");
+  expect(events).toContain("address:0xnative");
+  expect(events).not.toContain("address:0xother");
+  expect(events).toContain("hl.dsp.focus");
+});
