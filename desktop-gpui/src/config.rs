@@ -12,7 +12,11 @@ pub fn require_secure_transport(url: &Url, allow_local: bool) -> Result<(), Stri
     if url.scheme() == "https" || (allow_local && url.scheme() == "http" && loopback) {
         Ok(())
     } else {
-        Err("Use HTTPS for remote backends; HTTP is allowed only on localhost or loopback addresses.".into())
+        Err(if allow_local {
+            "Use HTTPS for remote backends; HTTP is allowed only on localhost or loopback addresses."
+        } else {
+            "Release backends require HTTPS, including localhost."
+        }.into())
     }
 }
 
