@@ -247,6 +247,8 @@ QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run desktop:dev
 
 On Omarchy, the development command uses the same floating, cursor-aware launcher as the installed application. The desktop is rendered in Rust without HTML, React, or a WebView; browser routes remain React. The compact translucent navy panel, cyan accents, and file/text selector retain the website's visual identity. Linux uses Adwaita Sans; Windows and macOS use their system UI fonts.
 
+On Windows, the panel opens at 380×360 logical pixels, including when launched hidden in the tray. Drag the QuickDrop title area to move it; drag the window edges or corners to resize it. The minimum size preserves the compact layout.
+
 `Esc` closes the Linux panel; Windows/macOS hide it while keeping the tray/menu bar running. `Ctrl+V` uploads a clipboard image or text in Files mode. Text rooms support PINs, live presence, copy/delete, recent codes, notifications, and `Ctrl+Enter` to send. `Ctrl+U` checks for a signed desktop update. On macOS, use `Command` instead of `Ctrl`. Omarchy development logs go to `$XDG_CACHE_HOME/quickdrop/desktop-dev.log` (or `~/.cache/quickdrop/desktop-dev.log`). Preferences live in the platform configuration directory under `quickdrop/settings.json`; room contents remain on the backend. Older WebView preferences are not deleted.
 
 Build for the current platform after exporting `QUICKDROP_PUBLIC_BASE_URL` and the existing `QUICKDROP_UPDATER_PUBLIC_KEY`:
