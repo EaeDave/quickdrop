@@ -499,7 +499,8 @@ impl Render for Panel {
                         .w(px(132.)).h_full().flex().items_center()
                         .window_control_area(WindowControlArea::Drag))
                     .font_weight(FontWeight::SEMIBOLD).text_color(rgb(0x38bdf8)).child("QuickDrop")
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()))
+                    .when(!cfg!(target_os = "windows"), |title| title
+                        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())))
                 .child(div().flex().gap(px(3.)).p(px(3.)).rounded(px(9.)).bg(rgba(0x02061766))
                     .child(Button::new("files-tab").small().compact().rounded(px(6.)).label("Files")
                         .custom(ButtonCustomVariant::new(cx)
