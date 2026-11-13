@@ -46,11 +46,11 @@ jobs:
       - name: Apply database migrations
         run: bun run db:migrate
 
-      - name: Typecheck, test, and build browser assets
+      - name: Typecheck, build browser assets, and test
         run: |
           bun run typecheck
-          bun test
           bun run desktop:build:web
+          bun test
 
   rust:
     runs-on: ubuntu-latest
