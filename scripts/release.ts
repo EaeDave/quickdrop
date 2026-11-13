@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { updaterAssets } from "./generate-tauri-update-manifest";
+import { updaterAssets } from "./generate-desktop-update-manifest";
 import { publicBaseUrl } from "./public-config";
 
 const VERSION_FILES = [
-  "src-tauri/tauri.conf.json",
-  "src-tauri/Cargo.toml",
-  "src-tauri/Cargo.lock",
+  "desktop-gpui/Cargo.toml",
+  "desktop-gpui/Cargo.lock",
   "cli/Cargo.toml",
   "cli/Cargo.lock",
 ] as const;
@@ -52,11 +51,7 @@ export function assertReleaseRepository(configured: string, checkout: string): v
 
 async function manifestVersions(): Promise<Map<string, string>> {
   const versions = new Map<string, string>();
-  const tauriConfig = (await Bun.file(VERSION_FILES[0]).json()) as { version?: string };
-  if (!tauriConfig.version) throw new Error(`${VERSION_FILES[0]} has no version`);
-  versions.set(VERSION_FILES[0], tauriConfig.version);
-
-  for (const path of VERSION_FILES.slice(1)) {
+  for (const path of VERSION_FILES) {
     const text = await readFile(path, "utf8");
     const packageName = path.startsWith("cli/") ? "quickdrop-cli" : "quickdrop";
     const packageBlock = new RegExp(`(?:^|\\n)(?:\\[\\[package\\]\\]|\\[package\\])\\nname = "${packageName}"\\nversion = "([^"]+)"`);
@@ -100,13 +95,6 @@ export function replacePackageVersion(
 }
 
 async function replaceVersion(path: string, current: string, next: string): Promise<void> {
-  if (path.endsWith("tauri.conf.json")) {
-    const config = (await Bun.file(path).json()) as Record<string, unknown>;
-    config.version = next;
-    await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
-    return;
-  }
-
   const packageName = path.startsWith("cli/") ? "quickdrop-cli" : "quickdrop";
   const text = await readFile(path, "utf8");
   await writeFile(path, replacePackageVersion(text, packageName, current, next));
@@ -128,20 +116,10 @@ async function run(command: string[]): Promise<void> {
   if ((await child.exited) !== 0) throw new Error(`Command failed: ${command.join(" ")}`);
 }
 
-async function configureUpdaterSigning(): Promise<void> {
-  if (process.env.TAURI_SIGNING_PRIVATE_KEY || process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
-    return;
+export function assertUpdaterSigningSecret(names: readonly string[]): void {
+  if (!names.includes("TAURI_SIGNING_PRIVATE_KEY")) {
+    throw new Error("Restore the persistent TAURI_SIGNING_PRIVATE_KEY repository secret before releasing");
   }
-
-  const home = process.env.HOME;
-  if (!home) throw new Error("HOME is required to locate the Tauri updater signing key");
-  const keyPath = `${home}/.config/quickdrop-release/updater.key`;
-  if (!(await Bun.file(keyPath).exists())) {
-    throw new Error(
-      `Missing Tauri updater signing key at ${keyPath}. Restore the release key before publishing.`,
-    );
-  }
-  process.env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
 }
 
 async function preflight(tag: string, repository: string): Promise<void> {
@@ -374,12 +352,20 @@ async function main(): Promise<void> {
   const repository = githubReleaseRepository();
   process.env.QUICKDROP_PUBLIC_BASE_URL = deploymentBaseUrl;
   await preflight(tag, repository);
-  await configureUpdaterSigning();
+  const secrets = JSON.parse(await output([
+    "gh", "secret", "list", "--repo", repository, "--json", "name",
+  ])) as Array<{ name: string }>;
+  assertUpdaterSigningSecret(secrets.map((secret) => secret.name));
+  process.env.QUICKDROP_UPDATER_PUBLIC_KEY =
+    await output(["gh", "variable", "get", "TAURI_UPDATER_PUBLIC_KEY", "--repo", repository]);
+  if (!process.env.QUICKDROP_UPDATER_PUBLIC_KEY) {
+    throw new Error("Restore the existing TAURI_UPDATER_PUBLIC_KEY repository variable before releasing");
+  }
 
   for (const path of VERSION_FILES) await replaceVersion(path, current, next);
   await run(["cargo", "check", "--manifest-path", "cli/Cargo.toml"]);
-  await run(["cargo", "check", "--manifest-path", "src-tauri/Cargo.toml"]);
-  await run(["bun", "run", "tauri", "--", "build", "--ci", "--no-bundle"]);
+  await run(["cargo", "check", "--locked", "--manifest-path", "desktop-gpui/Cargo.toml"]);
+  await run(["cargo", "build", "--locked", "--release", "--manifest-path", "desktop-gpui/Cargo.toml"]);
   await run([
     "cargo",
     "build",
@@ -390,18 +376,8 @@ async function main(): Promise<void> {
     "cli/Cargo.toml",
   ]);
   await run(["bun", "run", "scripts/package-linux-release.ts"]);
-  await run([
-    "bun",
-    "tauri",
-    "signer",
-    "sign",
-    `--password=${process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? ""}`,
-    `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
-  ]);
-
   const linuxAssets = [
-    `src-tauri/target/release/quickdrop_${next}_x86_64-linux`,
-    `src-tauri/target/release/quickdrop_${next}_x86_64-linux.sig`,
+    `desktop-gpui/target/release/quickdrop_${next}_x86_64-linux`,
     `cli/target/release/qd_${next}_x86_64-linux`,
     `cli/target/release/qd_${next}_x86_64-linux.sha256`,
   ];

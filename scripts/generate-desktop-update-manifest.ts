@@ -1,15 +1,16 @@
 import { join } from "node:path";
 import { publicBaseUrl, updaterBaseUrl } from "./public-config";
+import { desktopVersion } from "./desktop-release";
 
-export type TauriUpdatePlatform = {
+export type DesktopUpdatePlatform = {
   signature: string;
   url: string;
 };
 
-export type TauriUpdateManifest = {
+export type DesktopUpdateManifest = {
   version: string;
   notes: string;
-  platforms: Record<string, TauriUpdatePlatform>;
+  platforms: Record<string, DesktopUpdatePlatform>;
 };
 
 export const updaterAssets = (version: string) => ({
@@ -19,13 +20,13 @@ export const updaterAssets = (version: string) => ({
   "darwin-x86_64": `QuickDrop_${version}_x64.app.tar.gz`,
 });
 
-export function createTauriUpdateManifest(
+export function createDesktopUpdateManifest(
   version: string,
   tag: string,
   signatures: Record<string, string>,
   updateBaseUrl: string,
-): TauriUpdateManifest {
-  const platforms: Record<string, TauriUpdatePlatform> = {};
+): DesktopUpdateManifest {
+  const platforms: Record<string, DesktopUpdatePlatform> = {};
   for (const [platform, asset] of Object.entries(updaterAssets(version))) {
     const signature = signatures[asset]?.trim();
     if (!signature) {
@@ -45,30 +46,26 @@ export function createTauriUpdateManifest(
 }
 
 async function main(): Promise<void> {
-  const config = (await Bun.file("src-tauri/tauri.conf.json").json()) as { version?: string };
-  const version = config.version;
-  if (!version) {
-    throw new Error("src-tauri/tauri.conf.json has no version");
-  }
+  const version = await desktopVersion();
 
   const tag = process.env.RELEASE_TAG ?? `v${version}`;
   if (tag !== `v${version}`) {
     throw new Error(`RELEASE_TAG must be v${version}, received ${tag}`);
   }
-  const signatureDirectory = process.env.TAURI_UPDATE_SIGNATURE_DIR ?? "updater-signatures";
+  const signatureDirectory = process.env.QUICKDROP_UPDATE_SIGNATURE_DIR ?? "updater-signatures";
   const signatures: Record<string, string> = {};
 
   for (const asset of Object.values(updaterAssets(version))) {
     signatures[asset] = await Bun.file(join(signatureDirectory, `${asset}.sig`)).text();
   }
 
-  const manifest = createTauriUpdateManifest(
+  const manifest = createDesktopUpdateManifest(
     version,
     tag,
     signatures,
     updaterBaseUrl(publicBaseUrl()),
   );
-  const outputPath = process.env.TAURI_UPDATE_MANIFEST_PATH ?? "latest.json";
+  const outputPath = process.env.QUICKDROP_UPDATE_MANIFEST_PATH ?? "latest.json";
   await Bun.write(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(outputPath);
 }

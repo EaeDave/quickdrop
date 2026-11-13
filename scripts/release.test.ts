@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assertReleasePlatform,
   assertReleaseRepository,
+  assertUpdaterSigningSecret,
   nextVersion,
   parseVersion,
   replacePackageVersion,
@@ -33,6 +34,15 @@ describe("release manifest updates", () => {
       `[package]\nname = "quickdrop-cli"\nversion = "0.1.3"\n\n[dependencies]\nexample = "0.1.2"\n`,
     );
   });
+
+  test("updates only the native desktop package in a Cargo lockfile", () => {
+    const lock = `version = 4\n\n[[package]]\nname = "dependency"\nversion = "0.1.17"\n\n[[package]]\nname = "quickdrop"\nversion = "0.1.17"\ndependencies = ["dependency"]\n`;
+    expect(replacePackageVersion(lock, "quickdrop", "0.1.17", "0.1.18")).toBe(
+      `version = 4\n\n[[package]]\nname = "dependency"\nversion = "0.1.17"\n\n[[package]]\nname = "quickdrop"\nversion = "0.1.18"\ndependencies = ["dependency"]\n`,
+    );
+    expect(() => replacePackageVersion(lock, "quickdrop", "0.1.16", "0.1.18")).toThrow("Could not update quickdrop version");
+    expect(() => replacePackageVersion(lock, "quickdrop-gpui", "0.1.17", "0.1.18")).toThrow("Could not update");
+  });
 });
 
 describe("release host validation", () => {
@@ -47,5 +57,11 @@ describe("release host validation", () => {
     expect(() => assertReleaseRepository("owner/fork", "owner/quickdrop")).toThrow(
       "does not match the current checkout",
     );
+  });
+
+  test("requires the existing repository signing key before publishing", () => {
+    expect(() => assertUpdaterSigningSecret(["TAURI_SIGNING_PRIVATE_KEY"])).not.toThrow();
+    expect(() => assertUpdaterSigningSecret([])).toThrow("Restore the persistent TAURI_SIGNING_PRIVATE_KEY");
+    expect(() => assertUpdaterSigningSecret(["A_NEW_SIGNING_KEY"])).toThrow("Restore the persistent");
   });
 });

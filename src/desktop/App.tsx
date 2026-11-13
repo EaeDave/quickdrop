@@ -1,11 +1,7 @@
-import { type ChangeEvent, type DragEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { copyLink, dismissWindow, notifySuccess, onUploadProgress, readClipboardUploadInputs, selectLocalFiles, setupDesktopUpdater, uploadFiles, isTauri, usesNativeClipboardPaste, type UploadInput } from "./tauri";
-import QuickPanel from "./QuickPanel";
+import { type ChangeEvent, type DragEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { copyLink, onUploadProgress, uploadFiles } from "./browser";
 
 type InstallPlatform = "windows" | "macos" | "linux";
-type PanelMode = "files" | "text";
 
 const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string; scriptHref: string }> = {
   windows: { label: "Windows", prompt: "PS", scriptHref: "/install.ps1" },
@@ -16,19 +12,15 @@ const INSTALL_PLATFORMS: Record<InstallPlatform, { label: string; prompt: string
 type UploadState =
   | { status: "idle" }
   | { status: "uploading"; fileName: string; fileCount: number; percent: number; phase: "preparing" | "uploading" }
-  | { status: "success"; url: string; expiresAt: string; fileCount: number; notificationWarning?: string }
+  | { status: "success"; url: string; expiresAt: string; fileCount: number }
   | { status: "error"; message: string };
 
 export function App() {
-  const [panelMode, setPanelMode] = useState<PanelMode>("files");
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
-  const [useNativeClipboardPaste, setUseNativeClipboardPaste] = useState(false);
   const [copiedInstallCommand, setCopiedInstallCommand] = useState(false);
   const [installCopyError, setInstallCopyError] = useState<string | null>(null);
-  const stateRef = useRef(state);
-  const panelModeRef = useRef(panelMode);
   const copiedInstallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback(() => {
@@ -36,29 +28,9 @@ export function App() {
     setState({ status: "idle" });
   }, []);
 
-  const closeWindow = useCallback(() => {
-    if (isTauri) {
-      void dismissWindow();
-    } else {
-      reset();
-    }
-  }, [reset]);
-
-  const startWindowDrag = useCallback((event: MouseEvent<HTMLElement>) => {
-    if (!isTauri || event.button !== 0 || (event.target as HTMLElement).closest("button")) {
-      return;
-    }
-
-    void getCurrentWindow().startDragging();
-  }, []);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isTauri) {
-      return;
-    }
-
     document.documentElement.classList.add("quickdrop-web-page");
     return () => document.documentElement.classList.remove("quickdrop-web-page");
   }, []);
@@ -71,37 +43,7 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  useEffect(() => {
-    panelModeRef.current = panelMode;
-  }, [panelMode]);
-
-  useEffect(() => setupDesktopUpdater(), []);
-
-  useEffect(() => {
-    if (!isTauri) {
-      return;
-    }
-
-    let disposed = false;
-
-    usesNativeClipboardPaste().then((enabled) => {
-      if (!disposed) {
-        setUseNativeClipboardPaste(enabled);
-      }
-    }).catch((error) => {
-      console.error("Failed to detect native clipboard mode", error);
-    });
-
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  const handleUploadInputs = useCallback(async (inputs: UploadInput[]) => {
+  const handleUploadInputs = useCallback(async (inputs: File[]) => {
     setManualUrl(null);
 
     const selectedInputs = inputs.filter(Boolean);
@@ -133,40 +75,15 @@ export function App() {
         return;
       }
 
-      try {
-        await notifySuccess(selectedInputs.length);
-        setState({ status: "success", url: response.url, expiresAt: response.expiresAt, fileCount: selectedInputs.length });
-      } catch (error) {
-        setState({
-          status: "success",
-          url: response.url,
-          expiresAt: response.expiresAt,
-          fileCount: selectedInputs.length,
-          notificationWarning: `Link copied, but the notification failed: ${formatError(error)}`,
-        });
-      }
+      setState({ status: "success", url: response.url, expiresAt: response.expiresAt, fileCount: selectedInputs.length });
     } catch (error) {
       setState({ status: "error", message: formatError(error) });
     }
   }, []);
 
-  const handlePickFile = useCallback(async () => {
-    if (isTauri) {
-      try {
-        const paths = await selectLocalFiles();
-
-        if (paths.length === 0) {
-          return;
-        }
-
-        await handleUploadInputs(paths);
-      } catch (error) {
-        setState({ status: "error", message: `Failed to open the file picker: ${formatError(error)}` });
-      }
-    } else {
-      fileInputRef.current?.click();
-    }
-  }, [handleUploadInputs]);
+  const handlePickFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? Array.from(event.target.files) : [];
@@ -198,26 +115,6 @@ export function App() {
     }
   }, []);
 
-  const handleNativeClipboardPaste = useCallback(async () => {
-    if (!isTauri || panelModeRef.current !== "files" || stateRef.current.status === "uploading") {
-      return;
-    }
-
-    try {
-      const inputs = await readClipboardUploadInputs();
-
-      if (inputs.length === 0) {
-        setState({ status: "error", message: "The clipboard has no image or text to send." });
-        return;
-      }
-
-      await handleUploadInputs(inputs);
-    } catch (error) {
-      setState({ status: "error", message: `Failed to read the clipboard: ${formatError(error)}` });
-    }
-  }, [handleUploadInputs]);
-
-
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
@@ -247,95 +144,37 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isTauri) {
-      return;
-    }
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-
-    getCurrentWebview().onDragDropEvent((event) => {
-      if (panelModeRef.current !== "files") {
-        return;
-      }
-
-      if (event.payload.type === "over") {
-        setDropActive(true);
-        return;
-      }
-
-      if (event.payload.type === "leave") {
-        setDropActive(false);
-        return;
-      }
-
-      if (event.payload.type === "drop") {
-        setDropActive(false);
-        void handleUploadInputs(event.payload.paths);
-      }
-    }).then((cleanup) => {
-      if (disposed) {
-        cleanup();
-        return;
-      }
-
-      unlisten = cleanup;
-    }).catch((error) => {
-      setState({ status: "error", message: `Failed to enable drag and drop: ${formatError(error)}` });
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [handleUploadInputs]);
-
   const handleDragOver = useCallback((event: DragEvent) => {
-    if (!isTauri) {
-      event.preventDefault();
-      setDropActive(true);
-    }
+    event.preventDefault();
+    setDropActive(true);
   }, []);
 
   const handleDragLeave = useCallback((event: DragEvent) => {
-    if (!isTauri) {
-      event.preventDefault();
-      setDropActive(false);
-    }
+    event.preventDefault();
+    setDropActive(false);
   }, []);
 
   const handleDrop = useCallback((event: DragEvent) => {
-    if (!isTauri) {
-      event.preventDefault();
-      setDropActive(false);
-      const files = event.dataTransfer.files ? Array.from(event.dataTransfer.files) : [];
-      if (files.length > 0) {
-        void handleUploadInputs(files);
-      }
+    event.preventDefault();
+    setDropActive(false);
+    const files = event.dataTransfer.files ? Array.from(event.dataTransfer.files) : [];
+    if (files.length > 0) {
+      void handleUploadInputs(files);
     }
   }, [handleUploadInputs]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTauri && panelModeRef.current === "files" && useNativeClipboardPaste && isPasteShortcut(event)) {
-        event.preventDefault();
-        void handleNativeClipboardPaste();
-        return;
-      }
-
       if (event.key === "Escape") {
-        closeWindow();
+        reset();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeWindow, handleNativeClipboardPaste, useNativeClipboardPaste]);
+  }, [reset]);
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
-      if (panelModeRef.current !== "files") {
-        return;
-      }
       setState((current) => {
         if (current.status === "uploading") {
           return current;
@@ -388,47 +227,19 @@ export function App() {
     </>
   );
 
-  if (!isTauri) {
-    return (
-      <WebLanding
-        copiedInstallCommand={copiedInstallCommand}
-        dropActive={dropActive}
-        fileInput={fileInput}
-        installCopyError={installCopyError}
-        onCopyInstallCommand={copyInstallCommand}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        {uploadState}
-      </WebLanding>
-    );
-  }
-
   return (
-    <main className="quickdrop-shell">
-      <section
-        className={`quickdrop-panel ${dropActive ? "quickdrop-panel--active" : ""}`}
-        aria-label="QuickDrop"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <header className="quickdrop-header" onMouseDown={startWindowDrag}>
-          <h1 className="quickdrop-title">QuickDrop</h1>
-          <nav className="quickdrop-mode-tabs" aria-label="QuickPanel mode">
-            <button type="button" className={panelMode === "files" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("files")}>Files</button>
-            <button type="button" className={panelMode === "text" ? "quickdrop-mode-tab--active" : ""} onClick={() => setPanelMode("text")}>Text</button>
-          </nav>
-          <button className="quickdrop-close" type="button" aria-label="Close QuickDrop" onClick={closeWindow}>
-            ×
-          </button>
-        </header>
-        {fileInput}
-        <div className="quickdrop-mode-content" hidden={panelMode !== "files"}>{uploadState}</div>
-        <div className="quickdrop-mode-content" hidden={panelMode !== "text"}><QuickPanel /></div>
-      </section>
-    </main>
+    <WebLanding
+      copiedInstallCommand={copiedInstallCommand}
+      dropActive={dropActive}
+      fileInput={fileInput}
+      installCopyError={installCopyError}
+      onCopyInstallCommand={copyInstallCommand}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {uploadState}
+    </WebLanding>
   );
 }
 
@@ -482,7 +293,6 @@ function SuccessState(props: { state: Extract<UploadState, { status: "success" }
         {props.state.url}
       </a>
       <p className="quickdrop-meta">Expires {new Date(props.state.expiresAt).toLocaleString()}</p>
-      {props.state.notificationWarning && <p className="quickdrop-warning">{props.state.notificationWarning}</p>}
     </div>
   );
 }
@@ -585,24 +395,14 @@ function InstallCommand(props: { copied: boolean; error: string | null; onCopy: 
   );
 }
 
-function formatSelectionName(inputs: UploadInput[]): string {
+function formatSelectionName(inputs: File[]): string {
   if (inputs.length === 1) {
-    const input = inputs[0]!;
-    if (typeof input === "string") return getFileName(input);
-    if (input instanceof File) return input.name;
-    return input.name ?? getFileName(input.path);
+    return inputs[0]!.name;
   }
 
   return `${inputs.length} files (.zip)`;
 }
 
-function getFileName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
-}
-
-function isPasteShortcut(event: KeyboardEvent): boolean {
-  return (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "v";
-}
 
 async function copyTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

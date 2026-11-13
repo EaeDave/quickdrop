@@ -3,16 +3,19 @@ import {
   formatRoomExpiry,
   formatRoomPresence,
   openRoom,
-  roomWebSocketProtocols,
   roomWebSocketUrl,
-  setTextClientBaseUrl,
 } from "./text-client";
 
 const originalFetch = globalThis.fetch;
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  setTextClientBaseUrl("");
+  if (originalWindow) {
+    Object.defineProperty(globalThis, "window", originalWindow);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
 });
 
 describe("room expiry labels", () => {
@@ -47,19 +50,20 @@ describe("room expiry labels", () => {
   });
 });
 
-describe("native protected room access", () => {
-  test("sends the ephemeral access token as a WebSocket subprotocol", () => {
-    setTextClientBaseUrl("https://quickdrop.example/");
+describe("browser room WebSocket URLs", () => {
+  test("uses the current origin and matching secure transport", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: new URL("https://quickdrop.example/DEV?c=OTHER#item") },
+    });
     expect(roomWebSocketUrl("DEV")).toBe("wss://quickdrop.example/api/text/DEV/ws");
-    expect(roomWebSocketProtocols("v1.payload.signature")).toEqual([
-      "quickdrop-access.v1.payload.signature",
-    ]);
-    expect(roomWebSocketProtocols()).toBeUndefined();
+    window.location.href = "http://localhost:3000/";
+    expect(roomWebSocketUrl("A B")).toBe("ws://localhost:3000/api/text/A%20B/ws");
   });
 });
 
-describe("desktop text API base URL", () => {
-  test("opens public rooms through the configured production backend without cookies", async () => {
+describe("browser text room access", () => {
+  test("opens protected rooms with same-origin cookies and a trimmed PIN", async () => {
     let requestedUrl = "";
     let requestedInit: RequestInit | undefined;
     globalThis.fetch = (async (input, init) => {
@@ -67,9 +71,8 @@ describe("desktop text API base URL", () => {
       requestedInit = init;
       return Response.json({
         code: "DEV",
-        protected: false,
+        protected: true,
         created: false,
-        accessToken: "native-token",
         accessExpiresAt: null,
         kind: "custom",
         expiresAfterMinutes: 30,
@@ -78,12 +81,12 @@ describe("desktop text API base URL", () => {
       });
     }) as typeof fetch;
 
-    setTextClientBaseUrl("https://quickdrop.example/");
-    const opened = await openRoom("dev");
+    const opened = await openRoom("dev", " 1234 ");
 
-    expect(requestedUrl).toBe("https://quickdrop.example/api/text/DEV/open");
-    expect(requestedInit?.credentials).toBe("omit");
-    expect(requestedInit?.headers).toMatchObject({ "x-quickdrop-native": "1" });
-    expect(opened.accessToken).toBe("native-token");
+    expect(requestedUrl).toBe("/api/text/DEV/open");
+    expect(requestedInit?.credentials).toBe("same-origin");
+    expect(requestedInit?.headers).toEqual({ "content-type": "application/json" });
+    expect(JSON.parse(String(requestedInit?.body))).toEqual({ pin: "1234" });
+    expect(opened.protected).toBe(true);
   });
 });

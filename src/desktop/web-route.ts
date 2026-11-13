@@ -1,5 +1,3 @@
-import { isTauri } from "./tauri";
-
 function normalizeRoomCode(value: string): string {
   const normalized = value.trim().toUpperCase();
   return /^[A-Z0-9_-]{1,16}$/.test(normalized) ? normalized : "";
@@ -23,10 +21,6 @@ export function roomCodeFromPathname(pathname: string): string | null {
 }
 
 export function isTextRoute(): boolean {
-  if (isTauri) {
-    return false;
-  }
-
   const url = new URL(window.location.href);
   return url.hostname.startsWith("texto.") || roomCodeFromPathname(url.pathname) !== null || url.searchParams.has("c");
 }

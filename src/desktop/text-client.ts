@@ -74,7 +74,6 @@ export type RoomController = {
 export type RoomAccess = {
   code: string;
   protected: boolean;
-  accessToken: string | null;
   accessExpiresAt: string | null;
   kind: RoomKind;
   expiresAfterMinutes: number;
@@ -106,22 +105,6 @@ export type ClientTextMetric =
       errorCategory: ClientTextMetricErrorCategory;
     };
 
-let textClientBaseUrl = "";
-
-export function setTextClientBaseUrl(baseUrl: string): void {
-  textClientBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-}
-
-function textApiUrl(path: string): string {
-  return textClientBaseUrl ? `${textClientBaseUrl}${path}` : path;
-}
-
-function textRequestCredentials(): RequestCredentials {
-  // Native clients use the short-lived response token, so browser cookies remain
-  // same-origin and never cross into the desktop WebView.
-  return textClientBaseUrl ? "omit" : "same-origin";
-}
-
 export class RoomAccessError extends Error {
   code: RoomErrorCode;
   status: number;
@@ -136,9 +119,9 @@ export class RoomAccessError extends Error {
 
 export async function recordTextMetric(metric: ClientTextMetric): Promise<void> {
   try {
-    await fetch(textApiUrl("/api/text/metrics"), {
+    await fetch("/api/text/metrics", {
       method: "POST",
-      credentials: textRequestCredentials(),
+      credentials: "same-origin",
       keepalive: true,
       headers: { "content-type": "application/json" },
       body: JSON.stringify(metric),
@@ -183,16 +166,12 @@ function getErrorCode(payload: unknown): RoomErrorCode {
 }
 
 export function roomWebSocketUrl(code: string): string {
-  const baseUrl = new URL(textClientBaseUrl || window.location.origin);
+  const baseUrl = new URL(window.location.origin);
   baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
   baseUrl.pathname = `/api/text/${encodeURIComponent(code)}/ws`;
   baseUrl.search = "";
   baseUrl.hash = "";
   return baseUrl.href;
-}
-
-export function roomWebSocketProtocols(accessToken?: string | null): string[] | undefined {
-  return accessToken ? [`quickdrop-access.${accessToken}`] : undefined;
 }
 
 function parseNumber(value: unknown): number | null {
@@ -300,15 +279,14 @@ function parseTextDrop(value: unknown): TextDrop | null {
 }
 
 function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
-  const nativeHeaders: Record<string, string> = textClientBaseUrl ? { "x-quickdrop-native": "1" } : {};
   if (!body) {
-    return { method: "POST", credentials: textRequestCredentials(), headers: nativeHeaders };
+    return { method: "POST", credentials: "same-origin" };
   }
 
   return {
     method: "POST",
-    credentials: textRequestCredentials(),
-    headers: { ...nativeHeaders, "content-type": "application/json" },
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   };
 }
@@ -316,7 +294,7 @@ function createJsonRequest(body: Record<string, unknown> | null): RequestInit {
 export async function createRoom(pin?: string): Promise<RoomAccess> {
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    textApiUrl("/api/text"),
+    "/api/text",
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -344,7 +322,6 @@ export async function createRoom(pin?: string): Promise<RoomAccess> {
   return {
     code: code.trim().toUpperCase(),
     protected: protectedRoom,
-    accessToken: "accessToken" in payload ? parseString(payload.accessToken) : null,
     accessExpiresAt: "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null,
     kind,
     ...lifecycle,
@@ -355,7 +332,7 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
   const normalizedCode = code.trim().toUpperCase();
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    textApiUrl(`/api/text/${encodeURIComponent(normalizedCode)}/open`),
+    `/api/text/${encodeURIComponent(normalizedCode)}/open`,
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -376,7 +353,6 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const created = "created" in payload ? parseBoolean(payload.created) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
-  const accessToken = "accessToken" in payload ? parseString(payload.accessToken) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (!returnedCode || protectedRoom === null || created === null || kind === null || !lifecycle) {
@@ -387,7 +363,6 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
     code: returnedCode.trim().toUpperCase(),
     protected: protectedRoom,
     created,
-    accessToken,
     accessExpiresAt,
     kind,
     ...lifecycle,
@@ -397,7 +372,7 @@ export async function openRoom(code: string, pin?: string): Promise<OpenRoomResu
 export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> {
   const trimmedPin = pin?.trim();
   const response = await fetch(
-    textApiUrl(`/api/text/${encodeURIComponent(code)}/access`),
+    `/api/text/${encodeURIComponent(code)}/access`,
     createJsonRequest(trimmedPin ? { pin: trimmedPin } : null),
   );
   const payload = await readJsonResponse(response);
@@ -416,7 +391,6 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
 
   const protectedRoom = "protected" in payload ? parseBoolean(payload.protected) : null;
   const accessExpiresAt = "accessExpiresAt" in payload ? parseString(payload.accessExpiresAt) : null;
-  const accessToken = "accessToken" in payload ? parseString(payload.accessToken) : null;
   const kind = "kind" in payload ? parseRoomKind(payload.kind) : null;
   const lifecycle = parseLifecycle(payload);
   if (protectedRoom === null || kind === null || !lifecycle) {
@@ -426,7 +400,6 @@ export async function joinRoom(code: string, pin?: string): Promise<RoomAccess> 
   return {
     code: code.trim().toUpperCase(),
     protected: protectedRoom,
-    accessToken,
     accessExpiresAt,
     kind,
     ...lifecycle,
@@ -442,8 +415,8 @@ export async function fetchSnapshot(code: string): Promise<{
   expiresAt: string | null;
   presence: number;
 }> {
-  const response = await fetch(textApiUrl(`/api/text/${encodeURIComponent(code)}`), {
-    credentials: textRequestCredentials(),
+  const response = await fetch(`/api/text/${encodeURIComponent(code)}`, {
+    credentials: "same-origin",
   });
   const payload = await readJsonResponse(response);
 
@@ -474,7 +447,6 @@ export async function fetchSnapshot(code: string): Promise<{
 export function connectRoom(
   code: string,
   handlers: RoomHandlers,
-  accessToken?: string | null,
 ): RoomController {
   let socket: WebSocket | null = null;
   let reconnectTimer: number | null = null;
@@ -531,7 +503,7 @@ export function connectRoom(
     readyForWrites = false;
 
     try {
-      socket = new WebSocket(roomWebSocketUrl(code), roomWebSocketProtocols(accessToken));
+      socket = new WebSocket(roomWebSocketUrl(code));
     } catch {
       scheduleReconnect();
       return;

@@ -85,7 +85,7 @@ disable_spawn_rule() {
 install_spawn_rule() {
   (( has_cursor )) || return 1
   disable_spawn_rule
-  hyprctl eval "_G.quickdrop_spawn_rule = hl.window_rule({ name = 'quickdrop-spawn', match = { class = '^quickdrop$' }, float = true, move = { $rule_x, $rule_y }, no_initial_focus = true, no_anim = true })" >/dev/null 2>&1
+  hyprctl eval "_G.quickdrop_spawn_rule = hl.window_rule({ name = 'quickdrop-spawn', match = { class = '^quickdrop$' }, float = true, size = { $window_width, $window_height }, move = { $rule_x, $rule_y }, no_initial_focus = true, no_anim = true })" >/dev/null 2>&1
 }
 
 place_quickdrop_window() {
@@ -95,7 +95,8 @@ place_quickdrop_window() {
 
   # Hyprland 0.56+ dispatchers use Lua expressions. Fall back to the legacy
   # dispatcher syntax for older Hyprland releases.
-  if hyprctl dispatch "hl.dsp.window.float({ action = 'set', window = '$selector' })" >/dev/null 2>&1; then
+  if hyprctl dispatch "hl.dsp.window.float({ action = 'enable', window = '$selector' })" >/dev/null 2>&1; then
+    hyprctl dispatch "hl.dsp.window.resize({ x = $window_width, y = $window_height, relative = false, window = '$selector' })" >/dev/null 2>&1 || true
     if (( has_cursor )); then
       hyprctl dispatch "hl.dsp.window.move({ x = $window_x, y = $window_y, window = '$selector' })" >/dev/null 2>&1 || true
     fi
@@ -151,7 +152,7 @@ launcher_env=(
 if (( has_cursor )); then
   launcher_env+=("QUICKDROP_LAUNCHER_X=$cursor_x" "QUICKDROP_LAUNCHER_Y=$cursor_y")
 fi
-# Do not leak the launcher lock into the long-running Tauri process.
+# Do not leak the launcher lock into the long-running desktop process.
 nohup env "${launcher_env[@]}" "$quickdrop_bin" >/dev/null 2>&1 9>&- &
 
 for _ in {1..100}; do

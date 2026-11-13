@@ -9,13 +9,17 @@ on:
       tag:
         description: Existing GitHub release tag to rebuild
         required: true
+      publish:
+        description: Publish assets (disable to validate native builds before release)
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 env:
   QUICKDROP_PUBLIC_BASE_URL: ${{ vars.QUICKDROP_PUBLIC_BASE_URL }}
-  TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+  QUICKDROP_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
 
 jobs:
   windows:
@@ -23,6 +27,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -36,43 +41,77 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Verify source version matches release tag
-        run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
+        run: bun run scripts/desktop-release.ts
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             cli
-            src-tauri
+            desktop-gpui
 
-      - name: Install JavaScript dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build Windows desktop installer and qd
+      - name: Install signing and packaging tools
+        shell: pwsh
         run: |
-          bun run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis
-          cargo build --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml
+          bun install --frozen-lockfile
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\fxc.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $fxc) { throw "Windows SDK HLSL compiler fxc.exe was not found" }
+          "GPUI_FXC_PATH=$($fxc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Package Windows qd assets
+      - name: Build Windows desktop and qd
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc --manifest-path desktop-gpui/Cargo.toml
+          cargo build --locked --release --target x86_64-pc-windows-msvc --manifest-path cli/Cargo.toml
+
+      - name: Package and sign Windows release assets
         run: bun run scripts/package-windows-qd-release.ts
+
+      - name: Sign locally built Linux updater with the persistent key
+        if: ${{ github.event_name == 'push' || inputs.publish }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun -e '
+          import { desktopVersion, run, signUpdater } from "./scripts/desktop-release.ts";
+          const version = await desktopVersion();
+          const asset = `quickdrop_${version}_x86_64-linux`;
+          // The tag starts this job before the Linux host finishes uploading release assets.
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await run(["gh", "release", "download", `v${version}`, "--pattern", asset, "--dir", "linux-updater", "--clobber"]);
+              break;
+            } catch (error) {
+              if (attempt === 29) throw error;
+              await Bun.sleep(10_000);
+            }
+          }
+          const path = `linux-updater/${asset}`;
+          await signUpdater(path);
+          await run(["gh", "release", "upload", `v${version}`, `${path}.sig`, "--clobber"]);
+          '
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-release
           path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe.sig
+            desktop-gpui/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe
+            desktop-gpui/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe.sig
             cli/target/release/qd_*_x86_64-windows.exe
             cli/target/release/qd_*_x86_64-windows.exe.sha256
           if-no-files-found: error
 
       - name: Upload Windows assets to release
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name == 'push' || inputs.publish }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_*_x64-setup.exe" | Select-Object -First 1 -ExpandProperty FullName
+          $version = bun run scripts/desktop-release.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = "desktop-gpui/target/x86_64-pc-windows-msvc/release/bundle/nsis/QuickDrop_${version}_x64-setup.exe"
           gh release upload $env:RELEASE_TAG `
             $installer `
             "${installer}.sig" `
@@ -85,6 +124,8 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -98,66 +139,62 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Verify source version matches release tag
-        run: bun -e 'const version = (await Bun.file("src-tauri/tauri.conf.json").json()).version; if (`v${version}` !== process.env.RELEASE_TAG) throw new Error(`Source version v${version} does not match ${process.env.RELEASE_TAG}`)'
+        run: bun run scripts/desktop-release.ts
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             cli
-            src-tauri
+            desktop-gpui
 
-      - name: Install JavaScript dependencies
+      - name: Install signing tool
         run: bun install --frozen-lockfile
 
       - name: Build macOS desktop and qd for Apple Silicon and Intel
         run: |
-          bun run tauri -- build --ci --target aarch64-apple-darwin --bundles app,dmg
-          cargo build --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
-          bun run tauri -- build --ci --target x86_64-apple-darwin --bundles app,dmg
-          cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
+          cargo build --locked --release --target aarch64-apple-darwin --manifest-path desktop-gpui/Cargo.toml
+          cargo build --locked --release --target aarch64-apple-darwin --manifest-path cli/Cargo.toml
+          cargo build --locked --release --target x86_64-apple-darwin --manifest-path desktop-gpui/Cargo.toml
+          cargo build --locked --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
 
-      - name: Package macOS release assets
+      - name: Package and sign macOS release assets
         run: bun run scripts/package-macos-qd-release.ts
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: macos-qd-release
+          name: macos-release
           path: |
             cli/target/release/qd_*-macos
             cli/target/release/qd_*-macos.sha256
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_*_aarch64.dmg.sha256
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_*_aarch64.app.tar.gz
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_*_aarch64.app.tar.gz.sig
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_*_x64.dmg.sha256
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_*_x64.app.tar.gz
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_*_x64.app.tar.gz.sig
+            desktop-gpui/target/*-apple-darwin/release/bundle/dmg/QuickDrop_*.dmg
+            desktop-gpui/target/*-apple-darwin/release/bundle/dmg/QuickDrop_*.dmg.sha256
+            desktop-gpui/target/*-apple-darwin/release/bundle/macos/QuickDrop_*.app.tar.gz
+            desktop-gpui/target/*-apple-darwin/release/bundle/macos/QuickDrop_*.app.tar.gz.sig
           if-no-files-found: error
 
       - name: Upload macOS assets to release
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name == 'push' || inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(bun -e 'console.log((await Bun.file("src-tauri/tauri.conf.json").json()).version)')
+          version=$(bun run scripts/desktop-release.ts)
           gh release upload "$RELEASE_TAG" \
             "cli/target/release/qd_${version}_aarch64-macos" \
             "cli/target/release/qd_${version}_aarch64-macos.sha256" \
             "cli/target/release/qd_${version}_x86_64-macos" \
             "cli/target/release/qd_${version}_x86_64-macos.sha256" \
-            "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg" \
-            "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg.sha256" \
-            "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz" \
-            "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz.sig" \
-            "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg" \
-            "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg.sha256" \
-            "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz" \
-            "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz.sig" \
+            "desktop-gpui/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg" \
+            "desktop-gpui/target/aarch64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_aarch64.dmg.sha256" \
+            "desktop-gpui/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz" \
+            "desktop-gpui/target/aarch64-apple-darwin/release/bundle/macos/QuickDrop_${version}_aarch64.app.tar.gz.sig" \
+            "desktop-gpui/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg" \
+            "desktop-gpui/target/x86_64-apple-darwin/release/bundle/dmg/QuickDrop_${version}_x64.dmg.sha256" \
+            "desktop-gpui/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz" \
+            "desktop-gpui/target/x86_64-apple-darwin/release/bundle/macos/QuickDrop_${version}_x64.app.tar.gz.sig" \
             --clobber
 
   updater-manifest:
-    if: github.event_name != 'pull_request'
+    if: ${{ github.event_name == 'push' || inputs.publish }}
     needs: [windows, macos]
     runs-on: ubuntu-latest
     env:
@@ -165,7 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -179,5 +216,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          bun run scripts/generate-tauri-update-manifest.ts
+          bun run scripts/generate-desktop-update-manifest.ts
           gh release upload "$RELEASE_TAG" latest.json --clobber
