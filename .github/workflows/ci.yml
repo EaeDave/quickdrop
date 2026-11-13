@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quickdrop
+          POSTGRES_USER: quickdrop
+          POSTGRES_PASSWORD: quickdrop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quickdrop -d quickdrop"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://quickdrop:quickdrop@127.0.0.1:5432/quickdrop
+      QUICKDROP_PUBLIC_BASE_URL: http://127.0.0.1:3000
+      PUBLIC_BASE_URL: http://127.0.0.1:3000
+      R2_ACCOUNT_ID: test
+      R2_ACCESS_KEY_ID: test
+      R2_SECRET_ACCESS_KEY: test
+      R2_BUCKET_NAME: quickdrop
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: bun run db:migrate
+
+      - name: Typecheck, build browser assets, and test
+        run: |
+          bun run typecheck
+          bun run desktop:build:web
+          bun test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - name: Install GPUI system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfontconfig-dev libfreetype-dev libvulkan-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            cli
+            desktop-gpui
+
+      - name: Test native applications
+        run: |
+          cargo test --locked --manifest-path cli/Cargo.toml
+          cargo test --locked --manifest-path desktop-gpui/Cargo.toml
