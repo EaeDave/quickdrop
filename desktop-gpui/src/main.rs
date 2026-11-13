@@ -497,7 +497,8 @@ impl Render for Panel {
                 .px(px(12.)).border_b_1().border_color(rgba(0x94a3b81f))
                 .child(div().when(cfg!(target_os = "windows"), |title| title
                         .w(px(132.)).h_full().flex().items_center()
-                        .window_control_area(WindowControlArea::Drag))
+                        // Ancestor focus handling would prevent default and cancel native HTCAPTION drag.
+                        .occlude().window_control_area(WindowControlArea::Drag))
                     .font_weight(FontWeight::SEMIBOLD).text_color(rgb(0x38bdf8)).child("QuickDrop")
                     .when(!cfg!(target_os = "windows"), |title| title
                         .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())))
