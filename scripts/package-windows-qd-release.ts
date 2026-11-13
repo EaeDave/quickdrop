@@ -1,7 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopVersion, writeChecksum } from "./desktop-release";
-import { packageWindows } from "./package-desktop-release";
 
 const sourceBinary = "cli/target/x86_64-pc-windows-msvc/release/qd.exe";
 const releaseDirectory = join("cli", "target", "release");
@@ -20,4 +19,3 @@ await Bun.write(assetPath, Bun.file(sourceBinary));
 
 await writeChecksum(assetPath);
 console.log(assetPath);
-await packageWindows(version);

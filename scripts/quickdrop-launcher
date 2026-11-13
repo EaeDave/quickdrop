@@ -153,7 +153,7 @@ if (( has_cursor )); then
   launcher_env+=("QUICKDROP_LAUNCHER_X=$cursor_x" "QUICKDROP_LAUNCHER_Y=$cursor_y")
 fi
 # Do not leak the launcher lock into the long-running desktop process.
-nohup env "${launcher_env[@]}" "$quickdrop_bin" >/dev/null 2>&1 9>&- &
+nohup env "${launcher_env[@]}" "$quickdrop_bin" >>"${QUICKDROP_LOG_FILE:-/dev/null}" 2>&1 9>&- &
 
 for _ in {1..100}; do
   sleep 0.05

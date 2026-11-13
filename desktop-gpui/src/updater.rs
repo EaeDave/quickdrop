@@ -1,7 +1,6 @@
 use std::{collections::HashMap, io::Read, path::Path, time::Duration};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
-use minisign_verify::{PublicKey, Signature};
+use minisign_verify::Signature;
 use serde::Deserialize;
 
 const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
@@ -39,9 +38,7 @@ fn platform() -> Result<String, String> {
 
 fn client(base: &str) -> Result<reqwest::Client, String> {
     let url = url::Url::parse(base).map_err(|error| error.to_string())?;
-    if url.scheme() != "https" && !(url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))) {
-        return Err("Updates require HTTPS, or localhost for development.".into());
-    }
+    crate::config::require_secure_transport(&url, true)?;
     reqwest::Client::builder().connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(300)).redirect(reqwest::redirect::Policy::none())
         .build().map_err(|error| error.to_string())
@@ -74,14 +71,10 @@ pub async fn check(base: &str) -> Result<Option<Update>, String> {
     select_update(manifest, base, env!("CARGO_PKG_VERSION"), &platform()?)
 }
 
-fn decode(value: &str) -> Result<String, String> {
-    String::from_utf8(STANDARD.decode(value.trim()).map_err(|error| format!("Invalid signing data: {error}"))?)
-        .map_err(|error| format!("Invalid signing data: {error}"))
-}
 
 fn verify(file: &mut std::fs::File, public_key: &str, signature: &str) -> Result<(), String> {
-    let key = PublicKey::decode(&decode(public_key)?).map_err(|error| error.to_string())?;
-    let signature = Signature::decode(&decode(signature)?).map_err(|error| error.to_string())?;
+    let key = crate::config::updater_public_key(public_key)?;
+    let signature = Signature::decode(&crate::config::decode_signing_text(signature)?).map_err(|error| error.to_string())?;
     let mut verifier = key.verify_stream(&signature).map_err(|error| format!("Update signature rejected: {error}"))?;
     let mut buffer = [0_u8; 65536];
     loop {
@@ -138,11 +131,25 @@ fn install_verified(mut downloaded: tempfile::NamedTempFile, executable: &Path) 
 
 #[cfg(target_os = "windows")]
 fn install_verified(downloaded: tempfile::NamedTempFile, executable: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     let parent = executable.parent().ok_or("Executable has no parent directory.")?;
     let path = downloaded.into_temp_path().keep().map_err(|error| error.to_string())?;
     let spawn = std::process::Command::new(&path).args(["/S", "/UPDATE", "/R"])
-        .arg(format!("/D={}", parent.display())).spawn();
-    if let Err(error) = spawn { let _ = std::fs::remove_file(path); return Err(format!("Could not start the verified installer: {error}")); }
+        .raw_arg(format!("/D={}", parent.display())).spawn();
+    let child = match spawn {
+        Ok(child) => child,
+        Err(error) => { let _ = std::fs::remove_file(path); return Err(format!("Could not start the verified installer: {error}")); }
+    };
+    let powershell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    if let Err(error) = std::process::Command::new(powershell)
+        .args(["-NoProfile", "-NonInteractive", "-Command",
+            "Wait-Process -Id $env:QUICKDROP_INSTALLER_PID -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $env:QUICKDROP_INSTALLER_PATH -Force"])
+        .env("QUICKDROP_INSTALLER_PID", child.id().to_string()).env("QUICKDROP_INSTALLER_PATH", &path)
+        .creation_flags(0x08000000).stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+        eprintln!("Could not schedule installer cleanup at {}: {error}", path.display());
+    }
     Ok(())
 }
 
@@ -176,7 +183,9 @@ fn install_verified(downloaded: tempfile::NamedTempFile, executable: &Path) -> R
         let _ = std::fs::remove_dir(backup);
         return Err(format!("Update failed; previous app restored: {error}"));
     }
-    std::fs::remove_dir_all(&backup).map_err(|error| format!("Updated, but could not remove backup at {}: {error}", backup.display()))?;
+    if let Err(error) = std::fs::remove_dir_all(&backup) {
+        eprintln!("Updated, but could not remove backup at {}: {error}", backup.display());
+    }
     restart_after_exit(current, true)
 }
 
@@ -196,6 +205,7 @@ fn restart_after_exit(path: &Path, bundle: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine};
     #[test]
     fn rejects_foreign_update_origins_and_old_versions() {
         let make = |version: &str, url: &str| Manifest { version: version.into(), platforms: HashMap::from([("linux-x86_64".into(), Artifact {url:url.into(),signature:"sig".into()})]) };

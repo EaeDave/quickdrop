@@ -30,6 +30,14 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 url = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+[build-dependencies]
+base64 = "0.22"
+minisign-verify = "0.3"
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "0.38", features = ["process"] }
 

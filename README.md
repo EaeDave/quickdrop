@@ -30,7 +30,7 @@ QuickDrop is a self-hosted, cross-platform tool for moving files and short text 
 - Docker with Compose for local PostgreSQL
 - Rust stable for the desktop application and `qd` CLI
 - Cloudflare R2 credentials for production file uploads
-- Linux desktop: a Vulkan-capable graphics driver, fontconfig, libxkbcommon, `wl-clipboard`, and `libnotify`
+- Linux desktop: X11 or Wayland, a Vulkan-capable graphics driver, fontconfig, libxkbcommon, `wl-clipboard`, and `libnotify`
 - Windows desktop: Windows 10/11; no WebView2 runtime is required
 
 This repository uses [mise](https://mise.jdx.dev/) for local toolchain selection. Install the configured tools before building:
@@ -247,7 +247,7 @@ QUICKDROP_API_BASE_URL=https://quickdrop.eaedave.xyz bun run desktop:dev
 
 On Omarchy, the development command uses the same floating, cursor-aware launcher as the installed application. The desktop is rendered in Rust without HTML, React, or a WebView; browser routes remain React. The compact translucent navy panel, cyan accents, and file/text selector retain the website's visual identity. Linux uses Adwaita Sans; Windows and macOS use their system UI fonts.
 
-`Esc` closes the Linux panel; Windows/macOS hide it while keeping the tray/menu bar running. `Ctrl+V` uploads a clipboard image or text in Files mode. Text rooms support PINs, live presence, copy/delete, recent codes, notifications, and `Ctrl+Enter` to send. `Ctrl+U` checks for a signed desktop update. Preferences live in the platform configuration directory under `quickdrop/settings.json`; room contents remain on the backend. Older WebView preferences are not deleted.
+`Esc` closes the Linux panel; Windows/macOS hide it while keeping the tray/menu bar running. `Ctrl+V` uploads a clipboard image or text in Files mode. Text rooms support PINs, live presence, copy/delete, recent codes, notifications, and `Ctrl+Enter` to send. `Ctrl+U` checks for a signed desktop update. On macOS, use `Command` instead of `Ctrl`. Omarchy development logs go to `$XDG_CACHE_HOME/quickdrop/desktop-dev.log` (or `~/.cache/quickdrop/desktop-dev.log`). Preferences live in the platform configuration directory under `quickdrop/settings.json`; room contents remain on the backend. Older WebView preferences are not deleted.
 
 Build for the current platform after exporting `QUICKDROP_PUBLIC_BASE_URL` and the existing `QUICKDROP_UPDATER_PUBLIC_KEY`:
 
@@ -278,7 +278,7 @@ bun run release patch
 # or: bun run release 1.0.0
 ```
 
-The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It creates the GitHub release with the Linux desktop and CLI/TUI binaries plus CLI checksums. The tag starts the native platform Actions workflow: Windows signs the already-built Linux desktop binary with the existing persistent key, builds/signs its own installer, and uploads both signatures; macOS builds the Apple Silicon and Intel menu bar apps, DMGs, CLI/TUI assets, and signed updater archives. No Linux build runs in Actions. After both platform jobs succeed, the workflow publishes `latest.json`. The release command waits and verifies every public download and all four signed updater entries before succeeding. Desktop updater manifests and bundles remain available through server-side proxies under `/desktop/update/`; private release repositories additionally require the backend's GitHub token. The signing key remains build-only; `bun run release:check` validates manifests without publishing.
+The command keeps the desktop and CLI manifests aligned, validates them, builds and packages all Linux assets locally, commits the version, and atomically pushes `main` with its annotated tag. It creates a draft GitHub release containing the Linux desktop and CLI/TUI binaries plus CLI checksums. The tag starts the native platform Actions workflow: Windows signs the already-built Linux desktop binary with the existing persistent key, builds/signs its own installer, and uploads both signatures; macOS builds the Apple Silicon and Intel menu bar apps, DMGs, CLI/TUI assets, and signed updater archives. No Linux build runs in Actions. After both platform jobs succeed, the workflow uploads `latest.json`. The release command checks required assets, verifies all four updater signatures against the configured public key, checks the manifest, and only then publishes the draft. Finally, it verifies public download endpoints. A signing or build failure leaves the draft unpublished.
 
 Before a cross-platform cutover, explicitly validate the native workflow on the feature branch with the source version as `tag` and `publish=false`. This builds and signs Windows/macOS artifacts without replacing public release assets:
 

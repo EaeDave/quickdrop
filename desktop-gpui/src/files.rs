@@ -4,6 +4,7 @@ use std::{
     io::{BufReader, Seek, Write},
     path::{Path, PathBuf},
     sync::mpsc::Sender,
+    time::Duration,
 };
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
@@ -78,7 +79,12 @@ pub async fn upload(
         .file_name(file_name)
         .mime_str(&mime_type)
         .map_err(|error| format!("Invalid MIME type: {error}"))?;
-    let response = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| format!("Could not configure the upload client: {error}"))?;
+    let response = client
         .post(format!("{}/api/upload", base_url.trim_end_matches('/')))
         .header("x-quickdrop-file-size", total_bytes.to_string())
         .multipart(Form::new().part("file", part))
@@ -125,7 +131,6 @@ fn create_zip_archive(paths: &[PathBuf]) -> Result<NamedTempFile, String> {
         .tempfile()
         .map_err(|error| format!("Failed to create temporary ZIP: {error}"))?;
     let mut zip = zip::ZipWriter::new(temporary.as_file_mut());
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let mut archive_names = HashSet::new();
     for path in paths {
         let metadata = std::fs::metadata(path)
@@ -138,7 +143,7 @@ fn create_zip_archive(paths: &[PathBuf]) -> Result<NamedTempFile, String> {
             .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
         validate_file(&metadata, path)?;
         let entry_name = unique_archive_name(file_name_of(path)?, &mut archive_names);
-        zip.start_file(&entry_name, options)
+        zip.start_file(&entry_name, zip_file_options(metadata.len()))
             .map_err(|error| format!("Failed to add {entry_name} to ZIP: {error}"))?;
         std::io::copy(&mut BufReader::new(source), &mut zip)
             .map_err(|error| format!("Failed to write {entry_name} to ZIP: {error}"))?;
@@ -146,6 +151,12 @@ fn create_zip_archive(paths: &[PathBuf]) -> Result<NamedTempFile, String> {
     zip.finish()
         .map_err(|error| format!("Failed to finish ZIP: {error}"))?;
     Ok(temporary)
+}
+
+fn zip_file_options(size: u64) -> SimpleFileOptions {
+    SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .large_file(size >= u64::from(u32::MAX))
 }
 
 fn unique_archive_name(file_name: String, archive_names: &mut HashSet<String>) -> String {
@@ -425,6 +436,51 @@ pub fn notify(summary: &str, body: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[tokio::test]
+    async fn stalled_upload_times_out_without_completing_progress() {
+        use tokio::{io::AsyncReadExt, net::TcpListener, time};
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"stalled upload").unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (progress, updates) = std::sync::mpsc::channel();
+        let request = tokio::spawn(upload(vec![file.path().to_path_buf()], base, progress));
+        let (mut socket, _) = time::timeout(Duration::from_secs(5), listener.accept())
+            .await.unwrap().unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(time::timeout(Duration::from_secs(5), socket.read(&mut byte))
+            .await.unwrap().unwrap(), 1);
+        // Pause only after real socket I/O, so connection setup cannot consume the deadline.
+        time::pause();
+        time::advance(Duration::from_secs(301)).await;
+        let error = time::timeout(Duration::from_secs(1), request)
+            .await.expect("Upload must stop at its deadline").unwrap().unwrap_err();
+        assert!(error.contains("Failed to upload file"), "{error}");
+        assert!(!updates.try_iter().any(|percent| percent == 100));
+        drop(socket);
+    }
+
+    #[test]
+    fn zip64_options_follow_input_size_without_large_fixtures() {
+        for (size, large) in [
+            (u64::from(u32::MAX) - 1, false),
+            (u64::from(u32::MAX), true),
+            (u64::from(u32::MAX) + 1, true),
+        ] {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            zip.start_file("tiny.txt", zip_file_options(size)).unwrap();
+            zip.write_all(b"tiny fixture").unwrap();
+            let bytes = zip.finish().unwrap().into_inner();
+            let local_size = u32::from_le_bytes(bytes[22..26].try_into().unwrap());
+            assert_eq!(local_size == u32::MAX, large, "Input size: {size}");
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+            let mut contents = String::new();
+            archive.by_index(0).unwrap().read_to_string(&mut contents).unwrap();
+            assert_eq!(contents, "tiny fixture");
+        }
+    }
 
     #[test]
     fn archive_names_avoid_existing_and_generated_suffixes() {

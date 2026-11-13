@@ -1,7 +1,7 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopVersion, writeChecksum } from "./desktop-release";
-import { macosArchitectures, packageMacos } from "./package-desktop-release";
+import { macosArchitectures } from "./package-desktop-release";
 
 const qdReleaseDirectory = join("cli", "target", "release");
 const version = await desktopVersion();
@@ -24,4 +24,3 @@ for (const architecture of macosArchitectures) {
 
 }
 
-await packageMacos(version);

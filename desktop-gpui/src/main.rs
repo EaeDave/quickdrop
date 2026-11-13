@@ -1,5 +1,6 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
+mod config;
 mod files;
 mod rooms;
 mod platform;
@@ -13,6 +14,11 @@ use serde::{Deserialize, Serialize};
 const APP_ID: &str = "quickdrop";
 const WIDTH: f32 = 380.;
 const HEIGHT: f32 = 360.;
+const PRIMARY_SHORTCUT: &str = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
+
+fn pin_ready(pin: &str) -> bool {
+    (4..=64).contains(&pin.trim().encode_utf16().count())
+}
 
 #[derive(Default, Deserialize, Serialize)]
 struct Settings {
@@ -77,7 +83,11 @@ impl Panel {
         let mut subscriptions = Vec::new();
         for input in [&code_input, &pin_input] {
             subscriptions.push(cx.subscribe_in(input, window, |this, _, event, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) { this.connect(window, cx); }
+                match event {
+                    InputEvent::PressEnter { .. } => this.connect(window, cx),
+                    InputEvent::Change => cx.notify(),
+                    _ => (),
+                }
             }));
         }
         subscriptions.push(cx.subscribe_in(&composer, window, |this, _, event, _, cx| {
@@ -164,7 +174,7 @@ impl Panel {
         self.disconnect();
         let code = self.code_input.read(cx).value().trim().to_ascii_uppercase();
         let pin = self.show_pin.then(|| self.pin_input.read(cx).value().trim().to_string());
-        if pin.as_ref().is_some_and(|pin| !(4..=64).contains(&pin.encode_utf16().count())) {
+        if pin.as_ref().is_some_and(|pin| !pin_ready(pin)) {
             self.message = "Use a PIN with 4–64 characters.".into();
             cx.notify();
             return;
@@ -393,7 +403,7 @@ impl Panel {
                     .foreground(rgb(0xcbd5e1).into()).border(rgba(0x38bdf83d).into())
                     .hover(rgba(0x0ea5e924).into()))
                 .child(div().text_size(px(32.)).child("⇪")).w(px(52.)).h(px(52.)).rounded(px(26.))
-                .tooltip("Select files · Ctrl+V to paste image or text").disabled(self.uploading)
+                .tooltip(format!("Select files · {PRIMARY_SHORTCUT}V to paste image or text")).disabled(self.uploading)
                 .on_click(cx.listener(|this, _, window, cx| this.pick_files(window, cx))))
             .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD)
                 .child(if self.uploading { "Sending files…" } else { "Drop files to send" }))
@@ -425,7 +435,7 @@ impl Panel {
                 .child(div().text_xs().text_color(cx.theme().muted_foreground).child(format!("{} · {} online · {}", if self.connected { "Connected" } else { "Closed" }, self.presence, self.expiry.as_deref().map(display_date).unwrap_or_else(|| "Active room".into()))))
                 .child(Input::new(&self.composer).h(px(74.)).disabled(!self.connected))
                 .child(div().flex().gap_2()
-                    .child(Button::new("send").primary().label("Send · Ctrl+Enter").disabled(!self.connected || self.sending)
+                    .child(Button::new("send").primary().label(format!("Send · {PRIMARY_SHORTCUT}Enter")).disabled(!self.connected || self.sending)
                         .on_click(cx.listener(|this, _, _, cx| this.send(false, cx))))
                     .child(Button::new("paste-send").label("Paste and send").disabled(!self.connected || self.sending)
                         .on_click(cx.listener(|this, _, _, cx| this.send(true, cx)))))
@@ -446,7 +456,9 @@ impl Panel {
             panel = panel.child(Input::new(&self.code_input).disabled(self.opening))
                 .when(self.show_pin, |view| view.child(Input::new(&self.pin_input).disabled(self.opening)))
                 .child(div().flex().gap_2()
-                    .child(Button::new("connect").primary().label(if self.opening { "Opening…" } else { "Connect" }).disabled(self.opening)
+                    .child(Button::new("connect").primary().label(if self.opening { "Opening…" } else { "Connect" })
+                        .disabled(self.opening || self.code_input.read(cx).value().trim().is_empty()
+                            || (self.show_pin && !pin_ready(&self.pin_input.read(cx).value())))
                         .on_click(cx.listener(|this, _, window, cx| this.connect(window, cx))))
                     .child(Button::new("pin-toggle").label("PIN").selected(self.show_pin).disabled(self.opening)
                         .on_click(cx.listener(|this, _, _, cx| { this.show_pin = !this.show_pin; cx.notify(); })))
@@ -475,8 +487,8 @@ impl Render for Panel {
             .text_size(px(14.)).text_color(rgb(0xe5e7eb))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" { this.dismiss(window, cx); }
-                if event.keystroke.modifiers.control && event.keystroke.key == "u" { this.check_updates(true); }
-                if !this.text_mode && event.keystroke.modifiers.control && event.keystroke.key == "v" { this.paste_file(cx); }
+                if event.keystroke.modifiers.secondary() && event.keystroke.key == "u" { this.check_updates(true); }
+                if !this.text_mode && event.keystroke.modifiers.secondary() && event.keystroke.key == "v" { this.paste_file(cx); }
             }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 if !this.text_mode { this.upload(paths.paths().to_vec(), None, cx); }
@@ -520,11 +532,8 @@ fn display_date(value: &str) -> String {
 
 fn main() -> anyhow::Result<()> {
     let base = std::env::var("QUICKDROP_API_BASE_URL").unwrap_or_else(|_| env!("QUICKDROP_BUILD_BASE_URL").into());
-    let url = url::Url::parse(&base)?;
-    anyhow::ensure!(matches!(url.scheme(), "https" | "http") && url.host_str().is_some() && url.username().is_empty() && url.password().is_none(), "Use an HTTP(S) backend URL without credentials");
-    anyhow::ensure!(url.path() == "/" && url.query().is_none() && url.fragment().is_none(), "Backend URL must not contain a path, query or fragment");
+    let base = config::backend_origin(&base, true).map_err(anyhow::Error::msg)?;
     let runtime = Arc::new(tokio::runtime::Runtime::new()?);
-    let base = base.trim_end_matches('/').to_owned();
     let (native_sender, native_events) = mpsc::channel();
     let Some(instance) = platform::claim_instance(native_sender.clone()).map_err(anyhow::Error::msg)? else { return Ok(()); };
     let tray_start = cfg!(target_os = "macos") || (cfg!(target_os = "windows") && std::env::args().any(|arg| arg == "--tray-start"));
@@ -582,10 +591,19 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::preview;
+    use super::{pin_ready, preview};
     #[test]
     fn previews_preserve_unicode_and_bound_visible_text() {
         assert_eq!(preview("  hello\nworld  "), "hello world");
         assert_eq!(preview(&"á".repeat(45)), format!("{}…", "á".repeat(44)));
+    }
+
+    #[test]
+    fn pin_readiness_matches_trimmed_server_utf16_length() {
+        assert!(!pin_ready("    "));
+        assert!(!pin_ready(" 123 "));
+        assert!(pin_ready(" 1234 "));
+        assert!(pin_ready("🔒🔒"));
+        assert!(!pin_ready(&"🔒".repeat(33)));
     }
 }

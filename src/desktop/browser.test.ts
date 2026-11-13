@@ -81,6 +81,33 @@ describe("browser uploads", () => {
     expect(decoder.decode(entries["note-2.txt"])).toBe("second");
   });
 
+  test.each([
+    [["foo.txt", "foo-2.txt", "foo.txt"], ["foo.txt", "foo-2.txt", "foo-3.txt"]],
+    [["foo.txt", "foo.txt", "foo-2.txt"], ["foo.txt", "foo-2.txt", "foo-2-2.txt"]],
+  ])("preserves every file when generated names collide with originals (%j)", async (names, expected) => {
+    await uploadFiles(names.map((name, index) => new File([`content-${index}`], name)));
+    const archive = requests[0]!.body!.get("file") as File;
+    const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    expect(Object.keys(entries).sort()).toEqual([...expected].sort());
+    for (const [index, name] of expected.entries()) {
+      expect(new TextDecoder().decode(entries[name])).toBe(`content-${index}`);
+    }
+  });
+
+  test("preserves filenames that match object prototype properties", async () => {
+    const names = ["__proto__", "constructor", "toString"];
+    await uploadFiles(names.map((name) => new File([`content of ${name}`], name)));
+    const archive = requests[0]!.body!.get("file") as File;
+    const archivedNames: string[] = [];
+    const entries = unzipSync(new Uint8Array(await archive.arrayBuffer()), {
+      filter: ({ name }) => { archivedNames.push(name); return true; },
+    });
+    expect(archivedNames.sort()).toEqual([...names].sort());
+    for (const name of names) {
+      expect(new TextDecoder().decode(entries[name])).toBe(`content of ${name}`);
+    }
+  });
+
   test("rejects empty selections before making a request", async () => {
     await expect(uploadFiles([])).rejects.toThrow("No files selected.");
     expect(requests).toHaveLength(0);
@@ -88,6 +115,7 @@ describe("browser uploads", () => {
 
   test.each([
     [{ status: 503, body: "Storage unavailable", networkError: false }, "Storage unavailable"],
+    [{ status: 413, body: JSON.stringify({ error: "file_too_large", message: "File exceeds the 100 MB limit." }), networkError: false }, "File exceeds the 100 MB limit."],
     [{ status: 200, body: "not json", networkError: false }, "Invalid server response."],
     [{ status: 0, body: "", networkError: true }, "Server connection failed."],
   ] as const)("preserves upload errors (%j)", async (result, message) => {

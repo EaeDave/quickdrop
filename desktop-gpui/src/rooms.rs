@@ -334,6 +334,7 @@ fn room_endpoint(base: &str, code: &str, action: &str) -> Result<Url, String> {
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
         return Err("Use an HTTP or HTTPS server URL without credentials, a query, or a fragment.".to_owned());
     }
+    crate::config::require_secure_transport(&url, true)?;
     let prefix = url.path().trim_end_matches('/');
     let path = format!("{prefix}/api/text/{code}/{action}");
     url.set_path(&path);
@@ -413,7 +414,7 @@ mod tests {
     #[test]
     fn keeps_server_prefix_and_rejects_url_credentials() {
         assert_eq!(room_endpoint("https://example.com/base/", "DEV", "open").unwrap().as_str(), "https://example.com/base/api/text/DEV/open");
-        for base in ["file:///tmp/room", "https://user:secret@example.com", "https://example.com/?token=secret", "https://example.com/#room"] {
+        for base in ["file:///tmp/room", "http://example.com", "http://192.168.1.2", "https://user:secret@example.com", "https://example.com/?token=secret", "https://example.com/#room"] {
             assert!(room_endpoint(base, "DEV", "open").is_err());
         }
     }

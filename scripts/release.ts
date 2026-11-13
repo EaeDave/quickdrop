@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
-import { updaterAssets } from "./generate-desktop-update-manifest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createDesktopUpdateManifest, updaterAssets } from "./generate-desktop-update-manifest";
+import { verifyUpdaterSignature } from "./desktop-release";
 import { publicBaseUrl } from "./public-config";
 
 const VERSION_FILES = [
@@ -255,6 +258,27 @@ async function verifyPublicAssets(
   for (const assetName of updaterAssetNames) {
     if (!assetsByName.has(assetName)) throw new Error(`Release is missing ${assetName}`);
   }
+  const directory = await mkdtemp(join(tmpdir(), "quickdrop-release-"));
+  try {
+    await run(["gh", "release", "download", tag, "--repo", repository, "--dir", directory,
+      ...updaterAssetNames.flatMap((name) => ["--pattern", name])]);
+    const signatures: Record<string, string> = {};
+    for (const asset of Object.values(updaterPayloads)) {
+      const signature = await Bun.file(join(directory, `${asset}.sig`)).text();
+      await verifyUpdaterSignature(join(directory, asset), signature);
+      signatures[asset] = signature;
+    }
+    const expected = createDesktopUpdateManifest(version, tag, signatures, `${deploymentBaseUrl}/desktop/update`);
+    const manifest = await Bun.file(join(directory, "latest.json")).json();
+    if (manifest.version !== expected.version || Object.keys(manifest.platforms ?? {}).length !== 4 ||
+      !Object.entries(expected.platforms).every(([platform, entry]) =>
+        manifest.platforms[platform]?.url === entry.url && manifest.platforms[platform]?.signature === entry.signature)) {
+      throw new Error("Draft updater manifest does not match the verified release assets");
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  await run(["gh", "release", "edit", tag, "--draft=false", "--latest", "--repo", repository]);
 
   const pending = new Map(endpoints);
   for (let attempt = 0; attempt < 36 && pending.size > 0; attempt += 1) {
@@ -356,9 +380,11 @@ async function main(): Promise<void> {
     "gh", "secret", "list", "--repo", repository, "--json", "name",
   ])) as Array<{ name: string }>;
   assertUpdaterSigningSecret(secrets.map((secret) => secret.name));
-  process.env.QUICKDROP_UPDATER_PUBLIC_KEY =
-    await output(["gh", "variable", "get", "TAURI_UPDATER_PUBLIC_KEY", "--repo", repository]);
-  if (!process.env.QUICKDROP_UPDATER_PUBLIC_KEY) {
+  try {
+    process.env.QUICKDROP_UPDATER_PUBLIC_KEY =
+      await output(["gh", "variable", "get", "TAURI_UPDATER_PUBLIC_KEY", "--repo", repository]);
+    if (!process.env.QUICKDROP_UPDATER_PUBLIC_KEY) throw new Error("Empty public key");
+  } catch {
     throw new Error("Restore the existing TAURI_UPDATER_PUBLIC_KEY repository variable before releasing");
   }
 
@@ -392,6 +418,7 @@ async function main(): Promise<void> {
     tag,
     ...linuxAssets,
     "--verify-tag",
+    "--draft",
     "--generate-notes",
     "--title",
     tag,

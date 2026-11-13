@@ -96,7 +96,8 @@ check_runtime_deps() {
   if (( ${#missing[@]} > 0 )); then
     warn "Missing runtime tools: ${missing[*]}."
     warn "QuickDrop needs wl-clipboard and libnotify for clipboard + notifications."
-    warn "GPUI also needs a Vulkan-capable driver. On Arch/Omarchy: sudo pacman -S --needed vulkan-icd-loader wl-clipboard libnotify"
+    warn "GPUI needs Vulkan, fontconfig, and libxkbcommon. On Arch/Omarchy: sudo pacman -S --needed vulkan-icd-loader fontconfig libxkbcommon wl-clipboard libnotify"
+    warn "Also install your GPU's Vulkan driver: vulkan-radeon (AMD), vulkan-intel (Intel), or the matching NVIDIA driver."
   fi
 }
 

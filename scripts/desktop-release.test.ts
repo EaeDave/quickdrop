@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cargoPackageVersion, macosInfoPlist, writeChecksum } from "./desktop-release";
+import { cargoPackageVersion, macosInfoPlist, verifyUpdaterSignature, writeChecksum } from "./desktop-release";
 
 describe("native release metadata", () => {
   test("reads the production Cargo package without depending on field order", () => {
@@ -29,6 +29,30 @@ describe("native release metadata", () => {
     expect(values.CFBundleVersion).toBe("1.2.3");
     expect(plist).toMatch(/<key>LSUIElement<\/key>\s*<true\s*\/>/);
     expect(() => macosInfoPlist('1.2.3</string>')).toThrow("Invalid bundle version");
+  });
+
+  test("verifies updater bytes, signing identity, and trusted comment before publication", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "quickdrop-signature-test-"));
+    const encode = (value: string) => Buffer.from(value).toString("base64");
+    const publicKey = encode("untrusted comment: test\nRWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3");
+    const text = "untrusted comment: signature from minisign secret key\nRUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=\ntrusted comment: timestamp:1556193335\tfile:test\ny/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+    try {
+      const path = join(directory, "payload");
+      await Bun.write(path, "test");
+      await verifyUpdaterSignature(path, encode(text), publicKey);
+      await expect(verifyUpdaterSignature(path, encode(text.replace("file:test", "file:evil")), publicKey))
+        .rejects.toThrow("trusted-comment");
+      const wrongKey = Buffer.from(publicKey, "base64").toString().split("\n");
+      const packet = Buffer.from(wrongKey[1]!, "base64");
+      packet[2] = packet[2]! ^ 1;
+      wrongKey[1] = packet.toString("base64");
+      await expect(verifyUpdaterSignature(path, encode(text), encode(wrongKey.join("\n"))))
+        .rejects.toThrow("key ID");
+      await Bun.write(path, "Test");
+      await expect(verifyUpdaterSignature(path, encode(text), publicKey)).rejects.toThrow("data signature");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test("writes installer-compatible SHA256 files", async () => {

@@ -1,4 +1,4 @@
-import { zip } from "fflate";
+import { Zip, ZipDeflate } from "fflate";
 
 export type UploadResponse = { id: string; url: string; expiresAt: string };
 export type UploadProgress = { sentBytes: number; totalBytes: number; percent: number };
@@ -21,25 +21,25 @@ export async function uploadFiles(files: File[]): Promise<UploadResponse> {
   if (files.length === 1) {
     uploadFile = files[0]!;
   } else {
-    const zipData: Record<string, Uint8Array> = {};
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    const archive = new Zip((error, chunk) => {
+      if (error) throw error;
+      chunks.push(chunk);
+    });
     const archiveNames = new Map<string, number>();
-
-    for (const file of files) {
-      const uniqueName = getUniqueArchiveName(file.name, archiveNames);
-      const arrayBuffer = await file.arrayBuffer();
-      zipData[uniqueName] = new Uint8Array(arrayBuffer);
+    try {
+      for (const file of files) {
+        const entry = new ZipDeflate(getUniqueArchiveName(file.name, archiveNames));
+        archive.add(entry);
+        for await (const chunk of file.stream()) entry.push(chunk);
+        entry.push(new Uint8Array(), true);
+      }
+      archive.end();
+    } catch (error) {
+      archive.terminate();
+      throw error;
     }
-
-    const zipBuffer = await new Promise<Uint8Array>((resolve, reject) => {
-      zip(zipData, (err, data) => {
-        if (err) reject(err);
-        else resolve(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-      });
-    });
-
-    uploadFile = new File([zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength) as ArrayBuffer], `quickdrop-${files.length}-files.zip`, {
-      type: "application/zip",
-    });
+    uploadFile = new File(chunks, `quickdrop-${files.length}-files.zip`, { type: "application/zip" });
   }
 
   const { promise, resolve, reject } = Promise.withResolvers<UploadResponse>();
@@ -61,7 +61,17 @@ export async function uploadFiles(files: File[]): Promise<UploadResponse> {
         reject(new Error("Invalid server response."));
       }
     } else {
-      reject(new Error(xhr.responseText || `Upload error: ${xhr.statusText}`));
+      let message = xhr.responseText || `Upload error: ${xhr.statusText}`;
+      try {
+        const payload: unknown = JSON.parse(xhr.responseText);
+        if (payload && typeof payload === "object" && "message" in payload
+          && typeof payload.message === "string" && payload.message.trim()) {
+          message = payload.message;
+        }
+      } catch {
+        // Non-JSON error responses remain readable as plain text.
+      }
+      reject(new Error(message));
     }
   };
 
@@ -77,22 +87,23 @@ export async function uploadFiles(files: File[]): Promise<UploadResponse> {
 }
 
 function getUniqueArchiveName(fileName: string, archiveNames: Map<string, number>): string {
-  const currentCount = archiveNames.get(fileName) || 0;
-  const newCount = currentCount + 1;
-  archiveNames.set(fileName, newCount);
-
-  if (newCount === 1) {
+  if (!archiveNames.has(fileName)) {
+    archiveNames.set(fileName, 1);
     return fileName;
   }
 
   const lastDot = fileName.lastIndexOf(".");
-  if (lastDot !== -1) {
-    const stem = fileName.slice(0, lastDot);
-    const ext = fileName.slice(lastDot);
-    return `${stem}-${newCount}${ext}`;
+  const stem = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
+  const extension = lastDot > 0 ? fileName.slice(lastDot) : "";
+  let count = (archiveNames.get(fileName) ?? 1) + 1;
+  let candidate = `${stem}-${count}${extension}`;
+  while (archiveNames.has(candidate)) {
+    count += 1;
+    candidate = `${stem}-${count}${extension}`;
   }
-
-  return `${fileName}-${newCount}`;
+  archiveNames.set(fileName, count);
+  archiveNames.set(candidate, 1);
+  return candidate;
 }
 
 export function copyLink(link: string): Promise<void> {

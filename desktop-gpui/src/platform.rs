@@ -473,6 +473,11 @@ fn clamp_origin(x: f64, y: f64, width: f64, height: f64, area: (f64, f64, f64, f
         y.clamp(area.1, (area.1 + area.3 - height).max(area.1)))
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn point_in_area((x, y): (f64, f64), area: (f64, f64, f64, f64)) -> bool {
+    x >= area.0 && x < area.0 + area.2 && y >= area.1 && y < area.1 + area.3
+}
+
 #[cfg(target_os = "windows")]
 fn native_window(window: &gpui::Window) -> Result<windows_sys::Win32::Foundation::HWND, String> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -530,7 +535,7 @@ pub fn show_window(window: &gpui::Window, position: Option<(f64, f64)>) -> Resul
             return Err(format!("Could not position QuickDrop window: {}", io::Error::last_os_error()));
         }
         if SetForegroundWindow(handle) == 0 {
-            return Err("Windows refused to focus the QuickDrop window.".into());
+            eprintln!("Warning: Windows refused to focus the visible QuickDrop window.");
         }
     }
     Ok(())
@@ -541,17 +546,15 @@ fn mac_tray_position() -> Result<(f64, f64), String> {
     use objc2_app_kit::{NSEvent, NSScreen};
     let main = objc2::MainThreadMarker::new().ok_or("Tray events require the main thread.")?;
     let screens = NSScreen::screens(main);
-    let primary = screens.firstObject().ok_or("No macOS display is available.")?;
-    let primary_top = primary.frame().origin.y + primary.frame().size.height;
-    // AppKit returns global logical coordinates with a bottom-left origin.
+    screens.firstObject().ok_or("No macOS display is available.")?;
+    // Keep global AppKit points and their bottom-left origin through window placement.
     let mouse = unsafe { NSEvent::mouseLocation() };
-    let screen = screens.iter().find(|screen| {
+    screens.iter().find(|screen| {
         let frame = screen.frame();
-        mouse.x >= frame.origin.x && mouse.x <= frame.origin.x + frame.size.width
-            && mouse.y >= frame.origin.y && mouse.y <= frame.origin.y + frame.size.height
+        point_in_area((mouse.x, mouse.y),
+            (frame.origin.x, frame.origin.y, frame.size.width, frame.size.height))
     }).ok_or("Tray click did not belong to an active display.")?;
-    let scale = screen.backingScaleFactor();
-    Ok((mouse.x * scale, (primary_top - mouse.y) * scale))
+    Ok((mouse.x, mouse.y))
 }
 
 #[cfg(target_os = "macos")]
@@ -582,25 +585,19 @@ pub fn show_window(window: &gpui::Window, position: Option<(f64, f64)>) -> Resul
     let window = native_window(window)?;
     let screens = NSScreen::screens(main);
     let primary = screens.firstObject().ok_or("No macOS display is available.")?;
-    let primary_top = primary.frame().origin.y + primary.frame().size.height;
     let mut screen = window.screen().unwrap_or_else(|| primary.clone());
-    if let Some((x, y)) = position {
-        for candidate in screens.iter() {
-            let scale = candidate.backingScaleFactor();
+    if let Some(position) = position {
+        if let Some(candidate) = screens.iter().find(|candidate| {
             let frame = candidate.frame();
-            let logical_x = x / scale;
-            let logical_y = primary_top - y / scale;
-            if logical_x >= frame.origin.x && logical_x <= frame.origin.x + frame.size.width
-                && logical_y >= frame.origin.y && logical_y <= frame.origin.y + frame.size.height {
-                screen = candidate;
-                break;
-            }
+            point_in_area(position,
+                (frame.origin.x, frame.origin.y, frame.size.width, frame.size.height))
+        }) {
+            screen = candidate;
         }
     }
     let work = screen.visibleFrame();
     let frame = window.frame();
-    let scale = screen.backingScaleFactor();
-    let (x, y) = position.map(|(x, y)| (x / scale - frame.size.width / 2.0, primary_top - y / scale - frame.size.height - 10.0))
+    let (x, y) = position.map(|(x, y)| (x - frame.size.width / 2.0, y - frame.size.height - 10.0))
         .unwrap_or((work.origin.x + work.size.width - frame.size.width - 10.0,
             work.origin.y + work.size.height - frame.size.height - 10.0));
     let (x, y) = clamp_origin(x, y, frame.size.width, frame.size.height,
@@ -621,6 +618,20 @@ mod tests {
     fn popup_clamps_to_negative_and_small_work_areas() {
         assert_eq!(clamp_origin(-2000.0, 2000.0, 380.0, 360.0, (-1920.0, 0.0, 1920.0, 1080.0)), (-1920.0, 720.0));
         assert_eq!(clamp_origin(100.0, 100.0, 380.0, 360.0, (0.0, 0.0, 100.0, 100.0)), (0.0, 0.0));
+    }
+
+    #[test]
+    fn mac_popup_keeps_appkit_points_between_retina_and_1x_screens() {
+        let primary_retina = (0.0, 0.0, 1440.0, 900.0);
+        let secondary_1x = (1440.0, 0.0, 1920.0, 1080.0);
+        let position = (1500.0, 850.0);
+        let screens = [primary_retina, secondary_1x];
+        let screen = screens.into_iter().find(|area| point_in_area(position, *area)).unwrap();
+        assert_eq!(screen, secondary_1x);
+        assert!(!point_in_area((1440.0, 850.0), primary_retina));
+        assert!(point_in_area((1440.0, 850.0), secondary_1x));
+        assert_eq!(clamp_origin(position.0 - 190.0, position.1 - 370.0, 380.0, 360.0, screen),
+            (1440.0, 480.0));
     }
 
     #[test]
