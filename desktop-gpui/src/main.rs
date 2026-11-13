@@ -495,7 +495,10 @@ impl Render for Panel {
             }))
             .child(div().flex().items_center().justify_between().h(px(42.)).flex_shrink_0()
                 .px(px(12.)).border_b_1().border_color(rgba(0x94a3b81f))
-                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(rgb(0x38bdf8)).child("QuickDrop")
+                .child(div().when(cfg!(target_os = "windows"), |title| title
+                        .w(px(132.)).h_full().flex().items_center()
+                        .window_control_area(WindowControlArea::Drag))
+                    .font_weight(FontWeight::SEMIBOLD).text_color(rgb(0x38bdf8)).child("QuickDrop")
                     .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()))
                 .child(div().flex().gap(px(3.)).p(px(3.)).rounded(px(9.)).bg(rgba(0x02061766))
                     .child(Button::new("files-tab").small().compact().rounded(px(6.)).label("Files")
@@ -569,13 +572,17 @@ fn main() -> anyhow::Result<()> {
         let native_platform = platform::start(native_sender).expect("Could not initialize native desktop integration");
         cx.open_window(WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(WIDTH), px(HEIGHT)), cx))),
-            titlebar: None, app_id: Some(APP_ID.into()), is_resizable: false,
+            titlebar: None, app_id: Some(APP_ID.into()), is_resizable: cfg!(target_os = "windows"),
+            window_min_size: Some(size(px(WIDTH), px(HEIGHT))),
             window_decorations: Some(WindowDecorations::Client),
             window_background: WindowBackgroundAppearance::Blurred,
             show: !tray_start, focus: !tray_start,
             ..Default::default()
         }, |window, cx| {
             window.set_window_title("QuickDrop");
+            // GPUI defers hidden Windows placement, but tray activation uses the native HWND directly.
+            #[cfg(target_os = "windows")]
+            window.resize(size(px(WIDTH), px(HEIGHT)));
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             window.on_window_should_close(cx, |window, _| {
                 if let Err(error) = platform::hide_window(window) { eprintln!("{error}"); }
