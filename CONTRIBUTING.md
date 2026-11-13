@@ -17,6 +17,8 @@ cargo test --manifest-path desktop-gpui/Cargo.toml
 bun run desktop:build:web
 ```
 
+The `CI / web` and `CI / rust` checks run these suites on every pull request; the server tests use a disposable PostgreSQL service. Dependabot patch and minor updates enable GitHub auto-merge and merge only after the required checks pass. Major updates remain manual.
+
 ## Pull requests
 
 Keep changes focused, add regression tests, and do not include generated binaries, credentials, clipboard contents, or `.env` files. Release tags and updater artifacts are created only by maintainers through the repository release process.
