@@ -7,17 +7,17 @@ publish = false
 
 [dependencies]
 gpui = "=0.2.2"
-gpui-component = "=0.5.1"
+gpui-component = "=0.9.1"
 anyhow = "1"
-base64 = "0.22"
-dirs = "5"
+base64 = "0.23"
+dirs = "6"
 fs2 = "0.4"
 interprocess = "2.4.8"
 minisign-verify = "0.3"
 semver = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # GPUI's xattr 0.2 dependency requires the ENOATTR alias removed in newer libc.
-libc = "=0.2.186"
+libc = "=0.2.191"
 futures-util = "0.3"
 mime_guess = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls-native-roots"] }
@@ -26,12 +26,12 @@ serde_json = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 url = "2"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
-base64 = "0.22"
+base64 = "0.23"
 minisign-verify = "0.3"
 url = "2"
 
@@ -39,19 +39,19 @@ url = "2"
 tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "0.38", features = ["process"] }
+rustix = { version = "1.1", features = ["process"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 arboard = "3"
-png = "0.17"
+png = "0.18"
 notify-rust = { version = "4", default-features = false }
-tray-icon = { version = "0.21", default-features = false }
+tray-icon = { version = "0.26", default-features = false }
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 widestring = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
