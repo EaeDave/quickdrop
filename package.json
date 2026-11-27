@@ -56,7 +56,7 @@
     "@fastify/cors": "^11.4.3",
     "@fastify/multipart": "latest",
     "@fastify/rate-limit": "latest",
-    "@fastify/static": "^10.1.11",
+    "@fastify/static": "^10.1.12",
     "@fastify/websocket": "^11.3.7",
     "@smithy/node-http-handler": "^4.14.2",
     "drizzle-orm": "^0.45.4",
